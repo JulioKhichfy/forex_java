@@ -1,0 +1,49 @@
+{
+  "code": "headline-v1",
+  "doc_type": "headline",
+  "_pt": "Manchetes e notícias curtas. O state deve trazer 'headline' e, para medir novidade, 'recent_headlines'.",
+  "questions": {
+    "currency": {
+      "type": "choice",
+      "instructions": "Which currency is most directly affected by 'headline'?",
+      "_pt": "Qual moeda é afetada mais diretamente pela manchete?",
+      "criteria": {
+        "USD": "US dollar", "EUR": "Euro", "GBP": "British pound", "JPY": "Japanese yen",
+        "CHF": "Swiss franc", "AUD": "Australian dollar", "CAD": "Canadian dollar", "NZD": "New Zealand dollar",
+        "none": "No major currency is directly affected."
+      }
+    },
+    "direction": {
+      "type": "choice",
+      "instructions": "What is the likely effect of 'headline' on the currency it most directly affects?",
+      "_pt": "Qual o efeito provável da manchete sobre a moeda mais afetada?",
+      "criteria": {
+        "strengthens": "The currency is likely to gain value.",
+        "weakens": "The currency is likely to lose value.",
+        "unclear": "The effect is ambiguous or negligible."
+      }
+    },
+    "is_new_information": {
+      "type": "noul",
+      "instructions": "Does 'headline' contain information that is not already in 'recent_headlines'?",
+      "_pt": "A manchete traz informação que não está em 'recent_headlines'?"
+    },
+    "official_source": {
+      "type": "noul",
+      "instructions": "Does the information come from an identified official source (central bank, government, statistics agency)?",
+      "_pt": "A informação vem de fonte oficial identificada (banco central, governo, órgão de estatística)?"
+    },
+    "magnitude": {
+      "type": "score",
+      "instructions": "How large is the expected impact of 'headline' on currency markets?",
+      "_pt": "Qual o tamanho do impacto esperado da manchete no mercado de câmbio?",
+      "criteria": [
+        "Routine, no expected impact.",
+        "Minor impact.",
+        "Significant impact.",
+        "Exceptional, market-wide impact."
+      ],
+      "_pt_criteria": ["Rotina, sem impacto.", "Impacto pequeno.", "Impacto significativo.", "Impacto excepcional, no mercado todo."]
+    }
+  }
+}

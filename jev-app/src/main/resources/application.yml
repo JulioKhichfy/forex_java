@@ -1,0 +1,134 @@
+# =====================================================================
+#  Jev Forex — configuração (passo 1)
+#  Tudo que você ajusta no dia a dia está aqui. Valores com ${VAR:padrão}
+#  podem ser sobrescritos por variáveis de ambiente.
+# =====================================================================
+
+spring:
+  application:
+    name: jev-forex
+  datasource:
+    url: jdbc:postgresql://localhost:5432/jevforex
+    username: jev
+    password: ${PG_PASSWORD:jevlocal}
+  flyway:
+    enabled: true
+
+server:
+  address: 127.0.0.1        # API só acessível pela sua máquina
+  port: 8080
+
+logging:
+  level:
+    com.jevforex: INFO
+
+# ---------------------------------------------------------------------
+#  Jev (TypeSafe AI)
+# ---------------------------------------------------------------------
+jev:
+  base-url: https://api.typesafe.ai
+  api-key: ${TYPESAFE_API_KEY:}          # preferível: variável de ambiente
+  api-key-file: ${JEV_API_KEY_FILE:}     # alternativa: arquivo que contém só a chave
+  model: jev-1.13.0                      # versão fixa (confira com o comando ping)
+  timeout-seconds: 20
+  max-retries: 2
+
+# ---------------------------------------------------------------------
+#  Data lake (disco local)
+# ---------------------------------------------------------------------
+lake:
+  root: ${LAKE_ROOT:./jev-lake}
+
+# ---------------------------------------------------------------------
+#  Coleta de bancos centrais
+# ---------------------------------------------------------------------
+collect:
+  enabled: true                 # coleta automática no modo servidor
+  interval-seconds: 60
+  user-agent: "jev-forex-collector/0.1 (personal research)"
+  download-item-pages: true
+  polite-delay-millis: 1000
+  feeds:
+    - id: fed-speeches
+      issuer: Federal Reserve
+      currency: USD
+      market: fx
+      doc-type: cb_text
+      url: https://www.federalreserve.gov/feeds/speeches.xml
+      enabled: true
+    - id: fed-monetary
+      issuer: Federal Reserve
+      currency: USD
+      market: fx
+      doc-type: cb_text
+      url: https://www.federalreserve.gov/feeds/press_monetary.xml
+      enabled: true
+    # Os outros 7 bancos centrais entram no passo 3, com URLs conferidas uma a uma.
+    # Formato:
+    # - id: ecb-press
+    #   issuer: European Central Bank
+    #   currency: EUR
+    #   url: <endereço do RSS na página de feeds do BCE>
+    #   enabled: true
+
+# ---------------------------------------------------------------------
+#  Trading: modo, saldo e RISCO
+# ---------------------------------------------------------------------
+trading:
+  mode: shadow                  # shadow (só registra) | demo | live
+
+  account:
+    reference-balance-usd: 20.00   # usado no shadow e no comando "risk"; em demo/live vem do MT5
+
+  risk:
+    # ===== LIMITES GLOBAIS: valem para a conta inteira =====
+    # Regra: onde existe % e US$, vale o MENOR dos dois.
+    global:
+      max-risk-per-trade-pct: 10.0    # teto absoluto de perda por trade (já considerando o lote mínimo)
+      max-risk-per-trade-usd: 2.00    # o mesmo teto em dinheiro (0 = sem teto em dinheiro)
+      max-open-risk-pct: 15.0         # soma do risco de todas as posições abertas
+      max-daily-loss-pct: 20.0        # atingiu: sem novas entradas até 00:00 UTC
+      max-weekly-loss-pct: 35.0       # atingiu: sem novas entradas até segunda-feira
+      max-positions: 2                # posições simultâneas na conta
+      max-usd-net-exposure-pct: 15.0  # exposição líquida a USD somando os mercados
+      # SKIP            = se nem o lote mínimo cabe no risco-alvo, NÃO opera (mais seguro)
+      # ALLOW_UP_TO_CAP = opera com o lote mínimo se o risco não passar do teto acima
+      min-lot-policy: ALLOW_UP_TO_CAP
+
+    # ===== ORÇAMENTO POR MERCADO =====
+    markets:
+      fx:
+        enabled: true
+        risk-per-trade-pct: 5.0       # risco-ALVO por trade
+        max-open-risk-pct: 10.0
+        max-positions: 2
+        usd-weight: 1.0
+      metals:                          # XAUUSD (fase F8)
+        enabled: false
+        risk-per-trade-pct: 5.0
+        max-open-risk-pct: 10.0
+        max-positions: 1
+        usd-weight: 1.0
+      crypto:                          # BTCUSD (fase F9)
+        enabled: false
+        risk-per-trade-pct: 5.0
+        max-open-risk-pct: 10.0
+        max-positions: 1
+        usd-weight: 0.5
+
+  # ---------------------------------------------------------------------
+  #  Instrumentos — valores APROXIMADOS para conta em USD e contratos padrão.
+  #  No passo 2 o MT5 envia os valores reais da sua corretora (tick size/value, lote mínimo).
+  #  Símbolo com sufixo (ex.: EURUSD.m) precisa de colchetes: "[EURUSD.m]":
+  #  typical-stop = distância de stop em PREÇO (provisória; no passo 3 vem do ATR).
+  # ---------------------------------------------------------------------
+  instruments:
+    EURUSD: { market: fx, tick-size: 0.00001, tick-value-per-lot: 1.00, min-lot: 0.01, lot-step: 0.01, max-lot: 100, typical-stop: 0.0014 }
+    GBPUSD: { market: fx, tick-size: 0.00001, tick-value-per-lot: 1.00, min-lot: 0.01, lot-step: 0.01, max-lot: 100, typical-stop: 0.0018 }
+    AUDUSD: { market: fx, tick-size: 0.00001, tick-value-per-lot: 1.00, min-lot: 0.01, lot-step: 0.01, max-lot: 100, typical-stop: 0.0012 }
+    NZDUSD: { market: fx, tick-size: 0.00001, tick-value-per-lot: 1.00, min-lot: 0.01, lot-step: 0.01, max-lot: 100, typical-stop: 0.0012 }
+    USDJPY: { market: fx, tick-size: 0.001,   tick-value-per-lot: 0.67, min-lot: 0.01, lot-step: 0.01, max-lot: 100, typical-stop: 0.21 }
+    USDCHF: { market: fx, tick-size: 0.00001, tick-value-per-lot: 1.25, min-lot: 0.01, lot-step: 0.01, max-lot: 100, typical-stop: 0.0014 }
+    USDCAD: { market: fx, tick-size: 0.00001, tick-value-per-lot: 0.72, min-lot: 0.01, lot-step: 0.01, max-lot: 100, typical-stop: 0.0016 }
+    XAUUSD: { market: metals, tick-size: 0.01, tick-value-per-lot: 1.00, min-lot: 0.01, lot-step: 0.01, max-lot: 50, typical-stop: 9.0 }
+    BTCUSD: { market: crypto, tick-size: 0.01, tick-value-per-lot: 0.01, min-lot: 0.01, lot-step: 0.01, max-lot: 10, typical-stop: 300 }

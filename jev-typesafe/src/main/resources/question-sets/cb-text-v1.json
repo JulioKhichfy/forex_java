@@ -1,0 +1,62 @@
+{
+  "code": "cb-text-v1",
+  "doc_type": "cb_text",
+  "_pt": "Comunicados, atas e discursos de bancos centrais. Sempre avaliado sobre a moeda do emissor (campo 'currency' do state). Campos '_pt' são tradução e não são enviados ao Jev.",
+  "questions": {
+    "policy_stance": {
+      "type": "choice",
+      "instructions": "Considering only the text in 'text', what does it imply for the monetary policy of the institution named in 'issuer'?",
+      "_pt": "Considerando apenas o texto em 'text', o que ele implica para a política monetária da instituição indicada em 'issuer'?",
+      "criteria": {
+        "hawkish": "Points to higher rates for longer, further tightening, or concern that inflation is too high.",
+        "dovish": "Points to rate cuts, easing, or concern about weak growth or employment.",
+        "neutral": "Discusses monetary policy without a clear tilt in either direction.",
+        "not_policy": "Is not about monetary policy (e.g. banking supervision, payments, operations, history)."
+      },
+      "_pt_criteria": {
+        "hawkish": "Aponta juros mais altos por mais tempo, mais aperto ou preocupação com inflação alta.",
+        "dovish": "Aponta cortes, afrouxamento ou preocupação com crescimento ou emprego fracos.",
+        "neutral": "Fala de política monetária sem inclinação clara.",
+        "not_policy": "Não trata de política monetária (supervisão bancária, pagamentos, operações, história)."
+      }
+    },
+    "stance_shift": {
+      "type": "score",
+      "instructions": "How much does the tone of 'text' differ from 'previous_communication_summary'? If no previous summary is provided, compare with the institution's typical recent message.",
+      "_pt": "Quanto o tom de 'text' difere de 'previous_communication_summary'? Se não houver resumo anterior, compare com a mensagem típica recente da instituição.",
+      "criteria": [
+        "Same message as before.",
+        "Slight shift in tone or emphasis.",
+        "Clear shift in tone or emphasis.",
+        "Break with previous guidance."
+      ],
+      "_pt_criteria": ["Mesma mensagem.", "Leve mudança de tom ou ênfase.", "Mudança clara de tom ou ênfase.", "Ruptura com a orientação anterior."]
+    },
+    "guidance_change": {
+      "type": "noul",
+      "instructions": "Does 'text' change the guidance about the future path of interest rates?",
+      "_pt": "O texto muda a orientação sobre o caminho futuro dos juros?",
+      "criteria": {
+        "true": "Signals a different future rate path than previously communicated.",
+        "false": "Repeats or does not address the future rate path."
+      }
+    },
+    "inflation_focus": {
+      "type": "score",
+      "instructions": "How strongly does 'text' emphasize inflation risk?",
+      "_pt": "Com que força o texto enfatiza o risco de inflação?",
+      "criteria": [
+        "Inflation is not mentioned.",
+        "Inflation is mentioned in passing.",
+        "Inflation is an important theme.",
+        "Inflation is the central concern."
+      ],
+      "_pt_criteria": ["Inflação não é mencionada.", "Inflação é citada de passagem.", "Inflação é um tema importante.", "Inflação é a preocupação central."]
+    },
+    "market_relevant": {
+      "type": "noul",
+      "instructions": "Is this text likely to materially move the exchange rate of the currency in 'currency'?",
+      "_pt": "Este texto tende a mover de forma relevante a cotação da moeda em 'currency'?"
+    }
+  }
+}

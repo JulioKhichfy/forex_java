@@ -1,0 +1,19 @@
+# build
+target/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# segredos — NUNCA versionar
+.env
+Api_Key_Jev.txt
+*apikey*
+*api_key*
+
+# dados locais
+jev-lake/
+jev-db/
+logs/

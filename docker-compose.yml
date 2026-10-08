@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: jevforex-postgres
+    environment:
+      POSTGRES_DB: jevforex
+      POSTGRES_USER: jev
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-jevlocal}
+    ports:
+      - "127.0.0.1:5432:5432"     # só acessível pela sua máquina
+    volumes:
+      - jevforex-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  jevforex-pgdata:
