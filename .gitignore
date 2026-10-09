@@ -14,6 +14,14 @@ Api_Key_Jev.txt
 *api_key*
 
 # dados locais
-jev-lake/
+# (o lake fica fora do repositório; estas linhas só protegem se alguém apontar LAKE_ROOT para cá.
+#  Não use "jev-lake/": isso esconde o código do módulo jev-lake.)
+/jev-lake/bronze/
+/jev-lake/silver/
+/jev-lake/gold/
 jev-db/
 logs/
+
+# MQL5 compilado (o MetaEditor gera ao lado do .mq5)
+*.ex5
+mql5/**/*.log
