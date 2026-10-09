@@ -199,6 +199,7 @@ Os candles em si ficam só no lake (`bronze\mt5_candles`); o Postgres guarda o f
 ```powershell
 java -jar jev-app\target\jev-app.jar normalize                  # candles + calendário (~3 min)
 java -jar jev-app\target\jev-app.jar normalize --only=calendar  # só o calendário (segundos)
+java -jar jev-app\target\jev-app.jar normalize --only=documents # textos dos bancos centrais em trechos
 ```
 
 Reconstrói o silver inteiro a partir do bronze (DuckDB → Parquet, tudo em UTC) e mostra checagens de qualidade.
@@ -209,6 +210,14 @@ Não precisa do Postgres. O silver novo só substitui o anterior quando está co
 | `silver\candles_m1\market=fx\symbol=…\year=…\month=…` | 1 barra M1 por minuto UTC (abertura da barra), sem repetidas |
 | `silver\calendar_events\market=fx\year=…` | cada estado de cada valor, com `seen_utc`, `origin` e `actual_available_utc` |
 | `silver\calendar_event_defs` | dicionário de eventos (o `event_code` em inglês é a chave; o nome vem traduzido pelo MT5) |
+| `silver\documents\market=fx\year=…` | 1 linha por **trecho** (até 6.000 caracteres, por parágrafos) de cada comunicado, ata ou discurso, HTML ou PDF anexo |
+
+**Bancos centrais (passo 3b):** Fed, BCE, BoE, BoJ, SNB, BoC e RBNZ, em `collect.feeds`. A **RBA está desligada**:
+o servidor dela recusa (HTTP 403) qualquer User-Agent identificado, e o documento mestre pede coletor identificado.
+Para cada página nova, o coletor baixa os **PDFs anexos** do corpo do artigo (ex.: a ata do Fed que só existe em
+PDF). O anexo vira um documento próprio, ligado à página (`raw_document.parent_id`; `parent_sha` no silver).
+Páginas antigas são revisitadas aos poucos (`collect.attachments.backfill-per-run`). O `normalize --only=documents`
+mostra, por banco, quantos documentos e trechos saíram e uma amostra do texto, para conferir a extração.
 
 - **Point-in-time do calendário:** `actual_available_utc` é o horário visto ao vivo (`LIVE`) ou, no histórico,
   `scheduled + silver.calendar.actual-latency-seconds` (35 s; `availability_estimated = true`). O comando mostra a

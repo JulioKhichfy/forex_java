@@ -9,7 +9,6 @@ import com.jevforex.app.config.SilverProperties;
 import com.jevforex.app.config.TradingProperties;
 import com.jevforex.app.mt5.Mt5StatusService;
 import com.jevforex.app.persistence.JevCallRepository;
-import com.jevforex.collect.HtmlText;
 import com.jevforex.collect.RawDocumentRepository;
 import com.jevforex.collect.mt5.Mt5Importer;
 import com.jevforex.collect.mt5.Mt5Parsers;
@@ -26,6 +25,9 @@ import com.jevforex.lake.LakeStorage;
 import com.jevforex.lake.LocalDiskLakeStorage;
 import com.jevforex.normalize.CalendarNormalizer;
 import com.jevforex.normalize.CandleNormalizer;
+import com.jevforex.normalize.Chunker;
+import com.jevforex.normalize.DocumentNormalizer;
+import com.jevforex.normalize.DocumentText;
 import com.jevforex.normalize.WeeklyOpenCheck;
 import com.jevforex.typesafe.JevApiException;
 import com.jevforex.typesafe.JevClient;
@@ -306,8 +308,13 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
             currency = d.currency();
             market = d.market();
             title = d.title();
-            String html = new String(lake.read(Path.of(d.lakePath())), StandardCharsets.UTF_8);
-            text = HtmlText.extract(html, MAX_TEXT_CHARS);
+            // HTML (corpo do artigo) ou PDF anexo; só o primeiro trecho (o documento inteiro vai no passo 4)
+            List<String> chunks = Chunker.split(DocumentText.extract(lake.read(Path.of(d.lakePath())),
+                    d.contentType()), MAX_TEXT_CHARS);
+            text = chunks.isEmpty() ? "" : chunks.get(0);
+            if (chunks.size() > 1) {
+                System.out.printf("(documento com %d trechos; avaliando o primeiro)%n", chunks.size());
+            }
             System.out.printf("Documento #%d: %s%n  %s%n  publicado: %s   visto: %s%n",
                     d.id(), d.title(), d.url(), d.publishedAt(), d.firstSeenAt());
         } else if (args.containsOption("file")) {
@@ -403,18 +410,38 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
 
     private void normalize(ApplicationArguments args) {
         String only = opt(args, "only", "all");
-        if (!List.of("all", "candles", "calendar").contains(only)) {
-            throw new IllegalArgumentException("--only deve ser candles ou calendar");
+        if (!List.of("all", "candles", "calendar", "documents").contains(only)) {
+            throw new IllegalArgumentException("--only deve ser candles, calendar ou documents");
         }
+        boolean all = only.equals("all");
         try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
-            if (!only.equals("calendar")) {
+            if (all || only.equals("candles")) {
                 printCandles(timed(() -> new CandleNormalizer(lake.root())
                         .run(sql, silver.candles().utcReliableFrom())));
             }
-            if (!only.equals("candles")) {
+            if (all || only.equals("calendar")) {
                 printCalendar(timed(() -> new CalendarNormalizer(lake.root())
                         .run(sql, silver.calendar().actualLatencySeconds())));
             }
+            if (all || only.equals("documents")) {
+                printDocuments(timed(() -> new DocumentNormalizer(lake.root()).run(sql, MAX_TEXT_CHARS)));
+            }
+        }
+    }
+
+    private void printDocuments(Timed<DocumentNormalizer.Report> t) {
+        DocumentNormalizer.Report r = t.value();
+        System.out.printf("%nDocumentos dos bancos centrais → %s  (%.1f s)%n", r.output(), t.seconds());
+        System.out.printf("  %d documentos, %d trechos de até %d caracteres, %d sem texto aproveitável%n",
+                r.docs(), r.chunks(), MAX_TEXT_CHARS, r.emptyDocs());
+        for (DocumentNormalizer.IssuerStats s : r.issuers()) {
+            System.out.printf("  %-28s %4d docs (%d anexos PDF) · %4d trechos · %6d caracteres em média · %d vazios%n",
+                    s.issuer(), s.docs(), s.attachments(), s.chunks(), s.avgChars(), s.emptyDocs());
+            System.out.printf("      amostra: %s…%n", s.sample() == null ? "" : s.sample().replace('\n', ' '));
+        }
+        if (!r.failures().isEmpty()) {
+            System.out.println("  Falhas de extração:");
+            r.failures().forEach(f -> System.out.println("    " + f));
         }
     }
 
@@ -471,8 +498,8 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
 
     private void collectOnce() {
         FeedCollector.RunSummary s = collector.runOnce();
-        System.out.printf("Coleta concluída: %d feeds, %d itens no feed, %d documentos novos, %d erros.%n",
-                s.feeds(), s.itemsSeen(), s.itemsNew(), s.errors());
+        System.out.printf("Coleta concluída: %d feeds, %d itens no feed, %d documentos novos, %d anexos PDF, %d erros.%n",
+                s.feeds(), s.itemsSeen(), s.itemsNew(), s.attachmentsNew(), s.errors());
         System.out.println("Bronze em: " + lake.root().resolve("bronze"));
     }
 

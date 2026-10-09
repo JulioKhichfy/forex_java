@@ -44,10 +44,10 @@ public final class Commands {
                   ping                          testa a chave do Jev (GET /v1/models, não gasta créditos)
                   risk [--balance=20] [--mt5]   mostra, por símbolo, o risco do lote mínimo e se o sistema operaria
                                                 (--mt5: usa tick value e lotes reais da corretora, vindos do MT5)
-                  collect-once                  roda uma coleta dos feeds de bancos centrais e sai
+                  collect-once                  roda uma coleta dos feeds de bancos centrais (e dos PDFs anexos) e sai
                   import-mt5-once               importa os arquivos do MT5 (Common\\Files\\jev\\inbox) e sai
                   mt5-status                    saúde do MT5: heartbeat do EA, candles, calendário, próximos eventos
-                  normalize [--only=candles|calendar]
+                  normalize [--only=candles|calendar|documents]
                                                 reconstrói o silver (Parquet, UTC) a partir do bronze e mostra as
                                                 checagens de qualidade (não precisa do Postgres)
                   ask --qset=cb-text-v1 <fonte> [opções]

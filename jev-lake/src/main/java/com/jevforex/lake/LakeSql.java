@@ -6,9 +6,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -61,6 +63,22 @@ public final class LakeSql implements AutoCloseable {
             List<T> out = new ArrayList<>();
             while (rs.next()) out.add(mapper.map(rs));
             return out;
+        } catch (SQLException e) {
+            throw new IllegalStateException("DuckDB: " + e.getMessage() + "\nSQL: " + sql, e);
+        }
+    }
+
+    /** INSERT parametrizado em lote (dados produzidos em Java, ex.: texto extraído de PDFs). */
+    public void batch(String sql, List<Object[]> rows) {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (Object[] row : rows) {
+                for (int i = 0; i < row.length; i++) {
+                    if (row[i] == null) ps.setNull(i + 1, Types.VARCHAR);
+                    else ps.setObject(i + 1, row[i]);
+                }
+                ps.addBatch();
+            }
+            ps.executeBatch();
         } catch (SQLException e) {
             throw new IllegalStateException("DuckDB: " + e.getMessage() + "\nSQL: " + sql, e);
         }

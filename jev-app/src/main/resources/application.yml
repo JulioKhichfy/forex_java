@@ -63,6 +63,12 @@ collect:
   user-agent: "jev-forex-collector/0.1 (personal research)"
   download-item-pages: true
   polite-delay-millis: 1000
+  attachments:                  # PDFs ligados no corpo da página (atas, discursos completos)
+    enabled: true
+    max-per-item: 3
+    max-mb: 20
+    backfill-per-run: 10        # páginas antigas revisitadas por rodada
+  # Feeds conferidos um a um em 09/10/2026 (HTTP 200 com o nosso User-Agent).
   feeds:
     - id: fed-speeches
       issuer: Federal Reserve
@@ -78,13 +84,60 @@ collect:
       doc-type: cb_text
       url: https://www.federalreserve.gov/feeds/press_monetary.xml
       enabled: true
-    # Os outros 7 bancos centrais entram no passo 3, com URLs conferidas uma a uma.
-    # Formato:
-    # - id: ecb-press
-    #   issuer: European Central Bank
-    #   currency: EUR
-    #   url: <endereço do RSS na página de feeds do BCE>
-    #   enabled: true
+    - id: ecb-press             # decisões, atas (accounts), discursos, entrevistas e comunicados
+      issuer: European Central Bank
+      currency: EUR
+      url: https://www.ecb.europa.eu/rss/press.html
+      enabled: true
+    - id: boe-news              # inclui as decisões do MPC
+      issuer: Bank of England
+      currency: GBP
+      url: https://www.bankofengland.co.uk/rss/news
+      enabled: true
+    - id: boe-speeches
+      issuer: Bank of England
+      currency: GBP
+      url: https://www.bankofengland.co.uk/rss/speeches
+      enabled: true
+    - id: boj-whatsnew          # tudo o que o BoJ publica em inglês (muitos itens são PDF direto)
+      issuer: Bank of Japan
+      currency: JPY
+      url: https://www.boj.or.jp/en/rss/whatsnew.xml
+      enabled: true
+    - id: snb-press
+      issuer: Swiss National Bank
+      currency: CHF
+      url: https://www.snb.ch/public/en/rss/pressrel
+      enabled: true
+    - id: snb-speeches
+      issuer: Swiss National Bank
+      currency: CHF
+      url: https://www.snb.ch/public/en/rss/speeches
+      enabled: true
+    - id: boc-press
+      issuer: Bank of Canada
+      currency: CAD
+      url: https://www.bankofcanada.ca/content_type/press-releases/feed/
+      enabled: true
+    - id: boc-speeches
+      issuer: Bank of Canada
+      currency: CAD
+      url: https://www.bankofcanada.ca/content_type/speeches/feed/
+      enabled: true
+    - id: rbnz-news             # limita a taxa (HTTP 429 a 1 pedido/s): 5 s entre pedidos
+      issuer: Reserve Bank of New Zealand
+      currency: NZD
+      url: https://www.rbnz.govt.nz/feeds/news
+      enabled: true
+      delay-millis: 5000
+    # RBA: o servidor (Akamai) responde 403 a qualquer User-Agent que não seja de ferramenta conhecida
+    # (curl passa; o nosso, identificado, não). Desligado até haver uma fonte que aceite o coletor
+    # identificado (documento mestre, cap. 5). Alternativa a avaliar: discursos via BIS.
+    - id: rba-media
+      issuer: Reserve Bank of Australia
+      currency: AUD
+      url: https://www.rba.gov.au/rss/rss-cb-media-releases.xml
+      enabled: false
 
 # ---------------------------------------------------------------------
 #  MetaTrader 5 (passo 2): exportadores MQL5 → inbox → bronze + Postgres; EA em shadow

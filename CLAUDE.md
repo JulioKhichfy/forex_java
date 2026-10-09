@@ -43,8 +43,8 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-core | domínio puro: Market, Instrument, RiskSettings, PositionSizer (lote mínimo), BrokerSymbols |
 | jev-typesafe | JevClient, QuestionSet/Registry, JevResponse, CbTextSignal |
 | jev-lake | LakeStorage em disco local (bronze/silver/gold), LakeSql (DuckDB embarcado) |
-| jev-normalize | bronze → silver em Parquet: CandleNormalizer, CalendarNormalizer, WeeklyOpenCheck (sem Spring) |
-| jev-collect | coletor RSS dos bancos centrais, RawDocumentRepository; `mt5/`: importador do inbox do MT5 |
+| jev-normalize | bronze → silver em Parquet: Candle/Calendar/DocumentNormalizer, WeeklyOpenCheck, DocumentText (HTML/PDF), Chunker (sem Spring) |
+| jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5 |
 | jev-app | Spring Boot: CLI, agendadores, API `/api/status` e `/api/ea/*`, Flyway, application.yml |
 | mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor (shadow), `install.ps1` |
 
@@ -55,7 +55,7 @@ mvn -q clean package                       # build + testes
 java -jar jev-app/target/jev-app.jar ping | risk --balance=20 | collect-once
 java -jar jev-app/target/jev-app.jar ask --qset=cb-text-v1 --latest
 java -jar jev-app/target/jev-app.jar import-mt5-once | mt5-status | risk --balance=20 --mt5
-java -jar jev-app/target/jev-app.jar normalize [--only=candles|calendar]   # silver (sem Postgres)
+java -jar jev-app/target/jev-app.jar normalize [--only=candles|calendar|documents]   # silver (sem Postgres)
 mvn -q package -Djar.name=jev-app-dev      # jar de desenvolvimento com o servidor rodando (sem clean)
 java -jar jev-app/target/jev-app.jar       # modo servidor
 powershell -ExecutionPolicy Bypass -File mql5\install.ps1   # copia e compila os MQL5 no terminal da Exness
@@ -73,7 +73,7 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       2021-10-27 para 5 dos 7 pares → período comum de treino começa aí)
 - [ ] Passo 3 — silver: normalização, UTC, demais bancos centrais, ATR, labels, modelos A e B
       - [x] 3a silver de candles e calendário (DuckDB/Parquet, point-in-time, checagens; M1 confiável só de 2020 em diante)
-      - [ ] 3b demais bancos centrais + texto (PDF anexo) + trechos
+      - [x] 3b demais bancos centrais + texto (PDF anexo) + trechos (RBA desligada: 403 para coletor identificado)
       - [ ] 3c features (ATR, fator USD, surpresa) e labels 15/60 min
       - [ ] 3d walk-forward, modelos A e B, relatório
 - [ ] Passo 4 — Jev em escala: pontuação do histórico, sinais por moeda, features de texto
