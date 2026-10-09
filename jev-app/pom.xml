@@ -12,7 +12,16 @@
     <name>jev-app</name>
     <description>Aplicação Spring Boot: agendadores, API, CLI e migrações.</description>
 
+    <properties>
+        <!-- nome do jar; para gerar outro sem parar o servidor: mvn -q package -Djar.name=jev-app-dev -->
+        <jar.name>jev-app</jar.name>
+    </properties>
+
     <dependencies>
+        <dependency>
+            <groupId>com.jevforex</groupId>
+            <artifactId>jev-normalize</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.jevforex</groupId>
             <artifactId>jev-typesafe</artifactId>
@@ -50,7 +59,7 @@
     </dependencies>
 
     <build>
-        <finalName>jev-app</finalName>
+        <finalName>${jar.name}</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

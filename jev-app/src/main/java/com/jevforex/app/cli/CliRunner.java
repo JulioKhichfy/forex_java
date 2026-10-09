@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jevforex.app.config.RiskConfig.InstrumentCatalog;
+import com.jevforex.app.config.SilverProperties;
 import com.jevforex.app.config.TradingProperties;
 import com.jevforex.app.mt5.Mt5StatusService;
 import com.jevforex.app.persistence.JevCallRepository;
@@ -20,8 +21,12 @@ import com.jevforex.core.Market;
 import com.jevforex.core.risk.PositionSizer;
 import com.jevforex.core.risk.RiskSettings;
 import com.jevforex.core.risk.SizingResult;
+import com.jevforex.lake.LakeSql;
 import com.jevforex.lake.LakeStorage;
 import com.jevforex.lake.LocalDiskLakeStorage;
+import com.jevforex.normalize.CalendarNormalizer;
+import com.jevforex.normalize.CandleNormalizer;
+import com.jevforex.normalize.WeeklyOpenCheck;
 import com.jevforex.typesafe.JevApiException;
 import com.jevforex.typesafe.JevClient;
 import com.jevforex.typesafe.model.JevResponse;
@@ -67,13 +72,15 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private final Mt5Repository mt5Repo;
     private final Mt5Properties mt5;
     private final Mt5StatusService mt5Status;
+    private final SilverProperties silver;
     private int exitCode = 0;
 
     public CliRunner(JevClient jev, QuestionSetRegistry questionSets, JevCallRepository jevCalls,
                      RawDocumentRepository documents, FeedCollector collector, LakeStorage lake,
                      RiskSettings risk, InstrumentCatalog catalog, TradingProperties trading, ObjectMapper mapper,
                      Mt5Importer mt5Importer, Mt5Repository mt5Repo, Mt5Properties mt5,
-                     Mt5StatusService mt5Status) {
+                     Mt5StatusService mt5Status, SilverProperties silver) {
+        this.silver = silver;
         this.mt5Importer = mt5Importer;
         this.mt5Repo = mt5Repo;
         this.mt5 = mt5;
@@ -102,6 +109,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.COLLECT_ONCE -> collectOnce();
                 case Commands.IMPORT_MT5_ONCE -> importMt5Once();
                 case Commands.MT5_STATUS -> mt5Status();
+                case Commands.NORMALIZE -> normalize(args);
                 default -> System.out.println(Commands.usage());
             }
         } catch (JevApiException e) {
@@ -389,6 +397,74 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
             String pt = qs.portuguese(id);
             if (!pt.isBlank()) System.out.println("  " + " ".repeat(29) + "↳ " + pt);
         }
+    }
+
+    // ------------------------------------------------------------------ normalize (silver)
+
+    private void normalize(ApplicationArguments args) {
+        String only = opt(args, "only", "all");
+        if (!List.of("all", "candles", "calendar").contains(only)) {
+            throw new IllegalArgumentException("--only deve ser candles ou calendar");
+        }
+        try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
+            if (!only.equals("calendar")) {
+                printCandles(timed(() -> new CandleNormalizer(lake.root())
+                        .run(sql, silver.candles().utcReliableFrom())));
+            }
+            if (!only.equals("candles")) {
+                printCalendar(timed(() -> new CalendarNormalizer(lake.root())
+                        .run(sql, silver.calendar().actualLatencySeconds())));
+            }
+        }
+    }
+
+    private void printCandles(Timed<CandleNormalizer.Report> t) {
+        CandleNormalizer.Report r = t.value();
+        System.out.printf("%nCandles M1 → %s  (%.1f s)%n", r.output(), t.seconds());
+        System.out.printf("  %d arquivos, %d linhas lidas, %d barras gravadas%s%n", r.files(), r.rowsRead(),
+                r.rowsWritten(), r.rowsWithoutMeta() > 0 ? ", " + r.rowsWithoutMeta()
+                        + " linhas sem .meta.json (ignoradas)" : "");
+        if (r.rowsBeforeReliable() > 0) {
+            System.out.printf("  %d barras antes de %s deixadas de fora (silver.candles.utc-reliable-from)%n",
+                    r.rowsBeforeReliable(), r.utcReliableFrom());
+        }
+        System.out.printf("  %-8s %-6s %10s %8s  %-19s  %-19s  %s%n", "Símbolo", "Merc.", "Barras", "Repet.",
+                "Primeira (UTC)", "Última (UTC)", "Buracos 10min-6h (maior)");
+        for (CandleNormalizer.SymbolStats s : r.symbols()) {
+            System.out.printf("  %-8s %-6s %10d %8d  %-19s  %-19s  %d (%d min após %s)%n", s.symbol(), s.market(),
+                    s.bars(), s.duplicatesDropped(), s.first(), s.last(), s.intradayGaps(), s.maxIntradayGap(),
+                    s.maxIntradayGapAfter() == null ? "-" : s.maxIntradayGapAfter());
+        }
+        WeeklyOpenCheck.Result w = r.weeklyOpen();
+        System.out.printf("  Abertura semanal (hora UTC → semanas): verão EUA %s · padrão EUA %s · %d reaberturas de feriado%n",
+                w.summerHours(), w.winterHours(), w.holidayReopens());
+        System.out.println("  → " + w.verdict());
+    }
+
+    private void printCalendar(Timed<CalendarNormalizer.Report> t) {
+        CalendarNormalizer.Report r = t.value();
+        System.out.printf("%nCalendário → %s  (%.1f s)%n", r.output(), t.seconds());
+        System.out.printf("  %d arquivos, %d estados lidos, %d estados distintos gravados %s%n", r.files(),
+                r.statesRead(), r.statesWritten(), r.statesByOrigin());
+        System.out.printf("  %d valores com actual · %d eventos no dicionário%n", r.valuesWithActual(), r.eventDefs());
+        CalendarNormalizer.Latency l = r.liveLatency();
+        if (l.samples() == 0) {
+            System.out.println("  Latência ao vivo do actual: ainda sem amostras (precisa de divulgações vistas pelo "
+                    + "exportador ao vivo)");
+        } else {
+            System.out.printf(Locale.ROOT, "  Latência ao vivo do actual: mediana %.1f s · p90 %.1f s · máx. %.1f s "
+                            + "(%d divulgações; configurado: %d s)%n", l.medianSeconds(), l.p90Seconds(),
+                    l.maxSeconds(), l.samples(), silver.calendar().actualLatencySeconds());
+        }
+    }
+
+    private record Timed<T>(T value, double seconds) {
+    }
+
+    private static <T> Timed<T> timed(java.util.function.Supplier<T> work) {
+        long t0 = System.nanoTime();
+        T v = work.get();
+        return new Timed<>(v, (System.nanoTime() - t0) / 1e9);
     }
 
     // ------------------------------------------------------------------ collect

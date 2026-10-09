@@ -41,6 +41,20 @@ lake:
   root: ${LAKE_ROOT:${user.home}/FOREX_JEV/jev-lake}
 
 # ---------------------------------------------------------------------
+#  Silver (passo 3): bronze → Parquet normalizado, em UTC (comando normalize)
+# ---------------------------------------------------------------------
+silver:
+  duckdb-memory: 2GB                 # o que passar disso o DuckDB despeja em disco (<lake>/tmp/duckdb)
+  candles:
+    # Exness: EURUSD/GBPUSD de 2016 a 2019 estão em outro fuso (abertura semanal às 0h e 21h UTC fixas,
+    # conferido em 09/10/2026). Antes desta data, nada entra no silver; o bronze fica intacto.
+    utc-reliable-from: 2020-01-01
+  calendar:
+    # no histórico, o actual conta como disponível em scheduled + este atraso (cap. 8).
+    # Medido ao vivo em 09/10/2026: mediana 15 s, máx. 34 s (5 divulgações). Reavalie com o comando normalize.
+    actual-latency-seconds: 35
+
+# ---------------------------------------------------------------------
 #  Coleta de bancos centrais
 # ---------------------------------------------------------------------
 collect:

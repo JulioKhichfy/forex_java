@@ -194,6 +194,34 @@ Sem o modo servidor, `import-mt5-once` importa o que estiver no inbox e sai.
 Tabelas novas: `mt5_file`, `calendar_event`, `calendar_event_def`, `instrument_spec`, `candle_status`, `heartbeat`.
 Os candles em si ficam só no lake (`bronze\mt5_candles`); o Postgres guarda o frescor por símbolo.
 
+## 10. Passo 3 — silver (normalização)
+
+```powershell
+java -jar jev-app\target\jev-app.jar normalize                  # candles + calendário (~3 min)
+java -jar jev-app\target\jev-app.jar normalize --only=calendar  # só o calendário (segundos)
+```
+
+Reconstrói o silver inteiro a partir do bronze (DuckDB → Parquet, tudo em UTC) e mostra checagens de qualidade.
+Não precisa do Postgres. O silver novo só substitui o anterior quando está completo.
+
+| Silver | Conteúdo |
+|---|---|
+| `silver\candles_m1\market=fx\symbol=…\year=…\month=…` | 1 barra M1 por minuto UTC (abertura da barra), sem repetidas |
+| `silver\calendar_events\market=fx\year=…` | cada estado de cada valor, com `seen_utc`, `origin` e `actual_available_utc` |
+| `silver\calendar_event_defs` | dicionário de eventos (o `event_code` em inglês é a chave; o nome vem traduzido pelo MT5) |
+
+- **Point-in-time do calendário:** `actual_available_utc` é o horário visto ao vivo (`LIVE`) ou, no histórico,
+  `scheduled + silver.calendar.actual-latency-seconds` (35 s; `availability_estimated = true`). O comando mostra a
+  latência medida ao vivo: use-a para ajustar o valor.
+- **Fuso do histórico da Exness:** a checagem de abertura semanal (domingo 17:00 Nova York) mostrou que o M1 de
+  EURUSD/GBPUSD de 2016 a 2019 está gravado em outro fuso. Por isso `silver.candles.utc-reliable-from: 2020-01-01`:
+  antes disso nada entra no silver (o bronze continua intacto). O calendário está certo em todos os anos.
+- Para ler o silver em outras ferramentas (DBeaver com DuckDB, Python):
+  `SELECT * FROM read_parquet('C:/Users/julio/FOREX_JEV/jev-lake/silver/candles_m1/**/*.parquet', hive_partitioning = true)`
+
+**Desenvolvimento sem parar o servidor:** `mvn -q package -Djar.name=jev-app-dev` gera `jev-app-dev.jar`
+ao lado do `jev-app.jar` em uso (sem `clean`, que falharia com o jar travado).
+
 ## Problemas comuns
 
 | Sintoma | Verificar |
