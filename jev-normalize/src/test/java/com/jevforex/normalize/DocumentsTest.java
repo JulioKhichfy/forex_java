@@ -81,6 +81,18 @@ class DocumentsTest {
     }
 
     @Test
+    void binarioEControle_naoChegamAoJev() {
+        // planilha (zip) servida como "página": casos reais do feed do BoJ
+        byte[] xlsx = {'P', 'K', 3, 4, 20, 0, 6, 0, 8, 0, 0, 0, 33, 0};
+        assertEquals("", DocumentText.extract(xlsx, "html"));
+        // \u0000 quebra o jsonb do Postgres: some do texto
+        assertEquals("Rate held.", DocumentText.extract("Rate\u0000 held.".getBytes(StandardCharsets.UTF_8), "txt"));
+        // extração de PDF com fonte sem mapeamento: majoritariamente ilegível → vazio
+        assertEquals("", DocumentText.clean("ab���cd"));
+        assertEquals("texto normal", DocumentText.clean("texto normal"));
+    }
+
+    @Test
     void pdf_extraiEJuntaHifenizacao() throws Exception {
         String t = DocumentText.extract(pdf("Minutes of the discount rate meetings. Persistent infla-",
                 "tion pressures were noted by directors."), "pdf");

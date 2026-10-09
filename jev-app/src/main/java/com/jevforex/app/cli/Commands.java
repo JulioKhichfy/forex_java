@@ -17,10 +17,13 @@ public final class Commands {
     public static final String TRAIN = "train";
     public static final String BACKFILL_BIS = "backfill-bis";
     public static final String BACKFILL_ARCHIVES = "backfill-archives";
+    public static final String JEV_SCORE = "jev-score";
+    public static final String JEV_SIGNALS = "jev-signals";
 
     private static final Set<String> ALL = Set.of(HELP, PING, RISK, ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS,
-            NORMALIZE, FEATURES, TRAIN, BACKFILL_BIS, BACKFILL_ARCHIVES);
-    private static final Set<String> NEED_DB = Set.of(ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS, BACKFILL_ARCHIVES);
+            NORMALIZE, FEATURES, TRAIN, BACKFILL_BIS, BACKFILL_ARCHIVES, JEV_SCORE, JEV_SIGNALS);
+    private static final Set<String> NEED_DB = Set.of(ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS, BACKFILL_ARCHIVES,
+            JEV_SCORE, JEV_SIGNALS);
 
     private Commands() {
     }
@@ -67,6 +70,11 @@ public final class Commands {
                        opções:  --issuer="Federal Reserve" --currency=USD --previous="resumo anterior"
                                 --model=jev-1.13.0 --raw (mostra o JSON completo)
                   ask --qset=headline-v1 --text="manchete" [--recent="m1|m2|m3"]
+                  jev-score [--qset=cb-text-v1] [--since=2021-01-01] [--limit=N]
+                                                PLANO: trechos do silver a avaliar, já no cache e custo estimado
+                       --run [--max-usd=2] [--concurrency=4]   chama o Jev (para no teto ou em erro de chave/saldo)
+                  jev-signals [--qset=cb-text-v1]
+                                                respostas → gold/jev_answers (trecho) e gold/currency_signals (documento)
 
                 Sem comando: modo servidor (coleta agendada + API em http://localhost:8080/api/status)
                 """;

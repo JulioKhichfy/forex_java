@@ -34,6 +34,8 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 - Features: mudou o significado de alguma feature ou do label → nova versão `features.fset` (v2), nunca
   reescrever a v1. O mesmo código calcula features no treino e ao vivo (não reimplementar "só para produção").
   Todo cálculo novo precisa respeitar point-in-time e ganhar teste no `FeatureBuilderTest`.
+- **Custo do Jev:** chamada em escala só com `jev-score --run` depois de mostrar o plano ao usuário e ele
+  aprovar; sempre com `--max-usd`. O cache por `request_sha` evita pagar duas vezes.
 - **Cofre:** os últimos `experiment.lockbox-months` meses nunca entram em treino, ajuste ou comparação.
   Abrir o cofre é uma decisão do usuário (passo 5), uma única vez.
 
@@ -62,6 +64,7 @@ mvn -q clean package                       # build + testes
 java -jar jev-app/target/jev-app.jar ping | risk --balance=20 | collect-once
 java -jar jev-app/target/jev-app.jar ask --qset=cb-text-v1 --latest
 java -jar jev-app/target/jev-app.jar import-mt5-once | mt5-status | risk --balance=20 --mt5 | backfill-bis | backfill-archives
+java -jar jev-app/target/jev-app.jar jev-score [--run --max-usd=1.5] | jev-signals   # sem --run: só o plano e o custo
 java -jar jev-app/target/jev-app.jar normalize [--only=candles|calendar|documents]   # silver (sem Postgres)
 java -jar jev-app/target/jev-app.jar features                    # gold: features + labels (fset do yml)
 java -Xmx6g -jar jev-app/target/jev-app.jar train [--horizon=60]  # walk-forward A×B → reports/walkforward/<run>
@@ -89,7 +92,7 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
 - [ ] Passo 4 — Jev em escala: pontuação do histórico, sinais por moeda, features de texto
       - [x] 4a acervo de discursos do BIS 2021+ (backfill-bis; silver documents com available_utc)
       - [x] 4b comunicados de decisão e atas de Fed, BCE, BoE, BoJ, BoC (backfill-archives; horário do calendário + 30 s)
-      - [ ] 4c Jev em escala (cache por request_sha, jev_call, currency_signal) — mostrar custo antes
+      - [x] 4c Jev em escala (jev-score/jev-signals; 12.915 trechos, ~US$ 0,99; gold/jev_answers e currency_signals)
       - [ ] 4d grupo C (sinal por moeda τ 6 h/72 h, diferencial) e modelo C no train
 - [ ] Passo 5 — experimento A/B/C walk-forward e go/no-go
 - [ ] Passo 6 — decision engine (gates), API bridge, EA executor, dashboard Angular; shadow → demo

@@ -265,6 +265,25 @@ java -jar jev-app\target\jev-app.jar normalize --only=documents
   comunicados que já tinham vindo pelos feeds na primeira carga.
 - SNB, RBNZ e RBA ficam de fora por ora (o BIS traz as declarações do SNB; a RBNZ limita a taxa; a RBA bloqueia).
 
+### O Jev em escala (passo 4c)
+
+```powershell
+java -jar jev-app\target\jev-app.jar jev-score                       # PLANO: pendentes, cache, custo estimado
+java -jar jev-app\target\jev-app.jar jev-score --run --limit=200     # piloto
+java -jar jev-app\target\jev-app.jar jev-score --run --max-usd=1.50  # o resto, com teto de gasto
+java -jar jev-app\target\jev-app.jar jev-signals                     # respostas → gold
+```
+
+- Avalia cada trecho de `silver\documents` com o conjunto `cb-text-v1` (state: emissor, moeda, título, texto).
+- **Cache:** o pedido (state + perguntas + modelo) tem um `request_sha`; o que já foi respondido com sucesso nunca
+  é pago de novo — vale também para o que foi perguntado pelo `ask`. Interrompeu? Rode de novo: continua de onde parou.
+- **Custo antes:** sem `--run`, só mostra o plano. A estimativa usa a proporção tokens ÷ caracteres medida nas
+  chamadas já feitas e o preço `jev.input-price-usd-per-million` (piloto de 200 trechos: real 9% abaixo do estimado).
+- Para sozinho no teto (`--max-usd`) ou em erro de chave/saldo (401/402/403). Cada chamada fica em `jev_call`
+  (com `doc_sha`, `text_sha`, `chunk_idx`).
+- `jev-signals` grava `gold\jev_answers` (por trecho: probabilidades, confiança, sinal) e `gold\currency_signals`
+  (por documento: média dos trechos ponderada por `market_relevant`, disponível em `available_utc`).
+
 ### 10.1 Features e labels (gold)
 
 ```powershell

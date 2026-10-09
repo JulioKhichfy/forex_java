@@ -36,14 +36,42 @@ public final class DocumentText {
     private DocumentText() {
     }
 
+    /** Caracteres de controle (menos \n e \t): o Postgres não aceita \u0000 em jsonb e o Jev não precisa deles. */
+    private static final Pattern CONTROL = Pattern.compile("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]");
+    /** Mais que isto de caracteres ilegíveis (U+FFFD) = extração quebrada (fonte sem mapeamento, binário). */
+    private static final double MAX_GARBLED = 0.02;
+
     /** @param contentType html | pdf | txt */
     public static String extract(byte[] content, String contentType) {
         if (content == null || content.length == 0) return "";
-        return switch (contentType == null ? "html" : contentType.toLowerCase(Locale.ROOT)) {
+        String type = contentType == null ? "html" : contentType.toLowerCase(Locale.ROOT);
+        if (!type.equals("pdf") && looksBinary(content)) return "";   // ex.: planilha (zip) servida como página
+        String text = switch (type) {
             case "pdf" -> pdf(content);
             case "txt" -> tidy(new String(content, StandardCharsets.UTF_8));
             default -> html(new String(content, StandardCharsets.UTF_8));
         };
+        return clean(text);
+    }
+
+    /** Tira caracteres de controle; texto majoritariamente ilegível vira vazio (não vale a pena para o Jev). */
+    static String clean(String text) {
+        String t = CONTROL.matcher(text).replaceAll("");
+        if (t.isEmpty()) return t;
+        long garbled = t.chars().filter(ch -> ch == '�').count();
+        return (double) garbled / t.length() > MAX_GARBLED ? "" : t;
+    }
+
+    /** Zip/xlsx, gzip ou muitos bytes de controle no começo: não é texto. */
+    static boolean looksBinary(byte[] b) {
+        if (b.length >= 4 && b[0] == 'P' && b[1] == 'K' && b[2] == 3 && b[3] == 4) return true;
+        if (b.length >= 2 && (b[0] & 0xFF) == 0x1F && (b[1] & 0xFF) == 0x8B) return true;
+        int n = Math.min(b.length, 4096), control = 0;
+        for (int i = 0; i < n; i++) {
+            int v = b[i] & 0xFF;
+            if (v < 0x09 || (v > 0x0D && v < 0x20)) control++;
+        }
+        return control > 8 && (double) control / n > 0.01;   // um \u0000 solto num texto curto não é binário
     }
 
     /** Tipo pela extensão do arquivo no lake (…/&lt;sha&gt;.pdf). */

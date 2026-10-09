@@ -33,6 +33,8 @@ jev:
   model: jev-1.13.0                      # versão fixa (confira com o comando ping)
   timeout-seconds: 20
   max-retries: 2
+  input-price-usd-per-million: 0.042     # verificado em out/2026 (documento mestre); confira no console da TypeSafe
+  score-concurrency: 4                   # chamadas simultâneas no jev-score
 
 # ---------------------------------------------------------------------
 #  Data lake (disco local)

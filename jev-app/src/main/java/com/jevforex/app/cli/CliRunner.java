@@ -15,6 +15,8 @@ import com.jevforex.app.config.SilverProperties;
 import com.jevforex.features.FeatureBuilder;
 import com.jevforex.features.FeatureConfig;
 import com.jevforex.app.config.TradingProperties;
+import com.jevforex.app.jev.JevScorer;
+import com.jevforex.app.jev.JevSignalExporter;
 import com.jevforex.app.mt5.Mt5StatusService;
 import com.jevforex.app.persistence.JevCallRepository;
 import com.jevforex.collect.RawDocumentRepository;
@@ -58,6 +60,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -93,6 +96,12 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private final BisSpeechCollector bisCollector;
     private final BisProperties bisProps;
     private final ArchiveCollector archiveCollector;
+    private final JevScorer jevScorer;
+    private final JevSignalExporter jevSignalExporter;
+    @org.springframework.beans.factory.annotation.Value("${jev.input-price-usd-per-million:0.042}")
+    private double jevPricePerMillion;
+    @org.springframework.beans.factory.annotation.Value("${jev.score-concurrency:4}")
+    private int jevConcurrency;
     private int exitCode = 0;
 
     public CliRunner(JevClient jev, QuestionSetRegistry questionSets, JevCallRepository jevCalls,
@@ -101,8 +110,10 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                      Mt5Importer mt5Importer, Mt5Repository mt5Repo, Mt5Properties mt5,
                      Mt5StatusService mt5Status, SilverProperties silver, FeatureProperties featureProps,
                      ExperimentProperties experimentProps, BisSpeechCollector bisCollector, BisProperties bisProps,
-                     ArchiveCollector archiveCollector) {
+                     ArchiveCollector archiveCollector, JevScorer jevScorer, JevSignalExporter jevSignalExporter) {
         this.archiveCollector = archiveCollector;
+        this.jevScorer = jevScorer;
+        this.jevSignalExporter = jevSignalExporter;
         this.bisCollector = bisCollector;
         this.bisProps = bisProps;
         this.silver = silver;
@@ -141,6 +152,8 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.TRAIN -> train(args);
                 case Commands.BACKFILL_BIS -> backfillBis(args);
                 case Commands.BACKFILL_ARCHIVES -> backfillArchives(args);
+                case Commands.JEV_SCORE -> jevScore(args);
+                case Commands.JEV_SIGNALS -> jevSignals(args);
                 default -> System.out.println(Commands.usage());
             }
         } catch (JevApiException e) {
@@ -562,6 +575,53 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
             if (b.failures().size() > 5) System.out.printf("       … e mais %d%n", b.failures().size() - 5);
         }
         System.out.println("Próximo passo: normalize --only=documents");
+    }
+
+    // ------------------------------------------------------------------ Jev em escala (passo 4c)
+
+    private void jevScore(ApplicationArguments args) throws InterruptedException {
+        QuestionSet qs = questionSets.get(opt(args, "qset", "cb-text-v1"));
+        String model = opt(args, "model", jev.defaultModel());
+        LocalDate since = LocalDate.parse(opt(args, "since", "2021-01-01"));
+        int limit = Integer.parseInt(opt(args, "limit", "0"));
+        try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
+            if (!args.containsOption("run")) {
+                JevScorer.Plan p = jevScorer.plan(sql, lake.root(), qs, model, since, limit);
+                System.out.printf(Locale.ROOT, "%nPlano do Jev · %s · %s · desde %s%n", p.qset(), p.model(), p.since());
+                System.out.printf("  %-44s %8s %8s %9s%n", "fonte · emissor", "trechos", "cache", "pendentes");
+                p.bySourceIssuer().forEach((k, l) -> System.out.printf("  %-44s %8d %8d %9d%n", k, l.chunks(),
+                        l.cached(), l.pending()));
+                System.out.printf(Locale.ROOT, "  %-44s %8d %8d %9d%n", "TOTAL", p.chunks(), p.cached(), p.pending());
+                System.out.printf(Locale.ROOT, "%nEstimativa para os pendentes: %,d tokens de entrada · US$ %.4f "
+                                + "(US$ %.3f por milhão; %.3f tokens/caractere %s)%n", p.estTokens(), p.estUsd(),
+                        jevPricePerMillion, p.tokensPerChar(),
+                        p.measured() ? "medidos nas chamadas já feitas" : "estimados: ainda sem chamadas para medir");
+                System.out.println("Nada foi chamado. Para executar: jev-score --run [--max-usd=…]");
+                return;
+            }
+            double maxUsd = Double.parseDouble(opt(args, "max-usd", "2"));
+            int concurrency = Integer.parseInt(opt(args, "concurrency", String.valueOf(jevConcurrency)));
+            JevScorer.RunResult r = jevScorer.run(sql, lake.root(), qs, model, since, limit, concurrency, maxUsd,
+                    System.out::println);
+            System.out.printf(Locale.ROOT, "%nJev: %d trechos avaliados, %d erros · %,d tokens · US$ %.4f%s%n",
+                    r.done(), r.errors(), r.tokens(), r.usd(), r.stopReason() == null ? "" : " · PAROU: " + r.stopReason());
+            System.out.println("Próximo passo: jev-signals");
+        }
+    }
+
+    private void jevSignals(ApplicationArguments args) throws Exception {
+        String qset = opt(args, "qset", "cb-text-v1");
+        String model = opt(args, "model", jev.defaultModel());
+        try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
+            JevSignalExporter.Report r = jevSignalExporter.export(sql, lake.root(), qset, model);
+            System.out.printf("%nRespostas do Jev → %s%n  %d trechos (%d ligados ao silver), %d documentos%n",
+                    r.answersOut(), r.answers(), r.chunksMatched(), r.docs());
+            System.out.printf("Sinais por moeda → %s%n", r.signalsOut());
+            for (JevSignalExporter.CurrencyStats s : r.currencies()) {
+                System.out.printf(Locale.ROOT, "  %s %5d documentos (%d com peso > 0) · sinal médio %+.3f · [%+.3f, %+.3f]%n",
+                        s.currency(), s.docs(), s.weighted(), s.meanSignal(), s.minSignal(), s.maxSignal());
+            }
+        }
     }
 
     private void printDocuments(Timed<DocumentNormalizer.Report> t) {

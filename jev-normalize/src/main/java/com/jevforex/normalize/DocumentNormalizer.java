@@ -105,7 +105,7 @@ public final class DocumentNormalizer {
                     "txt", BisSpeeches.SOURCE, "bis-speeches", s.issuer().name(), s.issuer().currency(), "fx",
                     "cb_text", s.title(), s.speechDate() == null ? null : s.speechDate() + "T00:00:00Z",
                     s.downloadedAt().toString(), s.availableUtc().toString(), true, null,
-                    () -> DocumentText.tidy(s.text() == null ? "" : s.text())));
+                    () -> DocumentText.clean(DocumentText.tidy(s.text() == null ? "" : s.text()))));
         }
 
         // texto de cada documento (uma vez só: o anexo é comparado com a página de origem)
