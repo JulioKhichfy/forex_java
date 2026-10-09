@@ -18,6 +18,8 @@ import com.jevforex.app.config.TradingProperties;
 import com.jevforex.app.mt5.Mt5StatusService;
 import com.jevforex.app.persistence.JevCallRepository;
 import com.jevforex.collect.RawDocumentRepository;
+import com.jevforex.collect.archive.ArchiveCollector;
+import com.jevforex.collect.archive.ArchiveSources;
 import com.jevforex.collect.bis.BisProperties;
 import com.jevforex.collect.bis.BisSpeechCollector;
 import com.jevforex.collect.mt5.Mt5Importer;
@@ -90,6 +92,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private final ExperimentProperties experimentProps;
     private final BisSpeechCollector bisCollector;
     private final BisProperties bisProps;
+    private final ArchiveCollector archiveCollector;
     private int exitCode = 0;
 
     public CliRunner(JevClient jev, QuestionSetRegistry questionSets, JevCallRepository jevCalls,
@@ -97,7 +100,9 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                      RiskSettings risk, InstrumentCatalog catalog, TradingProperties trading, ObjectMapper mapper,
                      Mt5Importer mt5Importer, Mt5Repository mt5Repo, Mt5Properties mt5,
                      Mt5StatusService mt5Status, SilverProperties silver, FeatureProperties featureProps,
-                     ExperimentProperties experimentProps, BisSpeechCollector bisCollector, BisProperties bisProps) {
+                     ExperimentProperties experimentProps, BisSpeechCollector bisCollector, BisProperties bisProps,
+                     ArchiveCollector archiveCollector) {
+        this.archiveCollector = archiveCollector;
         this.bisCollector = bisCollector;
         this.bisProps = bisProps;
         this.silver = silver;
@@ -135,6 +140,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.FEATURES -> features();
                 case Commands.TRAIN -> train(args);
                 case Commands.BACKFILL_BIS -> backfillBis(args);
+                case Commands.BACKFILL_ARCHIVES -> backfillArchives(args);
                 default -> System.out.println(Commands.usage());
             }
         } catch (JevApiException e) {
@@ -546,6 +552,18 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
         System.out.println("Próximo passo: normalize --only=documents");
     }
 
+    private void backfillArchives(ApplicationArguments args) throws InterruptedException {
+        List<String> banks = List.of(opt(args, "banks", String.join(",", ArchiveSources.BANKS.keySet())).split(","));
+        int from = Integer.parseInt(opt(args, "from", String.valueOf(bisProps.fromYear())));
+        System.out.printf("Comunicados e atas desde %d: %s%n", from, banks);
+        for (ArchiveCollector.BankResult b : archiveCollector.backfill(banks, from)) {
+            System.out.printf("  %-4s %3d listados · %s%n", b.bank(), b.listed(), b.outcomes());
+            b.failures().stream().limit(5).forEach(f -> System.out.println("       falhou: " + f));
+            if (b.failures().size() > 5) System.out.printf("       … e mais %d%n", b.failures().size() - 5);
+        }
+        System.out.println("Próximo passo: normalize --only=documents");
+    }
+
     private void printDocuments(Timed<DocumentNormalizer.Report> t) {
         DocumentNormalizer.Report r = t.value();
         System.out.printf("%nDocumentos dos bancos centrais → %s  (%.1f s)%n", r.output(), t.seconds());
@@ -555,6 +573,9 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
             System.out.printf("  BIS: %d discursos no acervo, %d de instituições fora da lista, %d também trazidos pelo "
                     + "coletor próprio (entra só a cópia disponível primeiro)%n", r.bisRecords(), r.bisOtherInstitutions(),
                     r.bisDuplicates());
+        }
+        if (r.duplicateAttachments() > 0) {
+            System.out.printf("  %d anexos PDF que só repetiam a página de origem ficaram de fora%n", r.duplicateAttachments());
         }
         for (DocumentNormalizer.IssuerStats s : r.issuers()) {
             System.out.printf("  %-12s %-28s %5d docs (%d PDF) · %5d trechos · %6d caract. em média · desde %s · %d vazios%n",

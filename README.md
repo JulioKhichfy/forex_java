@@ -243,6 +243,28 @@ java -jar jev-app\target\jev-app.jar normalize --only=documents
 - Discurso que veio pelas duas fontes entra uma vez, com a cópia disponível primeiro.
 - Rode `backfill-bis` de tempos em tempos: o BIS atualiza o acervo (conteúdo novo = nova versão no bronze).
 
+### Comunicados de decisão e atas (passo 4b)
+
+```powershell
+java -jar jev-app\target\jev-app.jar normalize --only=calendar       # as datas/horários vêm do calendário
+java -jar jev-app\target\jev-app.jar backfill-archives               # fed, ecb, boe, boj, boc desde 2021
+java -jar jev-app\target\jev-app.jar normalize --only=documents
+```
+
+| Banco | Fonte | Horário de divulgação (calendário do MT5) |
+|---|---|---|
+| Fed | `fomccalendars.htm` (comunicados e atas) | `fomc-meeting-statement`; ata: primeiro `fomc-minutes` depois da reunião |
+| BCE | índices anuais: decisões, declaração da coletiva, *accounts* | `ecb-interest-rate-decision`, `…-press-conference`, `…-meeting-accounts` |
+| BoE | `/monetary-policy-summary-and-minutes/{ano}/{mês}-{ano}` (datas do calendário) | `boe-interest-rate-decision` |
+| BoJ | índices anuais: comunicados e atas (`g{data}.htm`/`.pdf`) | comunicado no dia; ata: depois da reunião SEGUINTE |
+| BoC | `/{ano}/{mês}/fad-press-release-{data}/` (datas do calendário) | `boc-interest-rate-decision` |
+
+- `available_utc` = horário oficial + 30 s (cap. 8); sem evento no calendário, fim do dia (estimado). PDFs anexos
+  herdam o horário da página; anexo que só repete a página (ex.: a ata do FOMC em PDF) não entra.
+- O comando grava em `bronze\cb_archive_index` a lista de URLs com a regra de horário: vale também para os
+  comunicados que já tinham vindo pelos feeds na primeira carga.
+- SNB, RBNZ e RBA ficam de fora por ora (o BIS traz as declarações do SNB; a RBNZ limita a taxa; a RBA bloqueia).
+
 ### 10.1 Features e labels (gold)
 
 ```powershell

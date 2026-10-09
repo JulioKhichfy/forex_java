@@ -38,6 +38,9 @@ public final class DocumentNormalizer {
     public static final String TABLE = "documents";
     private static final Duration DUPLICATE_WINDOW = Duration.ofDays(21);
     private static final double DUPLICATE_SIMILARITY = 0.5;
+    /** Anexo com ≥ 80% das palavras presentes na página de origem = a mesma coisa em PDF. */
+    private static final double SAME_CONTENT = 0.8;
+    private static final int MIN_PARENT_CHARS = 1000;
 
     private final Path lakeRoot;
 
@@ -59,19 +62,33 @@ public final class DocumentNormalizer {
      * @param bisDuplicates     discursos do BIS que o coletor próprio já tinha
      */
     public record Report(long docs, long chunks, long emptyDocs, List<String> failures, List<IssuerStats> issuers,
-                         long bisRecords, long bisOtherInstitutions, long bisDuplicates, Path output) {
+                         long bisRecords, long bisOtherInstitutions, long bisDuplicates, long duplicateAttachments,
+                         Path output) {
     }
 
-    /** Um documento de qualquer fonte, com o texto calculado só quando for usado. */
+    /**
+     * Um documento de qualquer fonte, com o texto calculado só quando for usado.
+     *
+     * @param release regra do horário de divulgação (só documentos do arquivo histórico; null nos demais)
+     */
     private record Doc(String sha, String url, String parentUrl, String contentType, String source, String feedId,
                        String issuer, String currency, String market, String docType, String title,
                        String publishedAt, String firstSeenAt, String availableUtc, boolean estimated,
-                       Supplier<String> text) {
+                       Release release, Supplier<String> text) {
+
+        Doc withAvailability(String available, boolean est) {
+            return new Doc(sha, url, parentUrl, contentType, source, feedId, issuer, currency, market, docType, title,
+                    publishedAt, firstSeenAt, available, est, release, text);
+        }
+    }
+
+    /** Comunicado/ata do arquivo histórico: o horário vem do calendário ({@link ReleaseResolver}). */
+    private record Release(String kind, java.time.LocalDate refDate, String event, String anchor) {
     }
 
     public Report run(LakeSql sql, int maxChars) {
         Path out = lakeRoot.resolve("silver").resolve(TABLE);
-        List<Doc> web = webDocuments(sql);
+        List<Doc> web = withReleaseTimes(webDocuments(sql), archiveIndex(), ReleaseResolver.load(sql, lakeRoot));
         List<Doc> docs = new ArrayList<>(web);
         Set<String> droppedWeb = new HashSet<>();
         BisSpeeches.Load bis = BisSpeeches.read(lakeRoot);
@@ -87,19 +104,35 @@ public final class DocumentNormalizer {
             docs.add(new Doc(LocalDiskLakeStorage.sha256(s.url().getBytes(StandardCharsets.UTF_8)), s.url(), null,
                     "txt", BisSpeeches.SOURCE, "bis-speeches", s.issuer().name(), s.issuer().currency(), "fx",
                     "cb_text", s.title(), s.speechDate() == null ? null : s.speechDate() + "T00:00:00Z",
-                    s.downloadedAt().toString(), s.availableUtc().toString(), true,
+                    s.downloadedAt().toString(), s.availableUtc().toString(), true, null,
                     () -> DocumentText.tidy(s.text() == null ? "" : s.text())));
         }
 
-        List<Object[]> rows = new ArrayList<>();
+        // texto de cada documento (uma vez só: o anexo é comparado com a página de origem)
         List<String> failures = new ArrayList<>();
+        java.util.Map<String, String> textByUrl = new java.util.HashMap<>();
+        java.util.Map<String, String> textBySha = new java.util.HashMap<>();
         for (Doc d : docs) {
             if (SOURCE.equals(d.source()) && droppedWeb.contains(d.sha())) continue;
-            String text;
             try {
-                text = d.text().get();
+                String t = d.text().get();
+                textBySha.put(d.sha() + "|" + d.url(), t);
+                textByUrl.put(d.url(), t);
             } catch (RuntimeException e) {
                 failures.add(d.url() + ": " + e.getMessage());
+            }
+        }
+
+        List<Object[]> rows = new ArrayList<>();
+        int duplicateAttachments = 0;
+        for (Doc d : docs) {
+            String text = textBySha.get(d.sha() + "|" + d.url());
+            if (text == null) continue;
+            // o PDF que é só a própria página em outro formato (ex.: ata do FOMC) não entra duas vezes
+            String parentText = d.parentUrl() == null ? null : textByUrl.get(d.parentUrl());
+            if (parentText != null && parentText.length() >= MIN_PARENT_CHARS
+                    && similarity(words(text), words(parentText)) >= SAME_CONTENT) {
+                duplicateAttachments++;
                 continue;
             }
             List<String> chunks = Chunker.split(text, maxChars);
@@ -113,7 +146,8 @@ public final class DocumentNormalizer {
             }
         }
         if (rows.isEmpty()) {
-            return new Report(0, 0, 0, failures, List.of(), bis.records(), bis.otherInstitutions(), duplicates, out);
+            return new Report(0, 0, 0, failures, List.of(), bis.records(), bis.otherInstitutions(), duplicates,
+                    duplicateAttachments, out);
         }
 
         LinkedHashMap<String, String> cols = new LinkedHashMap<>();
@@ -168,7 +202,7 @@ public final class DocumentNormalizer {
         long chunkCount = sql.scalar("SELECT count(*) FROM doc_chunks WHERE chars > 0");
         long empty = issuers.stream().mapToLong(IssuerStats::emptyDocs).sum();
         return new Report(docCount, chunkCount, empty, failures, issuers, bis.records(), bis.otherInstitutions(),
-                duplicates, out);
+                duplicates, duplicateAttachments, out);
     }
 
     /** Páginas e PDFs do coletor próprio (bronze/cb_web). */
@@ -177,13 +211,18 @@ public final class DocumentNormalizer {
         if (!Files.isDirectory(dir)) return List.of();
         return sql.query("""
                 SELECT filename, sha256, content_type, feed_id, issuer, currency, coalesce(market, 'fx'), doc_type,
-                       url, title, published_at, first_seen_at, parent_url
+                       url, title, published_at, first_seen_at, parent_url,
+                       doc_kind, ref_date, release_event, release_anchor
                   FROM read_json('%s/date=*/*.meta.json', filename = true,
                                  columns = {sha256: 'VARCHAR', content_type: 'VARCHAR', feed_id: 'VARCHAR',
                                             issuer: 'VARCHAR', currency: 'VARCHAR', market: 'VARCHAR',
                                             doc_type: 'VARCHAR', url: 'VARCHAR', title: 'VARCHAR',
-                                            published_at: 'VARCHAR', first_seen_at: 'VARCHAR', parent_url: 'VARCHAR'})
+                                            published_at: 'VARCHAR', first_seen_at: 'VARCHAR', parent_url: 'VARCHAR',
+                                            doc_kind: 'VARCHAR', ref_date: 'VARCHAR', release_event: 'VARCHAR',
+                                            release_anchor: 'VARCHAR'})
                 """.formatted(LakeSql.slashes(dir)), rs -> {
+            Release release = rs.getString(15) == null ? null : new Release(rs.getString(14),
+                    java.time.LocalDate.parse(rs.getString(15)), rs.getString(16), rs.getString(17));
             Path meta = Path.of(rs.getString(1));
             String base = meta.getFileName().toString().replace(".meta.json", "");
             String type = rs.getString(3);
@@ -193,7 +232,7 @@ public final class DocumentNormalizer {
             String firstSeen = rs.getString(12);
             return new Doc(rs.getString(2), rs.getString(9), rs.getString(13), contentType, SOURCE, rs.getString(4),
                     rs.getString(5), rs.getString(6), rs.getString(7), rs.getString(8), rs.getString(10),
-                    rs.getString(11), firstSeen, firstSeen, false, () -> {
+                    rs.getString(11), firstSeen, firstSeen, false, release, () -> {
                 try {
                     return DocumentText.extract(Files.readAllBytes(file), contentType);
                 } catch (IOException e) {
@@ -201,6 +240,59 @@ public final class DocumentNormalizer {
                 }
             });
         });
+    }
+
+    /**
+     * Documentos do arquivo histórico: disponível no horário oficial de divulgação (calendário) + 30 s; sem
+     * evento correspondente, no fim do dia de referência. PDFs anexos herdam o horário da página.
+     * Sempre {@code availability_estimated} (não foi visto ao vivo).
+     */
+    private List<Doc> withReleaseTimes(List<Doc> web, java.util.Map<String, Release> index, ReleaseResolver resolver) {
+        java.util.Map<String, Doc> byUrl = new java.util.HashMap<>();
+        List<Doc> out = new ArrayList<>(web.size());
+        for (Doc d0 : web) {
+            // a regra vem do .meta.json (baixado pelo arquivo) ou do índice (já tinha vindo por um feed)
+            Release rel = d0.release() != null ? d0.release() : index.get(d0.url());
+            Doc d = rel == d0.release() ? d0 : new Doc(d0.sha(), d0.url(), d0.parentUrl(), d0.contentType(),
+                    d0.source(), d0.feedId(), d0.issuer(), d0.currency(), d0.market(), d0.docType(), d0.title(),
+                    d0.publishedAt(), d0.firstSeenAt(), d0.availableUtc(), d0.estimated(), rel, d0.text());
+            Doc r = d;
+            if (rel != null) {
+                String when = resolver.resolve(rel.event(), rel.anchor(), rel.refDate())
+                        .map(Instant::toString)
+                        .orElse(rel.refDate().atTime(23, 59, 59).toInstant(java.time.ZoneOffset.UTC).toString());
+                // documento visto ao vivo ANTES do horário estimado continua valendo pelo horário real
+                if (Instant.parse(when).isBefore(Instant.parse(d.firstSeenAt()))) r = d.withAvailability(when, true);
+            }
+            byUrl.put(r.url(), r);
+            out.add(r);
+        }
+        for (int i = 0; i < out.size(); i++) {
+            Doc d = out.get(i);
+            Doc parent = d.parentUrl() == null ? null : byUrl.get(d.parentUrl());
+            if (parent != null && parent.release() != null) out.set(i, d.withAvailability(parent.availableUtc(), true));
+        }
+        return out;
+    }
+
+    /** bronze/cb_archive_index: url → regra do horário de divulgação (gravado pelo backfill-archives). */
+    private java.util.Map<String, Release> archiveIndex() {
+        java.util.Map<String, Release> out = new java.util.HashMap<>();
+        Path dir = lakeRoot.resolve("bronze").resolve("cb_archive_index");
+        if (!Files.isDirectory(dir)) return out;
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        try (var files = Files.walk(dir, 2)) {
+            for (Path f : files.filter(p -> p.toString().endsWith(".json") && !p.toString().endsWith(".meta.json")).toList()) {
+                for (var n : json.readTree(f.toFile())) {
+                    out.put(n.path("url").asText(), new Release(n.path("doc_kind").asText(),
+                            java.time.LocalDate.parse(n.path("ref_date").asText()), n.path("release_event").asText(),
+                            n.path("release_anchor").asText()));
+                }
+            }
+        } catch (IOException e) {
+            throw new java.io.UncheckedIOException("Índice do arquivo ilegível em " + dir, e);
+        }
+        return out;
     }
 
     /**

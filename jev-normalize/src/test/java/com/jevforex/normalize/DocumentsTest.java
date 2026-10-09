@@ -118,6 +118,30 @@ class DocumentsTest {
         }
     }
 
+    @Test
+    void normalizer_anexoQueRepeteAPagina_entraUmaVez(@TempDir Path lakeRoot) throws Exception {
+        LocalDiskLakeStorage lake = new LocalDiskLakeStorage(new LakeProperties(lakeRoot.toString()));
+        String minutes = "Participants agreed that inflation remained elevated and that policy should stay restrictive. "
+                .repeat(20);
+        String page = "https://www.federalreserve.gov/monetarypolicy/fomcminutes20240131.htm";
+        lake.writeBronze("cb_web", Instant.parse("2026-10-09T18:00:00Z"), "html",
+                ("<div id=\"article\"><p>" + minutes + "</p></div>").getBytes(StandardCharsets.UTF_8),
+                meta(page, "Minutes", "html", null));
+        // a mesma ata em PDF (aqui, texto): fica de fora
+        lake.writeBronze("cb_web", Instant.parse("2026-10-09T18:00:01Z"), "txt",
+                minutes.getBytes(StandardCharsets.UTF_8), meta(page.replace(".htm", ".pdf"), "Minutes PDF", "txt", page));
+        // anexo com conteúdo próprio (ex.: projeções): entra
+        lake.writeBronze("cb_web", Instant.parse("2026-10-09T18:00:02Z"), "txt",
+                "Summary of Economic Projections: median federal funds rate 4.6 percent.".getBytes(StandardCharsets.UTF_8),
+                meta("https://www.federalreserve.gov/x/sep.pdf", "SEP", "txt", page));
+
+        try (LakeSql sql = LakeSql.open(lakeRoot.resolve("tmp"), "1GB")) {
+            DocumentNormalizer.Report r = new DocumentNormalizer(lakeRoot).run(sql, 6000);
+            assertEquals(1, r.duplicateAttachments());
+            assertEquals(2, r.docs());
+        }
+    }
+
     private static Map<String, Object> meta(String url, String title, String type, String parentUrl) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("feed_id", "fed-monetary");

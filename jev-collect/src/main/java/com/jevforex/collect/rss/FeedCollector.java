@@ -137,7 +137,37 @@ public class FeedCollector {
         return new int[]{items.size(), created};
     }
 
+    /** Resultado de {@link #storeDocument}. */
+    public enum StoreOutcome { STORED, ALREADY_STORED, FAILED, SITE_PAUSED }
+
+    /**
+     * Baixa e guarda um documento que não veio de um feed (ex.: arquivo histórico de comunicados), com as
+     * mesmas regras da coleta: intervalo entre pedidos, pausa por site, bronze + raw_document e PDFs anexos.
+     *
+     * @param extraMeta vai para o .meta.json (ex.: doc_kind, ref_date e a regra do horário de divulgação)
+     */
+    public StoreOutcome storeDocument(FeedProperties.Feed feed, String url, String title, Instant publishedAt,
+                                      Map<String, Object> extraMeta) throws InterruptedException {
+        if (repo.exists(SOURCE, url)) return StoreOutcome.ALREADY_STORED;
+        try {
+            return storeItem(feed, new RssParser.FeedItem(title, url, null, publishedAt, null), new int[1], extraMeta)
+                    ? StoreOutcome.STORED : StoreOutcome.FAILED;
+        } catch (SitePaused e) {
+            return StoreOutcome.SITE_PAUSED;
+        } catch (InterruptedException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("{}: {} falhou: {}", feed.id(), url, e.toString());
+            return StoreOutcome.FAILED;
+        }
+    }
+
     private boolean storeItem(FeedProperties.Feed feed, RssParser.FeedItem item, int[] attachments) throws Exception {
+        return storeItem(feed, item, attachments, Map.of());
+    }
+
+    private boolean storeItem(FeedProperties.Feed feed, RssParser.FeedItem item, int[] attachments,
+                              Map<String, Object> extraMeta) throws Exception {
         Instant firstSeen = Instant.now();      // o momento que vale para treino e backtest
         byte[] content;
         String ext;
@@ -178,6 +208,7 @@ public class FeedCollector {
         meta.put("published_at", item.publishedAt() == null ? null : item.publishedAt().toString());
         meta.put("content_type", ext);
         meta.put("collector", COLLECTOR);
+        meta.putAll(extraMeta);
 
         LakeStorage.StoredObject stored = lake.writeBronze(SOURCE, firstSeen, ext, content, meta);
         RawDocument doc = new RawDocument(0, SOURCE, feed.id(), feed.issuer(), feed.currency(), feed.market(),
