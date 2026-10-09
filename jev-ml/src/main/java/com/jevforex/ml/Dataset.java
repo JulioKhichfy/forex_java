@@ -7,7 +7,9 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.TreeSet;
 
 /**
@@ -25,6 +27,28 @@ public final class Dataset {
     public static final List<String> CALENDAR = List.of("surprise_base", "surprise_quote", "surprise_diff",
             "min_since_event", "min_to_event", "is_event");
 
+    /** Grupo C: sinais do Jev por moeda (fset v2). */
+    public static final List<String> TEXT = List.of("text_short_base", "text_short_quote", "text_short_diff",
+            "text_long_base", "text_long_quote", "text_long_diff", "guidance_base", "guidance_quote", "text_docs_24h",
+            "hours_since_text");
+
+    /** A = preço; B = A + calendário; C = B + texto do Jev (documento mestre, capítulo 11). */
+    public static final Map<String, List<String>> MODELS;
+
+    static {
+        Map<String, List<String>> m = new LinkedHashMap<>();
+        m.put("A", PRICE);
+        m.put("B", concat(PRICE, CALENDAR));
+        m.put("C", concat(concat(PRICE, CALENDAR), TEXT));
+        MODELS = java.util.Collections.unmodifiableMap(m);
+    }
+
+    private static List<String> concat(List<String> a, List<String> b) {
+        List<String> out = new ArrayList<>(a);
+        out.addAll(b);
+        return List.copyOf(out);
+    }
+
     /** Classes na ordem usada pelo modelo. */
     public static final List<String> CLASSES = List.of("QUEDA", "LATERAL", "ALTA");
     public static final int DOWN = 0, FLAT = 1, UP = 2;
@@ -38,6 +62,8 @@ public final class Dataset {
     final int[] y;
     final double[] yBuy, ySell;
     int missingValues;
+    /** O gold tem o grupo C (fset v2 ou depois)? */
+    boolean hasText;
 
     Dataset(int n, List<String> columns) {
         moment = new long[n];
@@ -79,6 +105,10 @@ public final class Dataset {
         }
         List<String> feats = new ArrayList<>(PRICE);
         feats.addAll(CALENDAR);
+        List<String> available = sql.query("DESCRIBE SELECT * FROM read_parquet('" + LakeSql.slashes(features)
+                + "/**/*.parquet', hive_partitioning = true)", rs -> rs.getString(1));
+        boolean hasText = available.containsAll(TEXT);
+        if (hasText) feats.addAll(TEXT);
         String select = String.join(", ", feats.stream()
                 .map(c -> c.equals("is_event") ? "CAST(f.kind = 'EVENT' AS DOUBLE) AS is_event" : "f." + c).toList());
         sql.execute("""
@@ -96,6 +126,7 @@ public final class Dataset {
         pairs.forEach(p -> columns.add("pair_" + p));
         int n = (int) sql.scalar("SELECT count(*) FROM ds");
         Dataset d = new Dataset(n, List.copyOf(columns));
+        d.hasText = hasText;
         int[] row = {0};
         sql.query("SELECT * FROM ds ORDER BY m, symbol", rs -> {
             int i = row[0]++;

@@ -309,18 +309,23 @@ java -jar jev-app\target\jev-app.jar features
 - **Labels:** entrada no preço da barra que abre em t + 1 min (o M1 não tem preço no meio do minuto), saída h
   minutos depois; ask = bid + spread da barra × point. y_compra = (bid_saída − ask_entrada) ÷ ATR; ALTA se
   y_compra > 0,5; QUEDA se y_venda > 0,5. `label_available_utc` diz quando o resultado ficou conhecido (embargo no 3d).
-- **v1 simplifica:** ATR e RSI com média simples (não Wilder) e média de 50 barras H1 no lugar da EMA50.
-  O grupo C (texto do Jev) entra no passo 4.
+- **Grupo C (texto do Jev, fset v2, passo 4d):** por moeda, S(t) = Σ sinal × exp(−Δ/τ) dos documentos de
+  `gold\currency_signals` com `available_utc ≤ t` — `text_short_*` (τ = 6 h) e `text_long_*` (τ = 72 h) para base,
+  cotação e diferencial do par; `guidance_base/quote` (P(mudança de orientação) × relevância, τ = 72 h);
+  `text_docs_24h` e `hours_since_text`. Configuração em `features.text`; rode `jev-signals` antes.
+- **v1/v2 simplificam:** ATR e RSI com média simples (não Wilder) e média de 50 barras H1 no lugar da EMA50.
 
-### 10.2 Experimento A × B (walk-forward)
+### 10.2 Experimento A × B × C (walk-forward)
 
 ```powershell
-java -Xmx6g -jar jev-app\target\jev-app.jar train              # 60 e 15 min (~30 min)
-java -Xmx6g -jar jev-app\target\jev-app.jar train --horizon=60 # só o horizonte principal (~15 min)
+java -Xmx8g -jar jev-app\target\jev-app.jar train              # 60 e 15 min (~45 min)
+java -Xmx8g -jar jev-app\target\jev-app.jar train --horizon=60 # só o horizonte principal
 ```
 
 - **A** = grupo A (preço, custo, sessão, fator USD) + par; **B** = A + calendário (surpresa e proximidade de
-  eventos). Treinados e avaliados nas mesmas linhas: a diferença mede só o calendário.
+  eventos); **C** = B + texto do Jev (grupo C). Treinados e avaliados nas mesmas linhas: B − A mede o calendário,
+  **C − B mede o Jev**. Critério do documento mestre: C melhor que B (log loss) em ≥ 70% dos folds.
+  Modelos em `experiment.models`; com fset v1 (sem grupo C) o C fica de fora sozinho.
 - **Walk-forward** (cap. 11): período comum desde 12/2021; treina 24 meses, testa o mês seguinte, avança 1 mês.
   **Embargo:** só treina com labels conhecidos 1 dia antes do teste. **Cofre:** os últimos 6 meses completos
   ficam fora — serão abertos uma única vez, com o modelo escolhido (passo 5).

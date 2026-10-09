@@ -140,6 +140,39 @@ class FeatureBuilderTest {
         assertEquals(2.0, value(lake, "EURUSD", "2026-02-10 13:32:00", "min_since_event"), 1e-9);
     }
 
+    @Test
+    void grupoC_sinalDoJevComDecaimento_eSoODisponivel(@TempDir Path lake) {
+        silver(lake, "2030-01-01 00:00", 1.0);
+        Path sig = lake.resolve("gold/currency_signals/market=fx/qset=cb-text-v1/model=jev-1.13.0");
+        sig.getParent().toFile().mkdirs();
+        try (LakeSql sql = LakeSql.open(lake.resolve("tmp"), "1GB")) {
+            // USD hawkish às 08:00; EUR dovish às 11:00 (depois do momento das 10:00)
+            sql.execute("COPY (SELECT * FROM (VALUES "
+                    + "('USD', TIMESTAMP '2026-02-10 08:00:00', 0.5, 0.9, 0.8, 2026), "
+                    + "('EUR', TIMESTAMP '2026-02-10 11:00:00', -0.4, 0.9, 0.0, 2026)) "
+                    + "t(currency, available_utc, signal, relevance, guidance_change, year)) TO "
+                    + LakeSql.literal(sig) + " (FORMAT PARQUET, PARTITION_BY (year))");
+        }
+        FeatureBuilder.Report r = build(lake);
+        assertEquals(2, r.textSignals());
+
+        String t10 = "2026-02-10 10:00:00";
+        double shortUsd = 0.5 * Math.exp(-7200.0 / (6 * 3600));
+        assertEquals(0.0, value(lake, "EURUSD", t10, "text_short_base"), 1e-12);      // EUR só às 11:00
+        assertEquals(shortUsd, value(lake, "EURUSD", t10, "text_short_quote"), 1e-9);
+        assertEquals(-shortUsd, value(lake, "EURUSD", t10, "text_short_diff"), 1e-9);  // USD forte → EURUSD para baixo
+        assertEquals(shortUsd, value(lake, "USDJPY", t10, "text_short_base"), 1e-9);
+        assertEquals(0.5 * Math.exp(-7200.0 / (72 * 3600)), value(lake, "EURUSD", t10, "text_long_quote"), 1e-9);
+        assertEquals(0.8 * 0.9 * Math.exp(-7200.0 / (72 * 3600)), value(lake, "EURUSD", t10, "guidance_quote"), 1e-9);
+        assertEquals(1.0, value(lake, "EURUSD", t10, "text_docs_24h"), 1e-12);
+        assertEquals(2.0, value(lake, "EURUSD", t10, "hours_since_text"), 1e-12);
+
+        // ao meio-dia o EUR já entrou
+        assertEquals(-0.4 * Math.exp(-3600.0 / (6 * 3600)), value(lake, "EURUSD", "2026-02-10 12:00:00", "text_short_base"), 1e-9);
+        // sem nenhum documento recente: 168 h (teto)
+        assertEquals(168.0, value(lake, "EURUSD", "2026-02-02 10:00:00", "hours_since_text"), 1e-12);
+    }
+
     private static double value(Path lake, String symbol, String moment, String col) {
         return Double.parseDouble(text(lake, symbol, moment, col));
     }

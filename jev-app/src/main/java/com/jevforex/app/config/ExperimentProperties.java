@@ -11,7 +11,7 @@ import java.util.List;
 public record ExperimentProperties(List<Integer> horizons, LocalDate from, Integer trainMonths, Integer testMonths,
                                    Integer embargoDays, Integer lockboxMonths, ExperimentConfig.Gbm gbm,
                                    ExperimentConfig.Decision decision, Double stopAtr, Double riskPerTradePct,
-                                   Integer threads, Long seed) {
+                                   Integer threads, Long seed, List<String> models) {
 
     /** Valores ausentes ficam com os do documento mestre; o fset vem do bloco features. */
     public ExperimentConfig toConfig(String fset) {
@@ -28,6 +28,7 @@ public record ExperimentProperties(List<Integer> horizons, LocalDate from, Integ
                 stopAtr == null ? d.stopAtr() : stopAtr,
                 riskPerTradePct == null ? d.riskPerTradePct() : riskPerTradePct,
                 threads == null || threads <= 0 ? d.threads() : threads,
-                seed == null ? d.seed() : seed);
+                seed == null ? d.seed() : seed,
+                models == null ? d.models() : models);
     }
 }

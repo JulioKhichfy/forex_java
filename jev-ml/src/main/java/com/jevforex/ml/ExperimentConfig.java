@@ -19,10 +19,11 @@ import java.util.List;
  * @param riskPerTradePct risco por trade para o drawdown simulado
  * @param threads        folds treinados em paralelo
  * @param seed           semente do subsample (reprodutível)
+ * @param models         modelos comparados (A = preço; B = + calendário; C = + texto do Jev); ver Dataset.MODELS
  */
 public record ExperimentConfig(String fset, List<Integer> horizons, LocalDate from, int trainMonths, int testMonths,
                                int embargoDays, int lockboxMonths, Gbm gbm, Decision decision, double stopAtr,
-                               double riskPerTradePct, int threads, long seed) {
+                               double riskPerTradePct, int threads, long seed, List<String> models) {
 
     public record Gbm(int ntrees, int maxDepth, int maxNodes, int nodeSize, double shrinkage, double subsample) {
     }
@@ -37,11 +38,22 @@ public record ExperimentConfig(String fset, List<Integer> horizons, LocalDate fr
         }
         horizons = List.copyOf(horizons);
         if (threads < 1) threads = 1;
+        if (models == null || models.isEmpty()) models = List.of("A", "B", "C");
+        for (String m : models) {
+            if (!Dataset.MODELS.containsKey(m)) throw new IllegalArgumentException("experiment.models: modelo desconhecido " + m);
+        }
+        models = List.copyOf(models);
     }
 
     public static ExperimentConfig defaults() {
-        return new ExperimentConfig("v1", List.of(60, 15), LocalDate.parse("2021-12-01"), 24, 1, 1, 6,
+        return new ExperimentConfig("v2", List.of(60, 15), LocalDate.parse("2021-12-01"), 24, 1, 1, 6,
                 new Gbm(200, 4, 16, 50, 0.05, 0.7), new Decision(0.60, 0.35), 1.5, 0.5,
-                Math.max(1, Runtime.getRuntime().availableProcessors() - 1), 19650218L);
+                Math.max(1, Runtime.getRuntime().availableProcessors() - 1), 19650218L, List.of("A", "B", "C"));
+    }
+
+    /** O mesmo experimento com outros horizontes. */
+    public ExperimentConfig withHorizons(List<Integer> h) {
+        return new ExperimentConfig(fset, h, from, trainMonths, testMonths, embargoDays, lockboxMonths, gbm, decision,
+                stopAtr, riskPerTradePct, threads, seed, models);
     }
 }

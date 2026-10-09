@@ -487,6 +487,14 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 + "(hora cheia, sessões ativas)%n", r.moments(), r.eventMoments(), r.controlMoments());
         System.out.printf("  Calendário: %d divulgações com actual, %d com surpresa z calculável (σ de %d anteriores, "
                 + "mín. %d)%n", r.releases(), r.releasesWithZ(), cfg.sigmaWindow(), cfg.sigmaMinHistory());
+        if (cfg.text() == null) {
+            System.out.println("  Grupo C (texto): desligado (features.text.enabled = false)");
+        } else {
+            System.out.printf(Locale.ROOT, "  Grupo C (texto): %d documentos com sinal do Jev (%s, %s) · %.0f%% dos "
+                            + "momentos sem nenhum sinal nos ~18 dias anteriores%s%n", r.textSignals(), cfg.text().qset(),
+                    cfg.text().model(), 100 * r.textZeroShare(),
+                    r.textSignals() == 0 ? " · ATENÇÃO: rode jev-signals antes" : "");
+        }
         if (!r.symbolsWithoutSpec().isEmpty()) {
             System.out.println("  ATENÇÃO: sem especificação do MT5 para " + r.symbolsWithoutSpec()
                     + " (point estimado pelos dígitos usuais). Rode normalize depois de exportar as especificações.");
@@ -513,13 +521,9 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private void train(ApplicationArguments args) throws Exception {
         ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset());
         String h = opt(args, "horizon", null);
-        if (h != null) {
-            cfg = new ExperimentConfig(cfg.fset(), List.of(Integer.parseInt(h)), cfg.from(), cfg.trainMonths(),
-                    cfg.testMonths(), cfg.embargoDays(), cfg.lockboxMonths(), cfg.gbm(), cfg.decision(), cfg.stopAtr(),
-                    cfg.riskPerTradePct(), cfg.threads(), cfg.seed());
-        }
-        System.out.printf("Walk-forward A × B · fset %s · horizontes %s · desde %s · %d threads%n", cfg.fset(),
-                cfg.horizons(), cfg.from(), cfg.threads());
+        if (h != null) cfg = cfg.withHorizons(List.of(Integer.parseInt(h)));
+        System.out.printf("Walk-forward %s · fset %s · horizontes %s · desde %s · %d threads%n",
+                String.join(" × ", cfg.models()), cfg.fset(), cfg.horizons(), cfg.from(), cfg.threads());
         ExperimentRunner.Result r;
         try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
             r = new ExperimentRunner(lake.root(), cfg).run(sql, System.out::println);
@@ -529,21 +533,30 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
             ExperimentRunner.Summary s = hr.summary();
             System.out.printf(Locale.ROOT, "%n=== Horizonte %d min · %d folds (teste %s a %s) · cofre %s a %s (não avaliado) ===%n",
                     hr.horizon(), s.folds(), hr.firstTest(), hr.lastTest(), hr.lockboxFrom(), hr.lockboxTo());
-            System.out.printf(Locale.ROOT, "  %-30s %10s %10s %10s%n", "fora da amostra", "base", "A preço", "B +calend.");
-            System.out.printf(Locale.ROOT, "  %-30s %10.4f %10.4f %10.4f%n", "log loss (todos, " + s.rows() + ")",
-                    s.llBase(), s.llA(), s.llB());
-            System.out.printf(Locale.ROOT, "  %-30s %10.4f %10.4f %10.4f%n", "log loss (eventos, " + s.eventRows() + ")",
-                    s.llEventBase(), s.llEventA(), s.llEventB());
-            System.out.printf(Locale.ROOT, "  %-30s %10s %10.3f %10.3f%n", "AUC ALTA (todos)", "", s.aucUpA(), s.aucUpB());
-            System.out.printf(Locale.ROOT, "  %-30s %10s %10.3f %10.3f%n", "AUC ALTA (eventos)", "", s.aucUpEventA(),
-                    s.aucUpEventB());
-            System.out.printf(Locale.ROOT, "  B melhor que A (log loss) em %d de %d folds%n", s.foldsBBetter(), s.folds());
-            printTrades("A", s.tradesA());
-            printTrades("B", s.tradesB());
+            StringBuilder head = new StringBuilder(String.format("  %-30s %10s", "fora da amostra", "base"));
+            hr.models().forEach(m -> head.append(String.format(" %10s", m)));
+            System.out.println(head);
+            printRow("log loss (todos, " + s.rows() + ")", s.llBase(), hr.models(), m -> s.models().get(m).ll(), 4);
+            printRow("log loss (eventos, " + s.eventRows() + ")", s.llEventBase(), hr.models(),
+                    m -> s.models().get(m).llEvent(), 4);
+            printRow("AUC ALTA (todos)", Double.NaN, hr.models(), m -> s.models().get(m).aucUp(), 3);
+            printRow("AUC ALTA (eventos)", Double.NaN, hr.models(), m -> s.models().get(m).aucUpEvent(), 3);
+            s.comparisons().forEach((k, v) -> System.out.printf(Locale.ROOT, "  %s melhor que %s (log loss) em %d de %d folds%s%n",
+                    k.split("×")[0], k.split("×")[1], v, s.folds(),
+                    k.equals("C×B") ? (v >= 0.7 * s.folds() ? "  ← atende o critério (≥ 70%)" : "  ← NÃO atende o critério (≥ 70%)") : ""));
+            hr.models().forEach(m -> printTrades(m, s.models().get(m).trades()));
         }
         System.out.println("\nRelatório: " + report);
         System.out.println(r.predictions() != null ? "Previsões: " + r.predictions()
                 : "Previsões NÃO gravadas: " + r.predictionsError());
+    }
+
+    private static void printRow(String name, double base, List<String> models,
+                                 java.util.function.ToDoubleFunction<String> value, int decimals) {
+        StringBuilder line = new StringBuilder(String.format(Locale.ROOT, "  %-30s %10s", name,
+                Double.isNaN(base) ? "" : String.format(Locale.ROOT, "%." + decimals + "f", base)));
+        models.forEach(m -> line.append(String.format(Locale.ROOT, " %10." + decimals + "f", value.applyAsDouble(m))));
+        System.out.println(line);
     }
 
     private static void printTrades(String model, Metrics.Trades t) {

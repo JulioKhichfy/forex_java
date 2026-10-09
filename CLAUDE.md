@@ -52,7 +52,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-lake | LakeStorage em disco local (bronze/silver/gold), LakeSql (DuckDB embarcado) |
 | jev-normalize | bronze → silver em Parquet: Candle/Calendar/DocumentNormalizer, WeeklyOpenCheck, DocumentText (HTML/PDF), Chunker (sem Spring) |
 | jev-features | silver → gold: FeatureBuilder (momentos de decisão, features A/B, labels 15/60 min), FeatureConfig (sem Spring) |
-| jev-ml | walk-forward A×B (C no passo 4): Dataset, Gbm (Smile), Metrics, ExperimentRunner, ReportWriter (sem Spring) |
+| jev-ml | walk-forward A×B×C: Dataset, Gbm (Smile), Metrics, ExperimentRunner, ReportWriter (sem Spring) |
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5 |
 | jev-app | Spring Boot: CLI, agendadores, API `/api/status` e `/api/ea/*`, Flyway, application.yml |
 | mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor (shadow), `install.ps1` |
@@ -67,7 +67,7 @@ java -jar jev-app/target/jev-app.jar import-mt5-once | mt5-status | risk --balan
 java -jar jev-app/target/jev-app.jar jev-score [--run --max-usd=1.5] | jev-signals   # sem --run: só o plano e o custo
 java -jar jev-app/target/jev-app.jar normalize [--only=candles|calendar|documents]   # silver (sem Postgres)
 java -jar jev-app/target/jev-app.jar features                    # gold: features + labels (fset do yml)
-java -Xmx6g -jar jev-app/target/jev-app.jar train [--horizon=60]  # walk-forward A×B → reports/walkforward/<run>
+java -Xmx8g -jar jev-app/target/jev-app.jar train [--horizon=60]  # walk-forward A×B×C → reports/walkforward/<run>
 mvn -q package -Djar.name=jev-app-dev      # jar de desenvolvimento com o servidor rodando (sem clean)
 java -jar jev-app/target/jev-app.jar       # modo servidor
 powershell -ExecutionPolicy Bypass -File mql5\install.ps1   # copia e compila os MQL5 no terminal da Exness
@@ -93,6 +93,6 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       - [x] 4a acervo de discursos do BIS 2021+ (backfill-bis; silver documents com available_utc)
       - [x] 4b comunicados de decisão e atas de Fed, BCE, BoE, BoJ, BoC (backfill-archives; horário do calendário + 30 s)
       - [x] 4c Jev em escala (jev-score/jev-signals; 12.915 trechos, ~US$ 0,99; gold/jev_answers e currency_signals)
-      - [ ] 4d grupo C (sinal por moeda τ 6 h/72 h, diferencial) e modelo C no train
+      - [x] 4d grupo C (fset v2) e modelo C no train — resultado: C não supera B (60 min: 6/28 folds; 15 min: 14/28)
 - [ ] Passo 5 — experimento A/B/C walk-forward e go/no-go
 - [ ] Passo 6 — decision engine (gates), API bridge, EA executor, dashboard Angular; shadow → demo

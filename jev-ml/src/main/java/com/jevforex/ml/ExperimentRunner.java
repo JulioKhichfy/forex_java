@@ -11,21 +11,25 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.Consumer;
+import java.util.stream.IntStream;
 
 /**
- * Experimento A × B com walk-forward, embargo e cofre (documento mestre, capítulo 11).
+ * Experimento A × B × C com walk-forward, embargo e cofre (documento mestre, capítulo 11).
  *
  * <ul>
  *   <li>Fold: treina com {@code trainMonths} meses, testa no mês seguinte; só entram no treino linhas cujo
  *       label já era conhecido {@code embargoDays} antes do início do teste.</li>
  *   <li>Cofre: os últimos {@code lockboxMonths} meses completos ficam fora de tudo aqui.</li>
- *   <li>A e B são treinados e avaliados nas MESMAS linhas: a diferença mede só o calendário.</li>
+ *   <li>Todos os modelos são treinados e avaliados nas MESMAS linhas: B − A mede o calendário; C − B, o Jev.</li>
  * </ul>
  */
 public final class ExperimentRunner {
@@ -42,26 +46,32 @@ public final class ExperimentRunner {
         this.cfg = cfg;
     }
 
-    public record FoldResult(String testMonth, int nTrain, int nTest, int nTestEvents, double llBase, double llA,
-                             double llB, double aucUpA, double aucUpB, Metrics.Trades tradesA, Metrics.Trades tradesB) {
+    /** Métricas de um modelo num fold. */
+    public record FoldModel(double ll, double aucUp, Metrics.Trades trades) {
     }
 
-    public record Sweep(double minProb, double minMargin, Metrics.Trades a, Metrics.Trades b) {
+    public record FoldResult(String testMonth, int nTrain, int nTest, int nTestEvents, double llBase,
+                             Map<String, FoldModel> models) {
+    }
+
+    /** Métricas de um modelo em TODAS as linhas fora da amostra; *Event = só momentos de evento. */
+    public record ModelSummary(double ll, double llEvent, double aucUp, double aucDown, double aucUpEvent,
+                               Metrics.Trades trades) {
     }
 
     /**
-     * Métricas sobre TODAS as linhas fora da amostra; *Event = só momentos de evento (onde o calendário pode
-     * ajudar).
+     * @param comparisons "B×A" → em quantos folds B teve log loss menor que A (e assim por diante)
      */
-    public record Summary(int folds, int foldsBBetter, int rows, int eventRows, double llBase, double llA,
-                          double llB, double llEventBase, double llEventA, double llEventB, double aucUpA,
-                          double aucUpB, double aucDownA, double aucDownB, double aucUpEventA, double aucUpEventB,
-                          Metrics.Trades tradesA, Metrics.Trades tradesB) {
+    public record Summary(int folds, int rows, int eventRows, double llBase, double llEventBase,
+                          Map<String, ModelSummary> models, Map<String, Integer> comparisons) {
     }
 
-    public record HorizonResult(int horizon, int rows, String firstTest, String lastTest, String lockboxFrom,
-                                String lockboxTo, List<FoldResult> folds, Summary summary, List<Sweep> sweep,
-                                Map<String, Double> importanceA, Map<String, Double> importanceB, double seconds) {
+    public record Sweep(double minProb, double minMargin, Map<String, Metrics.Trades> models) {
+    }
+
+    public record HorizonResult(int horizon, int rows, List<String> models, String firstTest, String lastTest,
+                                String lockboxFrom, String lockboxTo, List<FoldResult> folds, Summary summary,
+                                List<Sweep> sweep, Map<String, Map<String, Double>> importance, double seconds) {
     }
 
     /**
@@ -73,18 +83,22 @@ public final class ExperimentRunner {
     }
 
     /** Previsões fora da amostra de um horizonte (para gravar no gold). */
-    record Oos(int horizon, Dataset data, int[] foldOf, String[] foldMonth, double[][] pA, double[][] pB) {
+    record Oos(int horizon, Dataset data, int[] foldOf, String[] foldMonth, Map<String, double[][]> probs) {
     }
 
-    public Result run(LakeSql sql, java.util.function.Consumer<String> progress) throws Exception {
+    public Result run(LakeSql sql, Consumer<String> progress) throws Exception {
         String runId = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC).format(Instant.now());
         List<HorizonResult> out = new ArrayList<>();
         List<Oos> oos = new ArrayList<>();
         for (int h : cfg.horizons()) {
             long t0 = System.nanoTime();
             Dataset d = Dataset.load(sql, lakeRoot, cfg.fset(), h, cfg.from());
-            progress.accept(String.format("Horizonte %d min: %d linhas carregadas", h, d.size()));
-            out.add(runHorizon(h, d, oos, progress, (System.nanoTime() - t0)));
+            List<String> models = new ArrayList<>(cfg.models());
+            if (!d.hasText && models.remove("C")) {
+                progress.accept("ATENÇÃO: fset " + cfg.fset() + " sem o grupo C (texto do Jev): modelo C fica de fora");
+            }
+            progress.accept(String.format("Horizonte %d min: %d linhas carregadas · modelos %s", h, d.size(), models));
+            out.add(runHorizon(h, d, models, oos, progress, t0));
         }
         Path report = ReportWriter.write(lakeRoot, new Result(runId, cfg, out, null, null, null));
         progress.accept("Relatório gravado: " + report);
@@ -97,9 +111,8 @@ public final class ExperimentRunner {
         }
     }
 
-    private HorizonResult runHorizon(int h, Dataset d, List<Oos> oosOut, java.util.function.Consumer<String> progress,
-                                     long loadNanos) throws Exception {
-        long t0 = System.nanoTime() - loadNanos;
+    private HorizonResult runHorizon(int h, Dataset d, List<String> models, List<Oos> oosOut, Consumer<String> progress,
+                                     long t0) throws Exception {
         // ---------------------------------------------------------------- folds e cofre
         YearMonth lastIncomplete = YearMonth.from(Instant.ofEpochSecond(d.moment[d.size() - 1]).atZone(ZoneOffset.UTC));
         YearMonth lockboxTo = lastIncomplete.minusMonths(1);
@@ -110,16 +123,22 @@ public final class ExperimentRunner {
         if (tests.isEmpty()) throw new IllegalStateException("Dados insuficientes para um fold (treino de "
                 + cfg.trainMonths() + " meses + cofre de " + cfg.lockboxMonths() + ")");
 
-        int[] all = d.columnsOf(concat(Dataset.PRICE, Dataset.CALENDAR));
-        int[] colsA = d.columnsOf(Dataset.PRICE);
-        int[] colsB = all;
-        List<String> namesA = d.names(colsA), namesB = d.names(colsB);
+        Map<String, int[]> cols = new LinkedHashMap<>();
+        Map<String, List<String>> names = new LinkedHashMap<>();
+        for (String m : models) {
+            int[] c = d.columnsOf(Dataset.MODELS.get(m));
+            cols.put(m, c);
+            names.put(m, d.names(c));
+        }
 
-        double[][] pA = new double[d.size()][], pB = new double[d.size()][], pBase = new double[d.size()][];
+        Map<String, double[][]> probs = new LinkedHashMap<>();
+        models.forEach(m -> probs.put(m, new double[d.size()][]));
+        double[][] pBase = new double[d.size()][];
         int[] foldOf = new int[d.size()];
         Arrays.fill(foldOf, -1);
         String[] foldMonth = new String[tests.size()];
-        List<Map<String, Double>> impA = new ArrayList<>(), impB = new ArrayList<>();
+        Map<String, List<Map<String, Double>>> imps = new LinkedHashMap<>();
+        models.forEach(m -> imps.put(m, new ArrayList<>()));
         List<FoldResult> folds = new ArrayList<>();
 
         ExecutorService pool = Executors.newFixedThreadPool(cfg.threads());
@@ -129,63 +148,71 @@ public final class ExperimentRunner {
                 final int fold = f;
                 YearMonth m = tests.get(f);
                 foldMonth[f] = m.toString();
-                futures.add(pool.submit(() -> runFold(fold, m, lockboxFrom, d, colsA, colsB, namesA, namesB)));
+                futures.add(pool.submit(() -> runFold(fold, m, lockboxFrom, d, models, cols, names)));
             }
             int done = 0;
             for (Future<FoldOutput> fu : futures) {
                 FoldOutput o = fu.get();
                 for (int k = 0; k < o.testRows.length; k++) {
                     int i = o.testRows[k];
-                    pA[i] = o.pA[k];
-                    pB[i] = o.pB[k];
+                    for (String m : models) probs.get(m)[i] = o.probs.get(m)[k];
                     pBase[i] = o.pBase[k];
                     foldOf[i] = o.fold;
                 }
-                impA.add(o.impA);
-                impB.add(o.impB);
+                models.forEach(m -> imps.get(m).add(o.importance.get(m)));
                 folds.add(o.result);
-                progress.accept(String.format(java.util.Locale.ROOT,
-                        "  %d min · fold %s (%d/%d): treino %d, teste %d · log loss A %.4f, B %.4f",
-                        h, o.result.testMonth(), ++done, tests.size(), o.result.nTrain(), o.result.nTest(),
-                        o.result.llA(), o.result.llB()));
+                StringBuilder ll = new StringBuilder();
+                o.result.models().forEach((m, fm) -> ll.append(String.format(Locale.ROOT, " %s %.4f", m, fm.ll())));
+                progress.accept(String.format(Locale.ROOT, "  %d min · fold %s (%d/%d): treino %d, teste %d · log loss%s",
+                        h, o.result.testMonth(), ++done, tests.size(), o.result.nTrain(), o.result.nTest(), ll));
             }
         } finally {
             pool.shutdownNow();
         }
 
         // ---------------------------------------------------------------- todas as linhas fora da amostra
-        int[] rows = java.util.stream.IntStream.range(0, d.size()).filter(i -> foldOf[i] >= 0).toArray();
+        int[] rows = IntStream.range(0, d.size()).filter(i -> foldOf[i] >= 0).toArray();
         int[] evRows = Arrays.stream(rows).filter(i -> d.event[i]).toArray();
-        Summary s = new Summary(folds.size(),
-                (int) folds.stream().filter(f -> f.llB() < f.llA()).count(), rows.length, evRows.length,
-                Metrics.logLoss(sub(pBase, rows), sub(d.y, rows)), Metrics.logLoss(sub(pA, rows), sub(d.y, rows)),
-                Metrics.logLoss(sub(pB, rows), sub(d.y, rows)),
-                Metrics.logLoss(sub(pBase, evRows), sub(d.y, evRows)), Metrics.logLoss(sub(pA, evRows), sub(d.y, evRows)),
-                Metrics.logLoss(sub(pB, evRows), sub(d.y, evRows)),
-                Metrics.auc(sub(pA, rows), sub(d.y, rows), Dataset.UP), Metrics.auc(sub(pB, rows), sub(d.y, rows), Dataset.UP),
-                Metrics.auc(sub(pA, rows), sub(d.y, rows), Dataset.DOWN), Metrics.auc(sub(pB, rows), sub(d.y, rows), Dataset.DOWN),
-                Metrics.auc(sub(pA, evRows), sub(d.y, evRows), Dataset.UP),
-                Metrics.auc(sub(pB, evRows), sub(d.y, evRows), Dataset.UP),
-                trades(sub(pA, rows), d, rows, cfg.decision().minProb(), cfg.decision().minMargin()),
-                trades(sub(pB, rows), d, rows, cfg.decision().minProb(), cfg.decision().minMargin()));
+        int[] y = sub(d.y, rows), yEv = sub(d.y, evRows);
+        Map<String, ModelSummary> summaries = new LinkedHashMap<>();
+        for (String m : models) {
+            double[][] p = sub(probs.get(m), rows), pEv = sub(probs.get(m), evRows);
+            summaries.put(m, new ModelSummary(Metrics.logLoss(p, y), Metrics.logLoss(pEv, yEv),
+                    Metrics.auc(p, y, Dataset.UP), Metrics.auc(p, y, Dataset.DOWN), Metrics.auc(pEv, yEv, Dataset.UP),
+                    trades(p, d, rows, cfg.decision().minProb(), cfg.decision().minMargin())));
+        }
+        Map<String, Integer> comparisons = new LinkedHashMap<>();
+        for (int a = 0; a < models.size(); a++) {
+            for (int b = a + 1; b < models.size(); b++) {
+                String lo = models.get(a), hi = models.get(b);
+                comparisons.put(hi + "×" + lo, (int) folds.stream()
+                        .filter(f -> f.models().get(hi).ll() < f.models().get(lo).ll()).count());
+            }
+        }
+        Summary s = new Summary(folds.size(), rows.length, evRows.length, Metrics.logLoss(sub(pBase, rows), y),
+                Metrics.logLoss(sub(pBase, evRows), yEv), summaries, comparisons);
+
         List<Sweep> sweep = new ArrayList<>();
         for (double[] th : SWEEP) {
-            sweep.add(new Sweep(th[0], th[1], trades(sub(pA, rows), d, rows, th[0], th[1]),
-                    trades(sub(pB, rows), d, rows, th[0], th[1])));
+            Map<String, Metrics.Trades> t = new LinkedHashMap<>();
+            for (String m : models) t.put(m, trades(sub(probs.get(m), rows), d, rows, th[0], th[1]));
+            sweep.add(new Sweep(th[0], th[1], t));
         }
-        oosOut.add(new Oos(h, d, foldOf, foldMonth, pA, pB));
-        folds.sort(java.util.Comparator.comparing(FoldResult::testMonth));
-        return new HorizonResult(h, d.size(), tests.get(0).toString(), tests.get(tests.size() - 1).toString(),
-                lockboxFrom.toString(), lockboxTo.toString(), folds, s, sweep, average(impA), average(impB),
+        oosOut.add(new Oos(h, d, foldOf, foldMonth, probs));
+        folds.sort(Comparator.comparing(FoldResult::testMonth));
+        Map<String, Map<String, Double>> importance = new LinkedHashMap<>();
+        models.forEach(m -> importance.put(m, average(imps.get(m))));
+        return new HorizonResult(h, d.size(), models, tests.get(0).toString(), tests.get(tests.size() - 1).toString(),
+                lockboxFrom.toString(), lockboxTo.toString(), folds, s, sweep, importance,
                 (System.nanoTime() - t0) / 1e9);
     }
 
-    private record FoldOutput(int fold, int[] testRows, double[][] pA, double[][] pB, double[][] pBase,
-                              Map<String, Double> impA, Map<String, Double> impB, FoldResult result) {
+    private record FoldOutput(int fold, int[] testRows, Map<String, double[][]> probs, double[][] pBase,
+                              Map<String, Map<String, Double>> importance, FoldResult result) {
     }
 
-    private FoldOutput runFold(int fold, YearMonth test, YearMonth lockboxFrom, Dataset d, int[] colsA, int[] colsB,
-                               List<String> namesA, List<String> namesB) {
+    private FoldOutput runFold(int fold, YearMonth test, YearMonth lockboxFrom, Dataset d, List<String> models,
+                               Map<String, int[]> cols, Map<String, List<String>> names) {
         long testStart = Dataset.epoch(test.atDay(1));
         YearMonth endMonth = test.plusMonths(cfg.testMonths());
         if (endMonth.isAfter(lockboxFrom)) endMonth = lockboxFrom;
@@ -201,25 +228,26 @@ public final class ExperimentRunner {
         }
         int[] tr = train.stream().mapToInt(Integer::intValue).toArray();
         int[] te = testRows.stream().mapToInt(Integer::intValue).toArray();
-        int[] yTrain = sub(d.y, tr);
-        int[] yTest = sub(d.y, te);
+        int[] yTrain = sub(d.y, tr), yTest = sub(d.y, te);
 
         long seed = cfg.seed() + fold;
-        Gbm a = Gbm.fit(matrix(d, tr, colsA), yTrain, namesA, cfg.gbm(), seed);
-        Gbm b = Gbm.fit(matrix(d, tr, colsB), yTrain, namesB, cfg.gbm(), seed);
-        double[][] pA = a.predict(matrix(d, te, colsA));
-        double[][] pB = b.predict(matrix(d, te, colsB));
+        Map<String, double[][]> probs = new LinkedHashMap<>();
+        Map<String, Map<String, Double>> importance = new LinkedHashMap<>();
+        Map<String, FoldModel> fm = new LinkedHashMap<>();
+        for (String m : models) {
+            Gbm g = Gbm.fit(matrix(d, tr, cols.get(m)), yTrain, names.get(m), cfg.gbm(), seed);
+            double[][] p = g.predict(matrix(d, te, cols.get(m)));
+            probs.put(m, p);
+            importance.put(m, g.importance());
+            fm.put(m, new FoldModel(Metrics.logLoss(p, yTest), Metrics.auc(p, yTest, Dataset.UP),
+                    trades(p, d, te, cfg.decision().minProb(), cfg.decision().minMargin())));
+        }
         double[][] pBase = Metrics.priors(yTrain, te.length);
-
         int events = 0;
         for (int i : te) if (d.event[i]) events++;
-        FoldResult r = new FoldResult(test.toString(), tr.length, te.length, events,
-                Metrics.logLoss(pBase, yTest), Metrics.logLoss(pA, yTest), Metrics.logLoss(pB, yTest),
-                Metrics.auc(pA, yTest, Dataset.UP), Metrics.auc(pB, yTest, Dataset.UP),
-                trades(pA, d, te, cfg.decision().minProb(), cfg.decision().minMargin()),
-                trades(pB, d, te, cfg.decision().minProb(), cfg.decision().minMargin()));
+        FoldResult r = new FoldResult(test.toString(), tr.length, te.length, events, Metrics.logLoss(pBase, yTest), fm);
         log.debug("fold {} pronto", test);
-        return new FoldOutput(fold, te, pA, pB, pBase, a.importance(), b.importance(), r);
+        return new FoldOutput(fold, te, probs, pBase, importance, r);
     }
 
     private Metrics.Trades trades(double[][] p, Dataset d, int[] rows, double minProb, double minMargin) {
@@ -251,12 +279,6 @@ public final class ExperimentRunner {
     private static double[] subD(double[] a, int[] rows) {
         double[] out = new double[rows.length];
         for (int i = 0; i < rows.length; i++) out[i] = a[rows[i]];
-        return out;
-    }
-
-    private static List<String> concat(List<String> a, List<String> b) {
-        List<String> out = new ArrayList<>(a);
-        out.addAll(b);
         return out;
     }
 

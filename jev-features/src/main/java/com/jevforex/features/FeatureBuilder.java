@@ -52,9 +52,14 @@ public final class FeatureBuilder {
     public record LabelStats(int horizonMinutes, long rows, long up, long down, long flat, double meanCostAtr) {
     }
 
+    /**
+     * @param textSignals   documentos com sinal do Jev disponíveis para o grupo C (0 = grupo C zerado)
+     * @param textZeroShare fração dos momentos sem nenhum sinal de texto nas últimas ~18 dias (τ longo × 6)
+     */
     public record Report(String fset, long moments, long eventMoments, long controlMoments, long releases,
-                         long releasesWithZ, List<String> symbolsWithoutSpec, List<SymbolCounts> symbols,
-                         List<LabelStats> labels, Map<String, Double> nullShare, Path featuresOut, Path labelsOut) {
+                         long releasesWithZ, long textSignals, double textZeroShare, List<String> symbolsWithoutSpec,
+                         List<SymbolCounts> symbols, List<LabelStats> labels, Map<String, Double> nullShare,
+                         Path featuresOut, Path labelsOut) {
     }
 
     public Report run(LakeSql sql) {
@@ -237,6 +242,9 @@ public final class FeatureBuilder {
                 """, cfg.surpriseDecayMinutes() * 60.0, cfg.surpriseDecayMinutes() * 6));
         sql.execute("CREATE OR REPLACE TEMP TABLE ev_avail AS SELECT currency, available_utc FROM releases WHERE weight > 0");
 
+        // ---------------------------------------------------------------- grupo C: sinais do Jev por moeda
+        long textSignals = buildTextFeatures(sql);
+
         // ---------------------------------------------------------------- features
         sql.execute("""
                 CREATE OR REPLACE TEMP TABLE feats AS
@@ -282,11 +290,19 @@ public final class FeatureBuilder {
                        coalesce(s.s_base, 0) - coalesce(s.s_quote, 0) AS surprise_diff,
                        least(1440, date_diff('minute', list_max([j.last_base, j.last_quote]), j.t)) AS min_since_event,
                        least(1440, date_diff('minute', j.t, list_min([j.next_base, j.next_quote]))) AS min_to_event,
+                       coalesce(tx.ts_base, 0) AS text_short_base, coalesce(tx.ts_quote, 0) AS text_short_quote,
+                       coalesce(tx.ts_base, 0) - coalesce(tx.ts_quote, 0) AS text_short_diff,
+                       coalesce(tx.tl_base, 0) AS text_long_base, coalesce(tx.tl_quote, 0) AS text_long_quote,
+                       coalesce(tx.tl_base, 0) - coalesce(tx.tl_quote, 0) AS text_long_diff,
+                       coalesce(tx.guid_base, 0) AS guidance_base, coalesce(tx.guid_quote, 0) AS guidance_quote,
+                       coalesce(tx.docs_24h, 0) AS text_docs_24h,
+                       coalesce(least(168, date_diff('hour', tx.last_text, j.t)), 168) AS hours_since_text,
                        year(j.t) AS year
                   FROM j
                   LEFT JOIN spread_base sb ON sb.symbol = j.symbol AND sb.d = CAST(j.t AS DATE) AND sb.hr = hour(j.t)
                   LEFT JOIN usd u ON u.t = j.t
                   LEFT JOIN surprise s ON s.symbol = j.symbol AND s.t = j.t
+                  LEFT JOIN text_feat tx ON tx.symbol = j.symbol AND tx.t = j.t
                  WHERE j.t - j.last_bar_close <= to_minutes(%d)
                    AND j.atr > 0 AND j.regime IS NOT NULL AND j.sma50 IS NOT NULL
                 """.formatted(STALE_MINUTES));
@@ -348,8 +364,57 @@ public final class FeatureBuilder {
         }
         long releases = sql.scalar("SELECT count(*) FROM releases");
         long withZ = sql.scalar("SELECT count(*) FROM releases WHERE z IS NOT NULL");
-        return new Report(cfg.fset(), moments, events, moments - events, releases, withZ, withoutSpec, bySymbol,
-                labels, nulls, featuresOut, labelsOut);
+        double textZero = moments == 0 ? 0 : sql.query("SELECT avg(CASE WHEN text_long_base = 0 AND "
+                + "text_long_quote = 0 THEN 1.0 ELSE 0 END) FROM feats", rs -> rs.getDouble(1)).get(0);
+        return new Report(cfg.fset(), moments, events, moments - events, releases, withZ, textSignals, textZero,
+                withoutSpec, bySymbol, labels, nulls, featuresOut, labelsOut);
+    }
+
+    /**
+     * Grupo C (cap. 10): por moeda, S(t) = Σ sinal × exp(−Δ/τ) dos documentos com available_utc ≤ t, com τ curto
+     * (6 h) e longo (72 h); guidance = Σ P(mudança de orientação) × relevância × exp(−Δ/72 h); quantidade de
+     * documentos relevantes nas últimas 24 h e horas desde o último. Sem sinais no gold: tudo zero.
+     *
+     * @return quantos documentos com sinal entraram
+     */
+    private long buildTextFeatures(LakeSql sql) {
+        FeatureConfig.Text t = cfg.text();
+        Path signals = t == null ? null : lakeRoot.resolve(t.signalsPath());
+        if (signals == null || !Files.isDirectory(signals)) {
+            sql.execute("CREATE OR REPLACE TEMP TABLE text_sig AS SELECT NULL::VARCHAR AS currency, "
+                    + "NULL::TIMESTAMP AS available_utc, NULL::DOUBLE AS signal, NULL::DOUBLE AS relevance, "
+                    + "NULL::DOUBLE AS guidance WHERE false");
+        } else {
+            sql.execute("""
+                    CREATE OR REPLACE TEMP TABLE text_sig AS
+                    SELECT currency, available_utc, signal, relevance, coalesce(guidance_change, 0) AS guidance
+                      FROM read_parquet('%s/**/*.parquet', hive_partitioning = true)
+                    """.formatted(LakeSql.slashes(signals)));
+        }
+        double shortS = (t == null ? 6 : t.tauShortHours()) * 3600, longS = (t == null ? 72 : t.tauLongHours()) * 3600;
+        double minRel = t == null ? 0.5 : t.minRelevance();
+        // 6τ: depois disso o peso é < 0,25% e o documento sai da soma
+        sql.execute(String.format(Locale.ROOT, """
+                CREATE OR REPLACE TEMP TABLE text_feat AS
+                WITH x AS (
+                    SELECT m.symbol, m.t, s.currency = p.base AS is_base, s.signal, s.relevance, s.guidance,
+                           s.available_utc, date_diff('second', s.available_utc, m.t) AS age
+                      FROM moments m JOIN pairs p USING (symbol)
+                      JOIN text_sig s ON s.currency IN (p.base, p.quote)
+                                     AND s.available_utc <= m.t
+                                     AND s.available_utc > m.t - to_seconds(%2$d))
+                SELECT symbol, t,
+                       sum(CASE WHEN is_base AND age < %1$f * 6 THEN signal * exp(-age / %1$f) END) AS ts_base,
+                       sum(CASE WHEN NOT is_base AND age < %1$f * 6 THEN signal * exp(-age / %1$f) END) AS ts_quote,
+                       sum(CASE WHEN is_base THEN signal * exp(-age / %3$f) END) AS tl_base,
+                       sum(CASE WHEN NOT is_base THEN signal * exp(-age / %3$f) END) AS tl_quote,
+                       sum(CASE WHEN is_base THEN guidance * relevance * exp(-age / %3$f) END) AS guid_base,
+                       sum(CASE WHEN NOT is_base THEN guidance * relevance * exp(-age / %3$f) END) AS guid_quote,
+                       count(*) FILTER (WHERE relevance >= %4$f AND age < 86400) AS docs_24h,
+                       max(available_utc) FILTER (WHERE relevance >= %4$f) AS last_text
+                  FROM x GROUP BY symbol, t
+                """, shortS, (long) (longS * 6), longS, minRel));
+        return sql.scalar("SELECT count(*) FROM text_sig");
     }
 
     private static void write(LakeSql sql, String select, String partition, Path out) {
