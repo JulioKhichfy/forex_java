@@ -5,7 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jevforex.app.config.RiskConfig.InstrumentCatalog;
+import com.jevforex.app.config.ExperimentProperties;
 import com.jevforex.app.config.FeatureProperties;
+import com.jevforex.ml.ExperimentConfig;
+import com.jevforex.ml.ExperimentRunner;
+import com.jevforex.ml.Metrics;
+import com.jevforex.ml.ReportWriter;
 import com.jevforex.app.config.SilverProperties;
 import com.jevforex.features.FeatureBuilder;
 import com.jevforex.features.FeatureConfig;
@@ -80,14 +85,17 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private final Mt5StatusService mt5Status;
     private final SilverProperties silver;
     private final FeatureProperties featureProps;
+    private final ExperimentProperties experimentProps;
     private int exitCode = 0;
 
     public CliRunner(JevClient jev, QuestionSetRegistry questionSets, JevCallRepository jevCalls,
                      RawDocumentRepository documents, FeedCollector collector, LakeStorage lake,
                      RiskSettings risk, InstrumentCatalog catalog, TradingProperties trading, ObjectMapper mapper,
                      Mt5Importer mt5Importer, Mt5Repository mt5Repo, Mt5Properties mt5,
-                     Mt5StatusService mt5Status, SilverProperties silver, FeatureProperties featureProps) {
+                     Mt5StatusService mt5Status, SilverProperties silver, FeatureProperties featureProps,
+                     ExperimentProperties experimentProps) {
         this.silver = silver;
+        this.experimentProps = experimentProps;
         this.featureProps = featureProps;
         this.mt5Importer = mt5Importer;
         this.mt5Repo = mt5Repo;
@@ -119,6 +127,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.MT5_STATUS -> mt5Status();
                 case Commands.NORMALIZE -> normalize(args);
                 case Commands.FEATURES -> features();
+                case Commands.TRAIN -> train(args);
                 default -> System.out.println(Commands.usage());
             }
         } catch (JevApiException e) {
@@ -471,6 +480,53 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
         System.out.print("  Features vazias (fração):");
         r.nullShare().forEach((k, v) -> System.out.printf(Locale.ROOT, " %s %.1f%%", k, 100 * v));
         System.out.println();
+    }
+
+    // ------------------------------------------------------------------ train (walk-forward A × B)
+
+    private void train(ApplicationArguments args) throws Exception {
+        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset());
+        String h = opt(args, "horizon", null);
+        if (h != null) {
+            cfg = new ExperimentConfig(cfg.fset(), List.of(Integer.parseInt(h)), cfg.from(), cfg.trainMonths(),
+                    cfg.testMonths(), cfg.embargoDays(), cfg.lockboxMonths(), cfg.gbm(), cfg.decision(), cfg.stopAtr(),
+                    cfg.riskPerTradePct(), cfg.threads(), cfg.seed());
+        }
+        System.out.printf("Walk-forward A × B · fset %s · horizontes %s · desde %s · %d threads%n", cfg.fset(),
+                cfg.horizons(), cfg.from(), cfg.threads());
+        ExperimentRunner.Result r;
+        try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
+            r = new ExperimentRunner(lake.root(), cfg).run(sql, System.out::println);
+        }
+        Path report = r.report();
+        for (ExperimentRunner.HorizonResult hr : r.horizons()) {
+            ExperimentRunner.Summary s = hr.summary();
+            System.out.printf(Locale.ROOT, "%n=== Horizonte %d min · %d folds (teste %s a %s) · cofre %s a %s (não avaliado) ===%n",
+                    hr.horizon(), s.folds(), hr.firstTest(), hr.lastTest(), hr.lockboxFrom(), hr.lockboxTo());
+            System.out.printf(Locale.ROOT, "  %-30s %10s %10s %10s%n", "fora da amostra", "base", "A preço", "B +calend.");
+            System.out.printf(Locale.ROOT, "  %-30s %10.4f %10.4f %10.4f%n", "log loss (todos, " + s.rows() + ")",
+                    s.llBase(), s.llA(), s.llB());
+            System.out.printf(Locale.ROOT, "  %-30s %10.4f %10.4f %10.4f%n", "log loss (eventos, " + s.eventRows() + ")",
+                    s.llEventBase(), s.llEventA(), s.llEventB());
+            System.out.printf(Locale.ROOT, "  %-30s %10s %10.3f %10.3f%n", "AUC ALTA (todos)", "", s.aucUpA(), s.aucUpB());
+            System.out.printf(Locale.ROOT, "  %-30s %10s %10.3f %10.3f%n", "AUC ALTA (eventos)", "", s.aucUpEventA(),
+                    s.aucUpEventB());
+            System.out.printf(Locale.ROOT, "  B melhor que A (log loss) em %d de %d folds%n", s.foldsBBetter(), s.folds());
+            printTrades("A", s.tradesA());
+            printTrades("B", s.tradesB());
+        }
+        System.out.println("\nRelatório: " + report);
+        System.out.println(r.predictions() != null ? "Previsões: " + r.predictions()
+                : "Previsões NÃO gravadas: " + r.predictionsError());
+    }
+
+    private static void printTrades(String model, Metrics.Trades t) {
+        if (t.n() == 0) {
+            System.out.printf("  operações %s (gate 4): nenhuma%n", model);
+            return;
+        }
+        System.out.printf(Locale.ROOT, "  operações %s (gate 4): %d · E[R] %+.3f · PF %.2f · acerto %.0f%% · DD %.1f%%%n",
+                model, t.n(), t.expectancyR(), t.profitFactor(), 100 * t.hitRate(), t.maxDrawdownPct());
     }
 
     private void printDocuments(Timed<DocumentNormalizer.Report> t) {

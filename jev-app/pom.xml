@@ -28,6 +28,10 @@
         </dependency>
         <dependency>
             <groupId>com.jevforex</groupId>
+            <artifactId>jev-ml</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.jevforex</groupId>
             <artifactId>jev-typesafe</artifactId>
         </dependency>
         <dependency>

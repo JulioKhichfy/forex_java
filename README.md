@@ -256,6 +256,25 @@ java -jar jev-app\target\jev-app.jar features
 - **v1 simplifica:** ATR e RSI com média simples (não Wilder) e média de 50 barras H1 no lugar da EMA50.
   O grupo C (texto do Jev) entra no passo 4.
 
+### 10.2 Experimento A × B (walk-forward)
+
+```powershell
+java -Xmx6g -jar jev-app\target\jev-app.jar train              # 60 e 15 min (~30 min)
+java -Xmx6g -jar jev-app\target\jev-app.jar train --horizon=60 # só o horizonte principal (~15 min)
+```
+
+- **A** = grupo A (preço, custo, sessão, fator USD) + par; **B** = A + calendário (surpresa e proximidade de
+  eventos). Treinados e avaliados nas mesmas linhas: a diferença mede só o calendário.
+- **Walk-forward** (cap. 11): período comum desde 12/2021; treina 24 meses, testa o mês seguinte, avança 1 mês.
+  **Embargo:** só treina com labels conhecidos 1 dia antes do teste. **Cofre:** os últimos 6 meses completos
+  ficam fora — serão abertos uma única vez, com o modelo escolhido (passo 5).
+- Gradient boosting de 3 classes (Smile, GPL v3) com hiperparâmetros fixos (`experiment.gbm`); a grade fica
+  para o passo 5.
+- **Relatório:** `<lake>\reports\walkforward\<run>\report.html` (+ `metrics.json`): log loss e AUC fora da
+  amostra contra a linha de base, só nos momentos de evento, por fold, operações simuladas com o gate 4
+  (R = resultado no horizonte ÷ 1,5 ATR, sem stop/alvo dentro do horizonte), sensibilidade aos limiares e
+  importância das features. Previsões em `gold\predictions\…\run=<run>`.
+
 **Desenvolvimento sem parar o servidor:** `mvn -q package -Djar.name=jev-app-dev` gera `jev-app-dev.jar`
 ao lado do `jev-app.jar` em uso (sem `clean`, que falharia com o jar travado).
 

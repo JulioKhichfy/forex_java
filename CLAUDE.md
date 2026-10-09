@@ -34,6 +34,8 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 - Features: mudou o significado de alguma feature ou do label → nova versão `features.fset` (v2), nunca
   reescrever a v1. O mesmo código calcula features no treino e ao vivo (não reimplementar "só para produção").
   Todo cálculo novo precisa respeitar point-in-time e ganhar teste no `FeatureBuilderTest`.
+- **Cofre:** os últimos `experiment.lockbox-months` meses nunca entram em treino, ajuste ou comparação.
+  Abrir o cofre é uma decisão do usuário (passo 5), uma única vez.
 
 ## Segurança
 - **Nunca** escrever a chave do Jev em arquivo versionado, log ou teste. Ela vem de `TYPESAFE_API_KEY`
@@ -48,6 +50,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-lake | LakeStorage em disco local (bronze/silver/gold), LakeSql (DuckDB embarcado) |
 | jev-normalize | bronze → silver em Parquet: Candle/Calendar/DocumentNormalizer, WeeklyOpenCheck, DocumentText (HTML/PDF), Chunker (sem Spring) |
 | jev-features | silver → gold: FeatureBuilder (momentos de decisão, features A/B, labels 15/60 min), FeatureConfig (sem Spring) |
+| jev-ml | walk-forward A×B (C no passo 4): Dataset, Gbm (Smile), Metrics, ExperimentRunner, ReportWriter (sem Spring) |
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5 |
 | jev-app | Spring Boot: CLI, agendadores, API `/api/status` e `/api/ea/*`, Flyway, application.yml |
 | mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor (shadow), `install.ps1` |
@@ -61,6 +64,7 @@ java -jar jev-app/target/jev-app.jar ask --qset=cb-text-v1 --latest
 java -jar jev-app/target/jev-app.jar import-mt5-once | mt5-status | risk --balance=20 --mt5
 java -jar jev-app/target/jev-app.jar normalize [--only=candles|calendar|documents]   # silver (sem Postgres)
 java -jar jev-app/target/jev-app.jar features                    # gold: features + labels (fset do yml)
+java -Xmx6g -jar jev-app/target/jev-app.jar train [--horizon=60]  # walk-forward A×B → reports/walkforward/<run>
 mvn -q package -Djar.name=jev-app-dev      # jar de desenvolvimento com o servidor rodando (sem clean)
 java -jar jev-app/target/jev-app.jar       # modo servidor
 powershell -ExecutionPolicy Bypass -File mql5\install.ps1   # copia e compila os MQL5 no terminal da Exness
@@ -80,7 +84,8 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       - [x] 3a silver de candles e calendário (DuckDB/Parquet, point-in-time, checagens; M1 confiável só de 2020 em diante)
       - [x] 3b demais bancos centrais + texto (PDF anexo) + trechos (RBA desligada: 403 para coletor identificado)
       - [x] 3c features (ATR, fator USD, surpresa) e labels 15/60 min (gold fset=v1; comando features)
-      - [ ] 3d walk-forward, modelos A e B, relatório
+      - [x] 3d walk-forward, modelos A e B, relatório (comando train; falta o teste de paridade treino × produção,
+            que depende do cálculo ao vivo do passo 6)
 - [ ] Passo 4 — Jev em escala: pontuação do histórico, sinais por moeda, features de texto
 - [ ] Passo 5 — experimento A/B/C walk-forward e go/no-go
 - [ ] Passo 6 — decision engine (gates), API bridge, EA executor, dashboard Angular; shadow → demo

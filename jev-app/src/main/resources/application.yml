@@ -21,6 +21,7 @@ server:
 logging:
   level:
     com.jevforex: INFO
+    smile: WARN                 # o Smile registra cada árvore em INFO
 
 # ---------------------------------------------------------------------
 #  Jev (TypeSafe AI)
@@ -71,6 +72,22 @@ features:
     sigma-window: 24              # σ = desvio de (actual − forecast) nas 24 divulgações anteriores
     sigma-min-history: 8
     negative-polarity: [unemployment, jobless, claims]   # valor maior enfraquece a moeda
+
+# ---------------------------------------------------------------------
+#  Experimento A/B com walk-forward (passo 3d; C no passo 4) — comando train
+# ---------------------------------------------------------------------
+experiment:
+  horizons: [60, 15]              # 60 min é o horizonte principal
+  from: 2021-12-01                # período comum: os 7 pares com dados (Exness: 5 pares só desde 27/10/2021)
+  train-months: 24
+  test-months: 1
+  embargo-days: 1                 # treino só com labels conhecidos 1 dia antes do teste
+  lockbox-months: 6               # cofre: os últimos 6 meses completos NÃO são avaliados aqui (passo 5, uma vez)
+  gbm: { ntrees: 200, max-depth: 4, max-nodes: 16, node-size: 50, shrinkage: 0.05, subsample: 0.7 }
+  decision: { min-prob: 0.60, min-margin: 0.35 }   # gate 4 (cap. 12)
+  stop-atr: 1.5                   # R = resultado ÷ 1,5 ATR
+  risk-per-trade-pct: 0.5         # só para o drawdown simulado do relatório
+  threads: 0                      # 0 = núcleos − 1
 
 # ---------------------------------------------------------------------
 #  Coleta de bancos centrais

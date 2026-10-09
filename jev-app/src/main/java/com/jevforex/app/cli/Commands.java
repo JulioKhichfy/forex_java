@@ -14,9 +14,10 @@ public final class Commands {
     public static final String MT5_STATUS = "mt5-status";
     public static final String NORMALIZE = "normalize";
     public static final String FEATURES = "features";
+    public static final String TRAIN = "train";
 
     private static final Set<String> ALL = Set.of(HELP, PING, RISK, ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS,
-            NORMALIZE, FEATURES);
+            NORMALIZE, FEATURES, TRAIN);
     private static final Set<String> NEED_DB = Set.of(ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS);
 
     private Commands() {
@@ -53,6 +54,8 @@ public final class Commands {
                                                 checagens de qualidade (não precisa do Postgres)
                   features                      silver → gold: momentos de decisão, features (fset do yml) e labels
                                                 de 15/60 min (não precisa do Postgres; rode normalize antes)
+                  train [--horizon=60]          experimento A × B com walk-forward, embargo e cofre; grava
+                                                reports\\walkforward\\<run>\\report.html (rode features antes)
                   ask --qset=cb-text-v1 <fonte> [opções]
                        fontes:  --text="..." | --file=caminho.txt | --latest | --doc=<id>
                        opções:  --issuer="Federal Reserve" --currency=USD --previous="resumo anterior"
