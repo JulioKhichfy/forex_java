@@ -90,6 +90,14 @@ experiment:
   threads: 0                      # 0 = núcleos − 1
 
 # ---------------------------------------------------------------------
+#  Acervo de discursos do BIS (passo 4a) — comando backfill-bis
+#  Uso não comercial permitido. Point-in-time: fim do dia da publicação no BIS (data da URL).
+# ---------------------------------------------------------------------
+bis:
+  url-template: https://www.bis.org/pages/download-central-bankers-speeches/speeches-{year}.zip
+  from-year: 2021
+
+# ---------------------------------------------------------------------
 #  Coleta de bancos centrais
 # ---------------------------------------------------------------------
 collect:

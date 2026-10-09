@@ -15,9 +15,10 @@ public final class Commands {
     public static final String NORMALIZE = "normalize";
     public static final String FEATURES = "features";
     public static final String TRAIN = "train";
+    public static final String BACKFILL_BIS = "backfill-bis";
 
     private static final Set<String> ALL = Set.of(HELP, PING, RISK, ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS,
-            NORMALIZE, FEATURES, TRAIN);
+            NORMALIZE, FEATURES, TRAIN, BACKFILL_BIS);
     private static final Set<String> NEED_DB = Set.of(ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS);
 
     private Commands() {
@@ -48,6 +49,7 @@ public final class Commands {
                                                 (--mt5: usa tick value e lotes reais da corretora, vindos do MT5)
                   collect-once                  roda uma coleta dos feeds de bancos centrais (e dos PDFs anexos) e sai
                   import-mt5-once               importa os arquivos do MT5 (Common\\Files\\jev\\inbox) e sai
+                  backfill-bis [--from=2021]    baixa o acervo de discursos do BIS (zip por ano) para o bronze
                   mt5-status                    saúde do MT5: heartbeat do EA, candles, calendário, próximos eventos
                   normalize [--only=candles|calendar|documents]
                                                 reconstrói o silver (Parquet, UTC) a partir do bronze e mostra as

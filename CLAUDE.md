@@ -61,7 +61,7 @@ docker compose up -d                       # Postgres
 mvn -q clean package                       # build + testes
 java -jar jev-app/target/jev-app.jar ping | risk --balance=20 | collect-once
 java -jar jev-app/target/jev-app.jar ask --qset=cb-text-v1 --latest
-java -jar jev-app/target/jev-app.jar import-mt5-once | mt5-status | risk --balance=20 --mt5
+java -jar jev-app/target/jev-app.jar import-mt5-once | mt5-status | risk --balance=20 --mt5 | backfill-bis
 java -jar jev-app/target/jev-app.jar normalize [--only=candles|calendar|documents]   # silver (sem Postgres)
 java -jar jev-app/target/jev-app.jar features                    # gold: features + labels (fset do yml)
 java -Xmx6g -jar jev-app/target/jev-app.jar train [--horizon=60]  # walk-forward A×B → reports/walkforward/<run>
@@ -87,5 +87,9 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       - [x] 3d walk-forward, modelos A e B, relatório (comando train; falta o teste de paridade treino × produção,
             que depende do cálculo ao vivo do passo 6)
 - [ ] Passo 4 — Jev em escala: pontuação do histórico, sinais por moeda, features de texto
+      - [x] 4a acervo de discursos do BIS 2021+ (backfill-bis; silver documents com available_utc)
+      - [ ] 4b comunicados de decisão e atas (arquivos dos bancos; horário do calendário + 30 s)
+      - [ ] 4c Jev em escala (cache por request_sha, jev_call, currency_signal) — mostrar custo antes
+      - [ ] 4d grupo C (sinal por moeda τ 6 h/72 h, diferencial) e modelo C no train
 - [ ] Passo 5 — experimento A/B/C walk-forward e go/no-go
 - [ ] Passo 6 — decision engine (gates), API bridge, EA executor, dashboard Angular; shadow → demo

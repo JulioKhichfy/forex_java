@@ -18,6 +18,8 @@ import com.jevforex.app.config.TradingProperties;
 import com.jevforex.app.mt5.Mt5StatusService;
 import com.jevforex.app.persistence.JevCallRepository;
 import com.jevforex.collect.RawDocumentRepository;
+import com.jevforex.collect.bis.BisProperties;
+import com.jevforex.collect.bis.BisSpeechCollector;
 import com.jevforex.collect.mt5.Mt5Importer;
 import com.jevforex.collect.mt5.Mt5Parsers;
 import com.jevforex.collect.mt5.Mt5Properties;
@@ -86,6 +88,8 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private final SilverProperties silver;
     private final FeatureProperties featureProps;
     private final ExperimentProperties experimentProps;
+    private final BisSpeechCollector bisCollector;
+    private final BisProperties bisProps;
     private int exitCode = 0;
 
     public CliRunner(JevClient jev, QuestionSetRegistry questionSets, JevCallRepository jevCalls,
@@ -93,7 +97,9 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                      RiskSettings risk, InstrumentCatalog catalog, TradingProperties trading, ObjectMapper mapper,
                      Mt5Importer mt5Importer, Mt5Repository mt5Repo, Mt5Properties mt5,
                      Mt5StatusService mt5Status, SilverProperties silver, FeatureProperties featureProps,
-                     ExperimentProperties experimentProps) {
+                     ExperimentProperties experimentProps, BisSpeechCollector bisCollector, BisProperties bisProps) {
+        this.bisCollector = bisCollector;
+        this.bisProps = bisProps;
         this.silver = silver;
         this.experimentProps = experimentProps;
         this.featureProps = featureProps;
@@ -128,6 +134,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.NORMALIZE -> normalize(args);
                 case Commands.FEATURES -> features();
                 case Commands.TRAIN -> train(args);
+                case Commands.BACKFILL_BIS -> backfillBis(args);
                 default -> System.out.println(Commands.usage());
             }
         } catch (JevApiException e) {
@@ -529,14 +536,30 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 model, t.n(), t.expectancyR(), t.profitFactor(), 100 * t.hitRate(), t.maxDrawdownPct());
     }
 
+    private void backfillBis(ApplicationArguments args) throws InterruptedException {
+        int from = Integer.parseInt(opt(args, "from", String.valueOf(bisProps.fromYear())));
+        System.out.printf("Acervo de discursos do BIS desde %d → %s%n", from, lake.root().resolve("bronze/bis_speeches"));
+        for (BisSpeechCollector.YearResult y : bisCollector.backfill(from)) {
+            System.out.printf("  %d: %s%n", y.year(), y.httpStatus() != 200 ? "falhou (HTTP " + y.httpStatus() + ")"
+                    : String.format("%d KB%s", y.bytes() / 1024, y.stored() ? "" : " (igual ao já gravado)"));
+        }
+        System.out.println("Próximo passo: normalize --only=documents");
+    }
+
     private void printDocuments(Timed<DocumentNormalizer.Report> t) {
         DocumentNormalizer.Report r = t.value();
         System.out.printf("%nDocumentos dos bancos centrais → %s  (%.1f s)%n", r.output(), t.seconds());
         System.out.printf("  %d documentos, %d trechos de até %d caracteres, %d sem texto aproveitável%n",
                 r.docs(), r.chunks(), MAX_TEXT_CHARS, r.emptyDocs());
+        if (r.bisRecords() > 0) {
+            System.out.printf("  BIS: %d discursos no acervo, %d de instituições fora da lista, %d também trazidos pelo "
+                    + "coletor próprio (entra só a cópia disponível primeiro)%n", r.bisRecords(), r.bisOtherInstitutions(),
+                    r.bisDuplicates());
+        }
         for (DocumentNormalizer.IssuerStats s : r.issuers()) {
-            System.out.printf("  %-28s %4d docs (%d anexos PDF) · %4d trechos · %6d caracteres em média · %d vazios%n",
-                    s.issuer(), s.docs(), s.attachments(), s.chunks(), s.avgChars(), s.emptyDocs());
+            System.out.printf("  %-12s %-28s %5d docs (%d PDF) · %5d trechos · %6d caract. em média · desde %s · %d vazios%n",
+                    s.source(), s.issuer(), s.docs(), s.attachments(), s.chunks(), s.avgChars(), s.firstAvailable(),
+                    s.emptyDocs());
             System.out.printf("      amostra: %s…%n", s.sample() == null ? "" : s.sample().replace('\n', ' '));
         }
         if (!r.failures().isEmpty()) {

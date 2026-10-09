@@ -228,6 +228,21 @@ mostra, por banco, quantos documentos e trechos saíram e uma amostra do texto, 
 - Para ler o silver em outras ferramentas (DBeaver com DuckDB, Python):
   `SELECT * FROM read_parquet('C:/Users/julio/FOREX_JEV/jev-lake/silver/candles_m1/**/*.parquet', hive_partitioning = true)`
 
+### Acervo de discursos do BIS (passo 4a)
+
+```powershell
+java -jar jev-app\target\jev-app.jar backfill-bis           # zips anuais desde bis.from-year (2021) → bronze
+java -jar jev-app\target\jev-app.jar normalize --only=documents
+```
+
+- Discursos dos 8 bancos e dos maiores bancos do Eurosistema (Bundesbank, Banque de France, Banca d'Italia,
+  Banco de España, DNB), identificados pela descrição; os demais ficam de fora. Uso não comercial permitido.
+- **Point-in-time:** `available_utc` = fim do dia da publicação no BIS (data da URL `…/r240109a.htm`), com
+  `availability_estimated = true`. O campo `date` do BIS tem erros (~10%) e não é usado. Servem para features
+  diárias (cap. 8).
+- Discurso que veio pelas duas fontes entra uma vez, com a cópia disponível primeiro.
+- Rode `backfill-bis` de tempos em tempos: o BIS atualiza o acervo (conteúdo novo = nova versão no bronze).
+
 ### 10.1 Features e labels (gold)
 
 ```powershell

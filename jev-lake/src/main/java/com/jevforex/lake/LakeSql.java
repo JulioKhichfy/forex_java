@@ -68,7 +68,45 @@ public final class LakeSql implements AutoCloseable {
         }
     }
 
-    /** INSERT parametrizado em lote (dados produzidos em Java, ex.: texto extraído de PDFs). */
+    /**
+     * Cria {@code table} com linhas produzidas em Java, passando por um arquivo JSON-por-linha temporário.
+     * É o caminho para volumes grandes ou texto livre (aspas, quebras de linha): inserir dezenas de milhares
+     * de linhas pelo JDBC esgota a memória do DuckDB.
+     *
+     * @param columns nome → tipo DuckDB, na ordem dos valores de cada linha
+     */
+    public void createTableFromRows(String table, java.util.LinkedHashMap<String, String> columns, List<Object[]> rows,
+                                    Path tmpDir) {
+        List<String> names = new ArrayList<>(columns.keySet());
+        Path file = tmpDir.resolve(table + "-" + System.nanoTime() + ".jsonl");
+        com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
+        try {
+            Files.createDirectories(tmpDir);
+            try (var w = Files.newBufferedWriter(file, java.nio.charset.StandardCharsets.UTF_8)) {
+                for (Object[] row : rows) {
+                    java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    for (int i = 0; i < names.size(); i++) m.put(names.get(i), row[i]);
+                    w.write(json.writeValueAsString(m));
+                    w.write('\n');
+                }
+            }
+            StringBuilder cols = new StringBuilder();
+            columns.forEach((k, v) -> cols.append(cols.isEmpty() ? "" : ", ").append("'").append(k).append("': '")
+                    .append(v).append("'"));
+            execute("CREATE OR REPLACE TEMP TABLE " + table + " AS SELECT * FROM read_json(" + literal(file)
+                    + ", format = 'newline_delimited', columns = {" + cols + "})");
+        } catch (IOException e) {
+            throw new UncheckedIOException("Não consegui preparar " + file, e);
+        } finally {
+            try {
+                Files.deleteIfExists(file);
+            } catch (IOException ignored) {
+                // fica no tmp
+            }
+        }
+    }
+
+    /** INSERT parametrizado em lote — só para poucas linhas (ver {@link #createTableFromRows}). */
     public void batch(String sql, List<Object[]> rows) {
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             for (Object[] row : rows) {
