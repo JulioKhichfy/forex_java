@@ -228,6 +228,34 @@ mostra, por banco, quantos documentos e trechos saíram e uma amostra do texto, 
 - Para ler o silver em outras ferramentas (DBeaver com DuckDB, Python):
   `SELECT * FROM read_parquet('C:/Users/julio/FOREX_JEV/jev-lake/silver/candles_m1/**/*.parquet', hive_partitioning = true)`
 
+### 10.1 Features e labels (gold)
+
+```powershell
+java -jar jev-app\target\jev-app.jar normalize --only=candles   # também grava silver\instrument_specs (point)
+java -jar jev-app\target\jev-app.jar features
+```
+
+| Gold | Conteúdo |
+|---|---|
+| `gold\features\market=fx\fset=v1\year=…` | 1 linha por (momento de decisão, par) |
+| `gold\labels\market=fx\fset=v1\horizon=15m\|60m` | resultado depois de 15/60 min, já pagando o spread; `label` = ALTA, QUEDA ou LATERAL |
+
+- **Momentos de decisão** (cap. 11): `EVENT` = 2 min depois de cada divulgação de importância média/alta, nos
+  pares da moeda (USD → os 7); `CONTROL` = hora cheia, seg a sex, 0h–20h UTC (sem sexta depois das 19h).
+- **Grupo A (preço, custo, fator USD):** `atr`, `atr_bps`, `ret15/60/240_atr`, `dist_sma50_h1_atr`, `rsi14_m15`,
+  `day_range_atr`, `regime` (ATR ÷ mediana de 20 dias), `spread_atr`, `spread_rel` (÷ mediana do mesmo horário
+  nos 20 dias anteriores), `hour_sin/cos`, `dow`, `sess_tokyo/london/ny`, `usd_factor15/60_bps`, `resid15/60_bps`.
+- **Grupo B (calendário):** `surprise_base`, `surprise_quote`, `surprise_diff` (z = polaridade × (actual − forecast)
+  ÷ σ das 24 divulgações anteriores, limitado a ±4, peso por importância, decaimento de 60 min),
+  `min_since_event`, `min_to_event`.
+- **Point-in-time:** em t só entram barras que fecharam até t e divulgações com `actual_available_utc ≤ t`
+  (há teste automatizado que injeta um salto na barra que abre em t e exige features idênticas).
+- **Labels:** entrada no preço da barra que abre em t + 1 min (o M1 não tem preço no meio do minuto), saída h
+  minutos depois; ask = bid + spread da barra × point. y_compra = (bid_saída − ask_entrada) ÷ ATR; ALTA se
+  y_compra > 0,5; QUEDA se y_venda > 0,5. `label_available_utc` diz quando o resultado ficou conhecido (embargo no 3d).
+- **v1 simplifica:** ATR e RSI com média simples (não Wilder) e média de 50 barras H1 no lugar da EMA50.
+  O grupo C (texto do Jev) entra no passo 4.
+
 **Desenvolvimento sem parar o servidor:** `mvn -q package -Djar.name=jev-app-dev` gera `jev-app-dev.jar`
 ao lado do `jev-app.jar` em uso (sem `clean`, que falharia com o jar travado).
 

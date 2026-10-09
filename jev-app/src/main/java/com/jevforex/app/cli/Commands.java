@@ -13,9 +13,10 @@ public final class Commands {
     public static final String IMPORT_MT5_ONCE = "import-mt5-once";
     public static final String MT5_STATUS = "mt5-status";
     public static final String NORMALIZE = "normalize";
+    public static final String FEATURES = "features";
 
     private static final Set<String> ALL = Set.of(HELP, PING, RISK, ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS,
-            NORMALIZE);
+            NORMALIZE, FEATURES);
     private static final Set<String> NEED_DB = Set.of(ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS);
 
     private Commands() {
@@ -50,6 +51,8 @@ public final class Commands {
                   normalize [--only=candles|calendar|documents]
                                                 reconstrói o silver (Parquet, UTC) a partir do bronze e mostra as
                                                 checagens de qualidade (não precisa do Postgres)
+                  features                      silver → gold: momentos de decisão, features (fset do yml) e labels
+                                                de 15/60 min (não precisa do Postgres; rode normalize antes)
                   ask --qset=cb-text-v1 <fonte> [opções]
                        fontes:  --text="..." | --file=caminho.txt | --latest | --doc=<id>
                        opções:  --issuer="Federal Reserve" --currency=USD --previous="resumo anterior"

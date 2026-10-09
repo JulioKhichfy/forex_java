@@ -55,6 +55,24 @@ silver:
     actual-latency-seconds: 35
 
 # ---------------------------------------------------------------------
+#  Features e labels (passo 3c): silver → gold (comando features)
+#  Mudou algo que altera o significado das features → nova versão de fset (v2).
+# ---------------------------------------------------------------------
+features:
+  fset: v1
+  entry-delay-minutes: 1          # o M1 não tem preço no meio do minuto: 60 s (mais conservador que os 30 s do cap. 11)
+  horizons-minutes: [15, 60]
+  label-threshold-atr: 0.5        # ALTA/QUEDA se, depois dos custos, passar de 0,5 ATR (teste 0,3 e 0,7 no passo 5)
+  event-lag-minutes: 2            # momento de decisão = evento + 2 min
+  control-hours-utc: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+  calendar:
+    importance-weights: { HIGH: 1.0, MODERATE: 0.5 }
+    decay-minutes: 60             # τ da surpresa
+    sigma-window: 24              # σ = desvio de (actual − forecast) nas 24 divulgações anteriores
+    sigma-min-history: 8
+    negative-polarity: [unemployment, jobless, claims]   # valor maior enfraquece a moeda
+
+# ---------------------------------------------------------------------
 #  Coleta de bancos centrais
 # ---------------------------------------------------------------------
 collect:

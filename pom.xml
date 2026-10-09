@@ -22,6 +22,7 @@
         <module>jev-typesafe</module>
         <module>jev-lake</module>
         <module>jev-normalize</module>
+        <module>jev-features</module>
         <module>jev-collect</module>
         <module>jev-app</module>
     </modules>
@@ -58,6 +59,11 @@
             <dependency>
                 <groupId>com.jevforex</groupId>
                 <artifactId>jev-normalize</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.jevforex</groupId>
+                <artifactId>jev-features</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <!-- motor analítico do lake: lê e escreve Parquet com SQL, embarcado (documento mestre, cap. 4) -->

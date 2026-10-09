@@ -5,7 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jevforex.app.config.RiskConfig.InstrumentCatalog;
+import com.jevforex.app.config.FeatureProperties;
 import com.jevforex.app.config.SilverProperties;
+import com.jevforex.features.FeatureBuilder;
+import com.jevforex.features.FeatureConfig;
 import com.jevforex.app.config.TradingProperties;
 import com.jevforex.app.mt5.Mt5StatusService;
 import com.jevforex.app.persistence.JevCallRepository;
@@ -28,6 +31,7 @@ import com.jevforex.normalize.CandleNormalizer;
 import com.jevforex.normalize.Chunker;
 import com.jevforex.normalize.DocumentNormalizer;
 import com.jevforex.normalize.DocumentText;
+import com.jevforex.normalize.SymbolSpecNormalizer;
 import com.jevforex.normalize.WeeklyOpenCheck;
 import com.jevforex.typesafe.JevApiException;
 import com.jevforex.typesafe.JevClient;
@@ -75,14 +79,16 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private final Mt5Properties mt5;
     private final Mt5StatusService mt5Status;
     private final SilverProperties silver;
+    private final FeatureProperties featureProps;
     private int exitCode = 0;
 
     public CliRunner(JevClient jev, QuestionSetRegistry questionSets, JevCallRepository jevCalls,
                      RawDocumentRepository documents, FeedCollector collector, LakeStorage lake,
                      RiskSettings risk, InstrumentCatalog catalog, TradingProperties trading, ObjectMapper mapper,
                      Mt5Importer mt5Importer, Mt5Repository mt5Repo, Mt5Properties mt5,
-                     Mt5StatusService mt5Status, SilverProperties silver) {
+                     Mt5StatusService mt5Status, SilverProperties silver, FeatureProperties featureProps) {
         this.silver = silver;
+        this.featureProps = featureProps;
         this.mt5Importer = mt5Importer;
         this.mt5Repo = mt5Repo;
         this.mt5 = mt5;
@@ -112,6 +118,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.IMPORT_MT5_ONCE -> importMt5Once();
                 case Commands.MT5_STATUS -> mt5Status();
                 case Commands.NORMALIZE -> normalize(args);
+                case Commands.FEATURES -> features();
                 default -> System.out.println(Commands.usage());
             }
         } catch (JevApiException e) {
@@ -418,6 +425,8 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
             if (all || only.equals("candles")) {
                 printCandles(timed(() -> new CandleNormalizer(lake.root())
                         .run(sql, silver.candles().utcReliableFrom())));
+                long specs = new SymbolSpecNormalizer(lake.root()).run(sql);
+                System.out.printf("  Especificações dos símbolos → silver\\instrument_specs (%d símbolos)%n", specs);
             }
             if (all || only.equals("calendar")) {
                 printCalendar(timed(() -> new CalendarNormalizer(lake.root())
@@ -427,6 +436,41 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 printDocuments(timed(() -> new DocumentNormalizer(lake.root()).run(sql, MAX_TEXT_CHARS)));
             }
         }
+    }
+
+    // ------------------------------------------------------------------ features (gold)
+
+    private void features() {
+        FeatureConfig cfg = featureProps.toConfig();
+        Timed<FeatureBuilder.Report> t;
+        try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
+            t = timed(() -> new FeatureBuilder(lake.root(), cfg).run(sql));
+        }
+        FeatureBuilder.Report r = t.value();
+        System.out.printf("%nFeatures %s → %s  (%.1f s)%n", r.fset(), r.featuresOut(), t.seconds());
+        System.out.printf("  %d momentos de decisão: %d depois de eventos (média/alta importância), %d de controle "
+                + "(hora cheia, sessões ativas)%n", r.moments(), r.eventMoments(), r.controlMoments());
+        System.out.printf("  Calendário: %d divulgações com actual, %d com surpresa z calculável (σ de %d anteriores, "
+                + "mín. %d)%n", r.releases(), r.releasesWithZ(), cfg.sigmaWindow(), cfg.sigmaMinHistory());
+        if (!r.symbolsWithoutSpec().isEmpty()) {
+            System.out.println("  ATENÇÃO: sem especificação do MT5 para " + r.symbolsWithoutSpec()
+                    + " (point estimado pelos dígitos usuais). Rode normalize depois de exportar as especificações.");
+        }
+        System.out.printf("  %-8s %8s %9s  %-19s  %s%n", "Par", "Eventos", "Controle", "Primeiro", "Último");
+        for (FeatureBuilder.SymbolCounts s : r.symbols()) {
+            System.out.printf("  %-8s %8d %9d  %-19s  %s%n", s.symbol(), s.eventMoments(), s.controlMoments(),
+                    s.firstMoment(), s.lastMoment());
+        }
+        System.out.printf("%nLabels → %s%n", r.labelsOut());
+        for (FeatureBuilder.LabelStats l : r.labels()) {
+            System.out.printf(Locale.ROOT, "  %3d min: %7d linhas · ALTA %4.1f%% · QUEDA %4.1f%% · LATERAL %4.1f%% · "
+                            + "custo médio por operação (1 spread) %.2f ATR%n", l.horizonMinutes(), l.rows(),
+                    100.0 * l.up() / l.rows(), 100.0 * l.down() / l.rows(), 100.0 * l.flat() / l.rows(),
+                    l.meanCostAtr());
+        }
+        System.out.print("  Features vazias (fração):");
+        r.nullShare().forEach((k, v) -> System.out.printf(Locale.ROOT, " %s %.1f%%", k, 100 * v));
+        System.out.println();
     }
 
     private void printDocuments(Timed<DocumentNormalizer.Report> t) {
