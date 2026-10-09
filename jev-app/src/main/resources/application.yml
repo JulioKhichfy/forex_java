@@ -37,7 +37,8 @@ jev:
 #  Data lake (disco local)
 # ---------------------------------------------------------------------
 lake:
-  root: ${LAKE_ROOT:./jev-lake}
+  # Fora do repositório (dentro dele, jev-lake/ é o código do módulo). Mude com a variável LAKE_ROOT.
+  root: ${LAKE_ROOT:${user.home}/FOREX_JEV/jev-lake}
 
 # ---------------------------------------------------------------------
 #  Coleta de bancos centrais
@@ -70,6 +71,21 @@ collect:
     #   currency: EUR
     #   url: <endereço do RSS na página de feeds do BCE>
     #   enabled: true
+
+# ---------------------------------------------------------------------
+#  MetaTrader 5 (passo 2): exportadores MQL5 → inbox → bronze + Postgres; EA em shadow
+# ---------------------------------------------------------------------
+mt5:
+  # Pasta Common\Files\jev. É compartilhada por TODOS os terminais da máquina (Exness, IC Markets…):
+  # por isso a conta e o servidor de cada arquivo são conferidos abaixo.
+  common-files: ${MT5_COMMON_FILES:${user.home}/AppData/Roaming/MetaQuotes/Terminal/Common/Files/jev}
+  import-enabled: true                 # importa automaticamente no modo servidor
+  import-interval-seconds: 2
+  symbol-suffix: m                     # Exness: EURUSDm. Internamente o sistema usa sempre EURUSD.
+  expected-account: ${MT5_ACCOUNT:0}   # login aceito (0 = não confere). setx MT5_ACCOUNT "seu-login"
+  expected-server: ${MT5_SERVER:}      # ex.: Exness-MT5Trial11 (vazio = não confere)
+  heartbeat-stale-seconds: 30          # EA sem heartbeat há mais que isto = fora
+  candle-stale-seconds: 150            # última barra M1 mais velha que isto = candles atrasados
 
 # ---------------------------------------------------------------------
 #  Trading: modo, saldo e RISCO
@@ -118,8 +134,8 @@ trading:
 
   # ---------------------------------------------------------------------
   #  Instrumentos — valores APROXIMADOS para conta em USD e contratos padrão.
-  #  No passo 2 o MT5 envia os valores reais da sua corretora (tick size/value, lote mínimo).
-  #  Símbolo com sufixo (ex.: EURUSD.m) precisa de colchetes: "[EURUSD.m]":
+  #  Os valores reais da corretora chegam do MT5 (tabela instrument_spec): veja com "risk --mt5".
+  #  Use sempre o nome canônico (EURUSD); o sufixo da corretora fica em mt5.symbol-suffix.
   #  typical-stop = distância de stop em PREÇO (provisória; no passo 3 vem do ATR).
   # ---------------------------------------------------------------------
   instruments:

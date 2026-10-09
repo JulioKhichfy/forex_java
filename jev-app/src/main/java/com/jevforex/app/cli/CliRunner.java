@@ -6,11 +6,17 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jevforex.app.config.RiskConfig.InstrumentCatalog;
 import com.jevforex.app.config.TradingProperties;
+import com.jevforex.app.mt5.Mt5StatusService;
 import com.jevforex.app.persistence.JevCallRepository;
 import com.jevforex.collect.HtmlText;
 import com.jevforex.collect.RawDocumentRepository;
+import com.jevforex.collect.mt5.Mt5Importer;
+import com.jevforex.collect.mt5.Mt5Parsers;
+import com.jevforex.collect.mt5.Mt5Properties;
+import com.jevforex.collect.mt5.Mt5Repository;
 import com.jevforex.collect.rss.FeedCollector;
 import com.jevforex.core.Instrument;
+import com.jevforex.core.Market;
 import com.jevforex.core.risk.PositionSizer;
 import com.jevforex.core.risk.RiskSettings;
 import com.jevforex.core.risk.SizingResult;
@@ -31,6 +37,8 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -55,11 +63,21 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private final InstrumentCatalog catalog;
     private final TradingProperties trading;
     private final ObjectMapper mapper;
+    private final Mt5Importer mt5Importer;
+    private final Mt5Repository mt5Repo;
+    private final Mt5Properties mt5;
+    private final Mt5StatusService mt5Status;
     private int exitCode = 0;
 
     public CliRunner(JevClient jev, QuestionSetRegistry questionSets, JevCallRepository jevCalls,
                      RawDocumentRepository documents, FeedCollector collector, LakeStorage lake,
-                     RiskSettings risk, InstrumentCatalog catalog, TradingProperties trading, ObjectMapper mapper) {
+                     RiskSettings risk, InstrumentCatalog catalog, TradingProperties trading, ObjectMapper mapper,
+                     Mt5Importer mt5Importer, Mt5Repository mt5Repo, Mt5Properties mt5,
+                     Mt5StatusService mt5Status) {
+        this.mt5Importer = mt5Importer;
+        this.mt5Repo = mt5Repo;
+        this.mt5 = mt5;
+        this.mt5Status = mt5Status;
         this.jev = jev;
         this.questionSets = questionSets;
         this.jevCalls = jevCalls;
@@ -82,6 +100,8 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.RISK -> risk(args);
                 case Commands.ASK -> ask(args);
                 case Commands.COLLECT_ONCE -> collectOnce();
+                case Commands.IMPORT_MT5_ONCE -> importMt5Once();
+                case Commands.MT5_STATUS -> mt5Status();
                 default -> System.out.println(Commands.usage());
             }
         } catch (JevApiException e) {
@@ -115,9 +135,26 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
 
     private void risk(ApplicationArguments args) {
         double balance = optDouble(args, "balance", trading.account().referenceBalanceUsd());
+        Map<String, Instrument> instruments = catalog.bySymbol();
+        String source = "application.yml (valores aproximados; use --mt5 para os da corretora)";
+        if (args.containsOption("mt5")) {
+            List<Mt5Parsers.InstrumentSpec> specs = mt5Repo.latestSpecs();
+            if (specs.isEmpty()) {
+                throw new IllegalStateException("Nenhuma especificação do MT5 ainda. Inicie o Service JevCandleExporter "
+                        + "no MT5 e rode import-mt5-once.");
+            }
+            instruments = withBrokerSpecs(instruments, specs);
+            Mt5Parsers.InstrumentSpec first = specs.get(0);
+            source = "MT5 — " + first.server() + ", exportado em " + specs.stream()
+                    .map(Mt5Parsers.InstrumentSpec::seenAt).max(Instant::compareTo).orElseThrow();
+            specs.stream().map(Mt5Parsers.InstrumentSpec::accountCurrency).filter(c -> !"USD".equals(c)).findFirst()
+                    .ifPresent(c -> System.out.println("ATENÇÃO: a conta está em " + c
+                            + ", não em USD. Os valores abaixo estão na moeda da conta."));
+        }
         RiskSettings.Global g = risk.global();
         System.out.printf(Locale.ROOT, "%nSaldo: US$ %.2f   modo: %s   política de lote mínimo: %s%n",
                 balance, trading.mode(), g.minLotPolicy());
+        System.out.println("Instrumentos: " + source);
         System.out.printf(Locale.ROOT, "Teto por trade: %.1f%% ou US$ %.2f (vale o menor) = US$ %.2f%n",
                 g.maxRiskPerTradePct(), g.maxRiskPerTradeUsd(), g.maxRiskPerTradeMoney(balance));
         System.out.printf(Locale.ROOT, "Perda máx. dia/semana: %.1f%% / %.1f%%   posições: %d   exposição USD: %.1f%%%n%n",
@@ -125,7 +162,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
 
         System.out.printf("%-8s %-7s %10s %12s %9s %9s %7s  %s%n",
                 "Símbolo", "Mercado", "Stop", "Lote mín.", "Risco US$", "Risco %", "Lotes", "Decisão");
-        for (Instrument i : catalog.bySymbol().values()) {
+        for (Instrument i : instruments.values()) {
             SizingResult r = PositionSizer.size(i, i.typicalStop(), balance, risk);
             double minRisk = r.minLotRiskUsd();
             System.out.printf(Locale.ROOT, "%-8s %-7s %10s %12.2f %9.2f %8.1f%% %7.2f  %s — %s%n",
@@ -138,6 +175,102 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
 
                 Stop = distância típica em preço (provisória; a partir do passo 3 vem do ATR).
                 Ajuste os limites em trading.risk no application.yml.""");
+    }
+
+    /**
+     * Troca tick size/value e lotes aproximados pelos da corretora. O stop típico continua do yml.
+     * Para risco usa o tick value de PERDA quando o MT5 informa (é o que vale se o stop for atingido).
+     */
+    private static Map<String, Instrument> withBrokerSpecs(Map<String, Instrument> base,
+                                                           List<Mt5Parsers.InstrumentSpec> specs) {
+        Map<String, Mt5Parsers.InstrumentSpec> bySymbol = new LinkedHashMap<>();
+        specs.forEach(s -> bySymbol.put(s.symbol(), s));
+        Map<String, Instrument> out = new LinkedHashMap<>();
+        List<String> fromYml = new java.util.ArrayList<>();
+        base.forEach((symbol, i) -> {
+            Mt5Parsers.InstrumentSpec s = bySymbol.get(symbol);
+            if (s == null) {
+                out.put(symbol, i);
+                fromYml.add(symbol);
+                return;
+            }
+            double tickValue = s.tickValueLoss() != null && s.tickValueLoss() > 0 ? s.tickValueLoss() : s.tickValue();
+            out.put(symbol, new Instrument(symbol, Market.fromCode(s.market()), s.tickSize(), tickValue,
+                    s.volumeMin(), s.volumeStep(), s.volumeMax(), i.typicalStop()));
+        });
+        if (!fromYml.isEmpty()) {
+            System.out.println("Sem dados do MT5 para " + fromYml + ": usando os valores do application.yml.");
+        }
+        return out;
+    }
+
+    // ------------------------------------------------------------------ mt5
+
+    private void importMt5Once() {
+        Mt5Importer.ImportSummary s = mt5Importer.importOnce();
+        System.out.printf("Importação MT5: %d arquivos, %d importados, %d repetidos, %d com erro.%n",
+                s.files(), s.imported(), s.duplicates(), s.errors());
+        s.rowsByKind().forEach((k, n) -> System.out.printf("  %-10s %d linhas gravadas%n", k.prefix(), n));
+        if (s.files() == 0) {
+            System.out.println("Inbox vazio: " + mt5.inbox() + " (os Services do MT5 estão rodando?)");
+        }
+        if (s.errors() > 0) {
+            System.out.println("Arquivos com erro (e o motivo em .erro.txt) em: " + mt5.errorDir());
+        }
+        System.out.println("Bronze em: " + lake.root().resolve("bronze"));
+    }
+
+    private void mt5Status() {
+        Map<String, Object> s = mt5Status.status();
+        System.out.printf("%nPasta: %s%nInbox: %s pendentes · %s com erro%n",
+                s.get("common_files"), s.get("inbox_pending"), s.get("error_files"));
+        if (!(Boolean) s.get("expected_account_configured")) {
+            System.out.println("Aviso: mt5.expected-account não configurado (defina MT5_ACCOUNT): qualquer conta é aceita.");
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> hb = (Map<String, Object>) s.get("ea_heartbeat");
+        if (hb == null) {
+            System.out.println("\nEA: nenhum heartbeat ainda (precisa do modo servidor rodando e do JevExecutor num gráfico).");
+        } else {
+            System.out.printf(Locale.ROOT, "%nEA: último heartbeat há %s s%s · conta %s em %s · %s · %s · equity %s %s · Algo Trading %s%n",
+                    hb.get("age_seconds"), Boolean.TRUE.equals(hb.get("stale")) ? " (PARADO)" : "",
+                    hb.get("account"), hb.get("server"), hb.get("trade_mode"), hb.get("ea_mode"),
+                    hb.get("equity"), hb.get("currency"),
+                    Boolean.TRUE.equals(hb.get("algo_enabled")) ? "ligado" : "DESLIGADO");
+        }
+
+        List<Map<String, Object>> candles = Mt5StatusService.list(s, "candles");
+        System.out.println("\nCandles M1:" + (candles.isEmpty() ? " nenhum importado ainda" : ""));
+        for (Map<String, Object> c : candles) {
+            System.out.printf("  %-8s %-6s última barra %s  atraso %6s s  spread %4s pts  %8s barras  %s%n",
+                    c.get("symbol"), c.get("market"), c.get("last_bar_utc"), c.get("lag_seconds"),
+                    c.get("last_spread_points"), c.get("bars_imported"),
+                    Boolean.TRUE.equals(c.get("stale")) ? "ATRASADO (mercado fechado?)" : "OK");
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> cal = (Map<String, Object>) s.get("calendar");
+        System.out.printf("%nCalendário: %s estados de valores (%s vistos ao vivo), %s eventos no dicionário, último visto %s%n",
+                cal.get("states_total"), cal.get("states_live"), cal.get("event_defs"), cal.get("last_seen_at"));
+        List<Map<String, Object>> next = Mt5StatusService.list(s, "next_high_impact");
+        if (!next.isEmpty()) {
+            // o nome vem traduzido pelo MT5 (e às vezes errado); o código em inglês é o que identifica o evento
+            System.out.println("Próximos eventos de alto impacto (UTC):");
+            for (Map<String, Object> e : next) {
+                System.out.printf("  %s  %s  %-42s forecast %-8s previous %-8s %s%n",
+                        e.get("scheduled_at"), e.get("currency"), e.get("event_code"),
+                        e.get("forecast") == null ? "-" : e.get("forecast"),
+                        e.get("previous") == null ? "-" : e.get("previous"), e.get("event"));
+            }
+        }
+
+        List<Map<String, Object>> files = Mt5StatusService.list(s, "files");
+        if (!files.isEmpty()) {
+            System.out.println("\nArquivos importados:");
+            files.forEach(f -> System.out.printf("  %-10s %6s  (último %s)%n", f.get("kind"), f.get("count"),
+                    f.get("last_seen_at")));
+        }
     }
 
     // ------------------------------------------------------------------ ask

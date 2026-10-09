@@ -1,6 +1,7 @@
 package com.jevforex.app.api;
 
 import com.jevforex.app.config.TradingProperties;
+import com.jevforex.app.mt5.Mt5StatusService;
 import com.jevforex.collect.rss.FeedProperties;
 import com.jevforex.core.risk.RiskSettings;
 import com.jevforex.lake.LakeStorage;
@@ -28,15 +29,17 @@ public class StatusController {
     private final FeedProperties feeds;
     private final LakeStorage lake;
     private final JdbcClient jdbc;
+    private final Mt5StatusService mt5Status;
 
     public StatusController(TradingProperties trading, RiskSettings risk, JevClient jev, FeedProperties feeds,
-                            LakeStorage lake, JdbcClient jdbc) {
+                            LakeStorage lake, JdbcClient jdbc, Mt5StatusService mt5Status) {
         this.trading = trading;
         this.risk = risk;
         this.jev = jev;
         this.feeds = feeds;
         this.lake = lake;
         this.jdbc = jdbc;
+        this.mt5Status = mt5Status;
     }
 
     @GetMapping("/status")
@@ -63,6 +66,7 @@ public class StatusController {
                     return m;
                 }).list();
         s.put("latest_documents", latest);
+        s.put("mt5", mt5Status.status());
         s.put("risk_global", risk.global());
         s.put("risk_markets", risk.markets());
         return s;

@@ -34,8 +34,8 @@ public class JevForexApplication {
             defaults.put("spring.main.banner-mode", "off");
             defaults.put("logging.level.root", "WARN");
             defaults.put("logging.level.com.jevforex", "INFO");
-            if (!Commands.needsDatabase(args[0])) {
-                // ping, models e risk funcionam sem o Postgres
+            if (!Commands.needsDatabase(args)) {
+                // ping e risk (sem --mt5) funcionam sem o Postgres
                 defaults.put("spring.autoconfigure.exclude",
                         "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration");
                 defaults.put("spring.flyway.enabled", "false");
