@@ -173,6 +173,38 @@ class FeatureBuilderTest {
         assertEquals(168.0, value(lake, "EURUSD", "2026-02-02 10:00:00", "hours_since_text"), 1e-12);
     }
 
+    @Test
+    void surpresaDeTom_politicaEDiscursoSeparados_eSoODisponivel(@TempDir Path lake) {
+        silver(lake, "2030-01-01 00:00", 1.0);
+        Path tone = lake.resolve("gold/tone_surprises/market=fx/qset=cb-text-v1/model=jev-1.13.0");
+        tone.getParent().toFile().mkdirs();
+        try (LakeSql sql = LakeSql.open(lake.resolve("tmp"), "1GB")) {
+            // comunicado do Fed mais hawkish que o anterior às 08:00; discurso do BCE às 09:00;
+            // ata do BCE às 11:00 (depois do momento das 10:00); primeira divulgação sem surpresa (NULL) é ignorada
+            sql.execute("COPY (SELECT * FROM (VALUES "
+                    + "('USD', 'statement', TIMESTAMP '2026-02-10 08:00:00', 0.6, 0.5, 2026), "
+                    + "('EUR', 'speech', TIMESTAMP '2026-02-10 09:00:00', -0.3, 1.0, 2026), "
+                    + "('EUR', 'minutes', TIMESTAMP '2026-02-10 11:00:00', 0.4, 1.0, 2026), "
+                    + "('USD', 'minutes', TIMESTAMP '2026-02-10 07:00:00', NULL, 1.0, 2026)) "
+                    + "t(currency, doc_kind, available_utc, tone_surprise, relevance, year)) TO "
+                    + LakeSql.literal(tone) + " (FORMAT PARQUET, PARTITION_BY (year))");
+        }
+        build(lake);
+
+        String t10 = "2026-02-10 10:00:00";
+        double usd = 0.6 * 0.5 * Math.exp(-7200.0 / (6 * 3600));
+        assertEquals(0.0, value(lake, "EURUSD", t10, "tone_policy_short_base"), 1e-12);   // ata do BCE só às 11:00
+        assertEquals(usd, value(lake, "EURUSD", t10, "tone_policy_short_quote"), 1e-9);
+        assertEquals(-usd, value(lake, "EURUSD", t10, "tone_policy_short_diff"), 1e-9);
+        assertEquals(-0.3 * Math.exp(-3600.0 / (72 * 3600)), value(lake, "EURUSD", t10, "tone_speech_base"), 1e-9);
+        assertEquals(0.0, value(lake, "EURUSD", t10, "tone_speech_quote"), 1e-12);
+        assertEquals(usd, value(lake, "USDJPY", t10, "tone_policy_short_base"), 1e-9);
+
+        // ao meio-dia a ata do BCE já entrou
+        assertEquals(0.4 * Math.exp(-3600.0 / (6 * 3600)),
+                value(lake, "EURUSD", "2026-02-10 12:00:00", "tone_policy_short_base"), 1e-9);
+    }
+
     private static double value(Path lake, String symbol, String moment, String col) {
         return Double.parseDouble(text(lake, symbol, moment, col));
     }

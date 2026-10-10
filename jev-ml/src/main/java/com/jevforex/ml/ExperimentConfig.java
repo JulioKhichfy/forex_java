@@ -19,7 +19,7 @@ import java.util.List;
  * @param riskPerTradePct risco por trade para o drawdown simulado
  * @param threads        folds treinados em paralelo
  * @param seed           semente do subsample (reprodutível)
- * @param models         modelos comparados (A = preço; B = + calendário; C = + texto do Jev); ver Dataset.MODELS
+ * @param models         modelos comparados (A = preço; B = + calendário; C = + texto do Jev; D = + surpresa de tom); ver Dataset.MODELS
  */
 public record ExperimentConfig(String fset, List<Integer> horizons, LocalDate from, int trainMonths, int testMonths,
                                int embargoDays, int lockboxMonths, Gbm gbm, Decision decision, double stopAtr,

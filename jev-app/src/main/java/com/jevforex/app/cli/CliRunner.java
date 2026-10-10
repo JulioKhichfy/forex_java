@@ -634,6 +634,11 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 System.out.printf(Locale.ROOT, "  %s %5d documentos (%d com peso > 0) · sinal médio %+.3f · [%+.3f, %+.3f]%n",
                         s.currency(), s.docs(), s.weighted(), s.meanSignal(), s.minSignal(), s.maxSignal());
             }
+            System.out.printf("Surpresa de tom por divulgação → %s%n", r.toneOut());
+            for (JevSignalExporter.KindStats k : r.kinds()) {
+                System.out.printf(Locale.ROOT, "  %-18s %5d divulgações · %5d com surpresa · |surpresa| média %.3f%n",
+                        k.kind(), k.releases(), k.withSurprise(), k.meanAbsSurprise());
+            }
         }
     }
 

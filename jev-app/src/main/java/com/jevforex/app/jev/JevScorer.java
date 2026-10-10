@@ -60,8 +60,9 @@ public class JevScorer {
         this.usdPerMillion = usdPerMillion;
     }
 
+    /** previousText/previousDate só nos conjuntos com contexto anterior (input.previous). */
     record Chunk(String docSha, String textSha, int chunkIdx, String source, String issuer, String currency,
-                 String market, String title, String text) {
+                 String market, String title, String text, String previousText, String previousDate) {
     }
 
     private record Request(Chunk chunk, ObjectNode state, String json, String sha) {
@@ -86,7 +87,9 @@ public class JevScorer {
 
     private Plan plan(LakeSql sql, Path lakeRoot, QuestionSet qs, String model, LocalDate since, int limit,
                       List<Request> pendingOut) {
-        List<Chunk> chunks = load(sql, lakeRoot, since);
+        QuestionSet.Input input = qs.input();
+        List<Chunk> chunks = input.withPrevious() ? loadWithPrevious(sql, lakeRoot, since, input.docKinds())
+                : load(sql, lakeRoot, since, input.docKinds());
         Set<String> answered = calls.answeredRequests(qs.code(), model);
         JsonNode questions = qs.apiQuestions();
         double ratio = calls.tokensPerRequestChar();
@@ -180,6 +183,10 @@ public class JevScorer {
             if (e.status() == 401 || e.status() == 402 || e.status() == 403) {
                 if (stop.compareAndSet(false, true)) reason.set("HTTP " + e.status() + " — " + e.hint());
             }
+        } catch (IllegalStateException e) {
+            // configuração (ex.: sem chave): nenhum trecho vai funcionar → para tudo, sem registrar como falha do trecho
+            errors.incrementAndGet();
+            if (stop.compareAndSet(false, true)) reason.set(e.getMessage());
         } catch (RuntimeException e) {
             // falha fora da API (timeout, rede): registra para saber o motivo; a próxima execução tenta de novo
             if (errors.incrementAndGet() <= 5) log.warn("Trecho {} falhou: {}", c.textSha(), e.toString());
@@ -202,6 +209,10 @@ public class JevScorer {
         state.put("currency", c.currency());
         if (c.title() != null) state.put("title", c.title());
         state.put("text", c.text());
+        if (c.previousText() != null) {
+            state.put("previous_text", c.previousText());
+            state.put("previous_date", c.previousDate());
+        }
         ObjectNode req = mapper.createObjectNode();
         req.put("model", model);
         req.set("state", state);
@@ -210,16 +221,65 @@ public class JevScorer {
         return new Request(c, state, json, LocalDiskLakeStorage.sha256(json.getBytes(StandardCharsets.UTF_8)));
     }
 
-    private static List<Chunk> load(LakeSql sql, Path lakeRoot, LocalDate since) {
-        Path docs = lakeRoot.resolve("silver/documents");
-        if (!Files.isDirectory(docs)) throw new IllegalStateException("Sem silver/documents. Rode antes: normalize --only=documents");
+    private static List<Chunk> load(LakeSql sql, Path lakeRoot, LocalDate since, List<String> kinds) {
         return sql.query("""
                 SELECT doc_sha, text_sha, chunk_idx, source, issuer, currency, market, title, text
                   FROM read_parquet('%s/**/*.parquet', hive_partitioning = true)
-                 WHERE chars > 0 AND doc_type = 'cb_text' AND available_utc >= TIMESTAMP '%s 00:00:00'
+                 WHERE chars > 0 AND doc_type = 'cb_text' AND available_utc >= TIMESTAMP '%s 00:00:00' %s
                  ORDER BY available_utc, doc_sha, chunk_idx
-                """.formatted(LakeSql.slashes(docs), since), rs -> new Chunk(rs.getString(1), rs.getString(2),
-                rs.getInt(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7), rs.getString(8),
-                rs.getString(9)));
+                """.formatted(docsPath(lakeRoot), since, kindFilter(kinds)), rs -> new Chunk(rs.getString(1),
+                rs.getString(2), rs.getInt(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7),
+                rs.getString(8), rs.getString(9), null, null));
+    }
+
+    /**
+     * Trechos da divulgação PRINCIPAL (o documento com mais texto entre página e anexos do mesmo horário: no Fed a
+     * página traz só o resumo e o PDF o comunicado inteiro), cada um com o trecho de mesma posição relativa da
+     * divulgação anterior do mesmo emissor e tipo. A primeira divulgação de cada série não tem com o que comparar
+     * e fica de fora. A anterior sempre tem available_utc menor (point-in-time).
+     */
+    static List<Chunk> loadWithPrevious(LakeSql sql, Path lakeRoot, LocalDate since, List<String> kinds) {
+        return sql.query("""
+                WITH c AS (
+                    SELECT DISTINCT doc_sha, text_sha, chunk_idx, source, issuer, currency, market, title, text, chars,
+                           doc_kind, available_utc
+                      FROM read_parquet('%1$s/**/*.parquet', hive_partitioning = true)
+                     WHERE chars > 0 AND doc_type = 'cb_text' AND doc_kind IS NOT NULL %2$s),
+                d AS (SELECT issuer, doc_kind, available_utc, doc_sha, sum(chars) AS total, count(*) AS n
+                        FROM c GROUP BY ALL),
+                p AS (SELECT issuer, doc_kind, available_utc, arg_max(doc_sha, total) AS doc_sha, arg_max(n, total) AS n
+                        FROM d GROUP BY ALL),
+                r AS (SELECT *, lag(doc_sha) OVER w AS prev_sha, lag(n) OVER w AS prev_n,
+                             lag(available_utc) OVER w AS prev_utc
+                        FROM p WINDOW w AS (PARTITION BY issuer, doc_kind ORDER BY available_utc)),
+                cur AS (SELECT c.*, r.prev_sha, r.prev_n, r.prev_utc,
+                               row_number() OVER (PARTITION BY c.doc_sha ORDER BY c.chunk_idx) - 1 AS pos, r.n
+                          FROM r JOIN c ON c.doc_sha = r.doc_sha AND c.available_utc = r.available_utc
+                         WHERE r.prev_sha IS NOT NULL AND r.available_utc >= TIMESTAMP '%3$s 00:00:00'),
+                prev AS (SELECT doc_sha, text,
+                                row_number() OVER (PARTITION BY doc_sha ORDER BY chunk_idx) - 1 AS pos FROM c)
+                SELECT cur.doc_sha, cur.text_sha, cur.chunk_idx, cur.source, cur.issuer, cur.currency, cur.market,
+                       cur.title, cur.text, prev.text, strftime(cur.prev_utc, '%%Y-%%m-%%d')
+                  FROM cur JOIN prev ON prev.doc_sha = cur.prev_sha
+                   AND prev.pos = CASE WHEN cur.n <= 1 OR cur.prev_n <= 1 THEN 0
+                                       ELSE CAST(round(cur.pos * (cur.prev_n - 1) / (cur.n - 1)) AS BIGINT) END
+                 ORDER BY cur.available_utc, cur.doc_sha, cur.chunk_idx
+                """.formatted(docsPath(lakeRoot), kindFilter(kinds), since), rs -> new Chunk(rs.getString(1),
+                rs.getString(2), rs.getInt(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7),
+                rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11)));
+    }
+
+    private static String docsPath(Path lakeRoot) {
+        Path docs = lakeRoot.resolve("silver/documents");
+        if (!Files.isDirectory(docs)) throw new IllegalStateException("Sem silver/documents. Rode antes: normalize --only=documents");
+        return LakeSql.slashes(docs);
+    }
+
+    private static String kindFilter(List<String> kinds) {
+        if (kinds.isEmpty()) return "";
+        for (String k : kinds) {
+            if (!k.matches("[a-z_]+")) throw new IllegalArgumentException("input.doc_kinds inválido: " + k);
+        }
+        return "AND doc_kind IN (" + String.join(", ", kinds.stream().map(k -> "'" + k + "'").toList()) + ")";
     }
 }

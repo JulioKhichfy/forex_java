@@ -123,6 +123,13 @@ public final class DocumentNormalizer {
             }
         }
 
+        // tipo de cada documento (comunicado, ata, discurso…); o anexo herda o da página
+        java.util.Map<String, String> kindByUrl = new java.util.HashMap<>();
+        for (Doc d : docs) {
+            String k = ownKind(d);
+            if (k != null) kindByUrl.put(d.url(), k);
+        }
+
         List<Object[]> rows = new ArrayList<>();
         int duplicateAttachments = 0;
         for (Doc d : docs) {
@@ -141,8 +148,8 @@ public final class DocumentNormalizer {
                 String c = chunks.get(i);
                 rows.add(new Object[]{d.sha(), d.url(), d.parentUrl(), d.contentType(), d.source(), d.feedId(),
                         d.issuer(), d.currency(), d.market(), d.docType(), d.title(), d.publishedAt(),
-                        d.firstSeenAt(), d.availableUtc(), d.estimated(), i, chunks.size(), c, c.length(),
-                        LocalDiskLakeStorage.sha256(c.getBytes(StandardCharsets.UTF_8))});
+                        d.firstSeenAt(), d.availableUtc(), kindOf(d, kindByUrl), d.estimated(), i, chunks.size(), c,
+                        c.length(), LocalDiskLakeStorage.sha256(c.getBytes(StandardCharsets.UTF_8))});
             }
         }
         if (rows.isEmpty()) {
@@ -152,7 +159,8 @@ public final class DocumentNormalizer {
 
         LinkedHashMap<String, String> cols = new LinkedHashMap<>();
         for (String c : List.of("doc_sha", "url", "parent_url", "content_type", "source", "feed_id", "issuer",
-                "currency", "market", "doc_type", "title", "published_at", "first_seen_at", "available_utc")) {
+                "currency", "market", "doc_type", "title", "published_at", "first_seen_at", "available_utc",
+                "doc_kind")) {
             cols.put(c, "VARCHAR");
         }
         cols.put("availability_estimated", "BOOLEAN");
@@ -170,7 +178,7 @@ public final class DocumentNormalizer {
                        CAST(replace(r.published_at, 'Z', '') AS TIMESTAMP) AS published_at,
                        CAST(replace(r.first_seen_at, 'Z', '') AS TIMESTAMP) AS first_seen_at,
                        CAST(replace(r.available_utc, 'Z', '') AS TIMESTAMP) AS available_utc,
-                       r.availability_estimated, r.chunk_idx, r.n_chunks, r.text, r.chars, r.text_sha
+                       r.doc_kind, r.availability_estimated, r.chunk_idx, r.n_chunks, r.text, r.chars, r.text_sha
                   FROM doc_raw r
                   LEFT JOIN (SELECT url, min(doc_sha) AS doc_sha FROM doc_raw GROUP BY url) p ON p.url = r.parent_url
                 """);
@@ -259,7 +267,7 @@ public final class DocumentNormalizer {
             Doc r = d;
             if (rel != null) {
                 String when = resolver.resolve(rel.event(), rel.anchor(), rel.refDate())
-                        .map(Instant::toString)
+                        .map(t -> t.plus(ReleaseResolver.extraDelay(rel.kind())).toString())
                         .orElse(rel.refDate().atTime(23, 59, 59).toInstant(java.time.ZoneOffset.UTC).toString());
                 // documento visto ao vivo ANTES do horário estimado continua valendo pelo horário real
                 if (Instant.parse(when).isBefore(Instant.parse(d.firstSeenAt()))) r = d.withAvailability(when, true);
@@ -273,6 +281,22 @@ public final class DocumentNormalizer {
             if (parent != null && parent.release() != null) out.set(i, d.withAvailability(parent.availableUtc(), true));
         }
         return out;
+    }
+
+    /**
+     * statement | minutes | accounts | press_conference | summary_minutes (arquivo/índice), speech (BIS e feeds de
+     * discursos) ou null (demais comunicados dos feeds).
+     */
+    private static String ownKind(Doc d) {
+        if (d.release() != null) return d.release().kind();
+        if (BisSpeeches.SOURCE.equals(d.source())) return "speech";
+        if (d.feedId() != null && d.feedId().contains("speech")) return "speech";
+        return null;
+    }
+
+    private static String kindOf(Doc d, java.util.Map<String, String> kindByUrl) {
+        String k = ownKind(d);
+        return k != null || d.parentUrl() == null ? k : kindByUrl.get(d.parentUrl());
     }
 
     /** bronze/cb_archive_index: url → regra do horário de divulgação (gravado pelo backfill-archives). */

@@ -43,6 +43,32 @@ public record QuestionSet(String code, String docType, JsonNode definition, Stri
         return stripDocFields(definition.path("questions").deepCopy());
     }
 
+    /**
+     * Que trechos o conjunto avalia e com que contexto (bloco opcional "input"; não é enviado ao Jev).
+     *
+     * @return tipos de documento (vazio = todos) e o modo de contexto anterior (null = sem contexto)
+     */
+    public Input input() {
+        JsonNode in = definition.path("input");
+        java.util.List<String> kinds = new java.util.ArrayList<>();
+        in.path("doc_kinds").forEach(k -> kinds.add(k.asText()));
+        String previous = in.path("previous").asText(null);
+        if (previous != null && !previous.equals(Input.ALIGNED_CHUNK)) {
+            throw new IllegalArgumentException(code + ": input.previous desconhecido: " + previous);
+        }
+        return new Input(java.util.List.copyOf(kinds), previous);
+    }
+
+    /** Ver {@link #input()}. */
+    public record Input(java.util.List<String> docKinds, String previous) {
+        /** previous_text = trecho de mesma posição relativa na divulgação anterior do mesmo emissor e tipo. */
+        public static final String ALIGNED_CHUNK = "aligned_chunk";
+
+        public boolean withPrevious() {
+            return previous != null;
+        }
+    }
+
     /** Número de níveis declarado num Score (para normalizar o resultado). */
     public int scoreLevels(String questionId) {
         JsonNode c = definition.path("questions").path(questionId).path("criteria");

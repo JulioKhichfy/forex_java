@@ -47,6 +47,11 @@ public record FeatureConfig(String fset, int entryDelayMinutes, List<Integer> ho
         public String signalsPath() {
             return "gold/currency_signals/market=fx/qset=" + qset + "/model=" + model;
         }
+
+        /** Surpresa de tom por divulgação (jev-signals). */
+        public String tonePath() {
+            return "gold/tone_surprises/market=fx/qset=" + qset + "/model=" + model;
+        }
     }
 
     public FeatureConfig {
@@ -66,9 +71,12 @@ public record FeatureConfig(String fset, int entryDelayMinutes, List<Integer> ho
         negativePolarity = List.copyOf(negativePolarity);
     }
 
-    /** Valores do documento mestre (capítulos 10 e 11); fset v2 = v1 + grupo C (texto do Jev). */
+    /**
+     * Valores do documento mestre (capítulos 10 e 11). fset v2 = v1 + grupo C (tom do Jev);
+     * v3 = v2 + surpresa de tom (tom − tom da divulgação anterior do mesmo banco e tipo).
+     */
     public static FeatureConfig defaults() {
-        return new FeatureConfig("v2", 1, List.of(15, 60), 0.5, 2,
+        return new FeatureConfig("v3", 1, List.of(15, 60), 0.5, 2,
                 List.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20),
                 Map.of("HIGH", 1.0, "MODERATE", 0.5), 60, 24, 8,
                 List.of("unemployment", "jobless", "claims"),

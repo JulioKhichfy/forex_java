@@ -94,5 +94,11 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       - [x] 4b comunicados de decisão e atas de Fed, BCE, BoE, BoJ, BoC (backfill-archives; horário do calendário + 30 s)
       - [x] 4c Jev em escala (jev-score/jev-signals; 12.915 trechos, ~US$ 0,99; gold/jev_answers e currency_signals)
       - [x] 4d grupo C (fset v2) e modelo C no train — resultado: C não supera B (60 min: 6/28 folds; 15 min: 14/28)
+      - [x] 4e surpresa de tom (doc_kind no silver, gold/tone_surprises, fset v3, modelo D = B + tom) —
+            resultado: D não supera B (60 min: 11/28; 15 min: 12/28); estudo de evento por divulgação sem relação
+            com a reação imediata (corr +0,04, p 0,58, n 192)
+      - [x] 4f cb-text-v2 (Jev compara com a divulgação anterior; 2.360 trechos, US$ 0,28) — estudo de evento:
+            reação imediata zero; +2→+60 min corr −0,13 (p 0,05) que não se repete em 2024–26 → sem sinal robusto.
+            Corrigido vazamento: coletiva do BCE só vale no início + 75 min (`ReleaseResolver.extraDelay`)
 - [ ] Passo 5 — experimento A/B/C walk-forward e go/no-go
 - [ ] Passo 6 — decision engine (gates), API bridge, EA executor, dashboard Angular; shadow → demo

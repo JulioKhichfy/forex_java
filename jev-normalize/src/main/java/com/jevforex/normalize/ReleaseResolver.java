@@ -27,6 +27,17 @@ import java.util.Optional;
 final class ReleaseResolver {
 
     static final int AVAILABILITY_DELAY_SECONDS = 30;
+    /**
+     * Coletiva (BCE "is"): o horário do calendário é o INÍCIO; a página traz a declaração inicial e a transcrição
+     * das perguntas, que só existe inteira no fim (~1 h). Conservador: o documento todo vale no início + 75 min.
+     */
+    static final int PRESS_CONFERENCE_EXTRA_MINUTES = 75;
+
+    /** Atraso extra por tipo de documento, além do horário oficial + 30 s. */
+    static java.time.Duration extraDelay(String kind) {
+        return "press_conference".equals(kind) ? java.time.Duration.ofMinutes(PRESS_CONFERENCE_EXTRA_MINUTES)
+                : java.time.Duration.ZERO;
+    }
 
     private final Map<String, List<LocalDateTime>> byCode;
 

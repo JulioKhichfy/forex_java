@@ -1,0 +1,55 @@
+{
+  "code": "cb-text-v2",
+  "doc_type": "cb_text",
+  "_pt": "Comparação com a comunicação anterior (hipótese: o mercado reage à MUDANÇA de mensagem). Só documentos de política (comunicado, ata, coletiva, accounts). Cada trecho vai com o trecho correspondente (posição relativa) da divulgação anterior do mesmo banco e tipo, em 'previous_text'. Campos '_pt' são tradução e não são enviados ao Jev.",
+  "input": {
+    "doc_kinds": ["statement", "minutes", "press_conference", "summary_minutes", "accounts"],
+    "previous": "aligned_chunk",
+    "_pt": "doc_kinds: tipos avaliados. previous=aligned_chunk: 'previous_text' = trecho de mesma posição relativa na divulgação anterior do mesmo emissor e tipo; sem divulgação anterior, o trecho não é avaliado."
+  },
+  "questions": {
+    "relative_stance": {
+      "type": "choice",
+      "instructions": "'previous_text' is the corresponding part of the previous communication of the same type by the institution in 'issuer' (dated 'previous_date'). Compared with 'previous_text', how does 'text' change the monetary policy message?",
+      "_pt": "'previous_text' é a parte correspondente da comunicação anterior do mesmo tipo da instituição em 'issuer' (data em 'previous_date'). Comparado com 'previous_text', como 'text' muda a mensagem de política monetária?",
+      "criteria": {
+        "more_hawkish": "Moves toward higher rates, slower easing, or more concern about inflation than before.",
+        "more_dovish": "Moves toward lower rates, faster easing, or more concern about growth or employment than before.",
+        "unchanged": "Conveys essentially the same policy message as before.",
+        "not_comparable": "The two passages cover different topics, or neither is about monetary policy."
+      },
+      "_pt_criteria": {
+        "more_hawkish": "Vai na direção de juros mais altos, afrouxamento mais lento ou mais preocupação com inflação do que antes.",
+        "more_dovish": "Vai na direção de juros mais baixos, afrouxamento mais rápido ou mais preocupação com crescimento ou emprego do que antes.",
+        "unchanged": "Passa essencialmente a mesma mensagem de política de antes.",
+        "not_comparable": "Os dois trechos tratam de assuntos diferentes, ou nenhum trata de política monetária."
+      }
+    },
+    "shift_size": {
+      "type": "score",
+      "instructions": "How large is the change in the monetary policy message from 'previous_text' to 'text'?",
+      "_pt": "Qual o tamanho da mudança na mensagem de política monetária de 'previous_text' para 'text'?",
+      "criteria": [
+        "No change.",
+        "Slight change in wording or emphasis.",
+        "Clear change in tone or in the assessment of the economy.",
+        "Change in the policy decision or in forward guidance."
+      ],
+      "_pt_criteria": ["Nenhuma mudança.", "Leve mudança de redação ou ênfase.", "Mudança clara de tom ou da avaliação da economia.", "Mudança na decisão ou na orientação futura."]
+    },
+    "guidance_change": {
+      "type": "noul",
+      "instructions": "Compared with 'previous_text', does 'text' signal a different future path for interest rates?",
+      "_pt": "Comparado com 'previous_text', 'text' sinaliza um caminho futuro diferente para os juros?",
+      "criteria": {
+        "true": "The expected future rate path differs from what 'previous_text' implied.",
+        "false": "The expected future rate path is the same, or neither passage addresses it."
+      }
+    },
+    "market_relevant": {
+      "type": "noul",
+      "instructions": "Is the difference between 'text' and 'previous_text' likely to materially move the exchange rate of the currency in 'currency'?",
+      "_pt": "A diferença entre 'text' e 'previous_text' tende a mover de forma relevante a cotação da moeda em 'currency'?"
+    }
+  }
+}

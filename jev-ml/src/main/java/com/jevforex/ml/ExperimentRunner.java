@@ -97,6 +97,9 @@ public final class ExperimentRunner {
             if (!d.hasText && models.remove("C")) {
                 progress.accept("ATENÇÃO: fset " + cfg.fset() + " sem o grupo C (texto do Jev): modelo C fica de fora");
             }
+            if (!d.hasTone && models.remove("D")) {
+                progress.accept("ATENÇÃO: fset " + cfg.fset() + " sem a surpresa de tom: modelo D fica de fora");
+            }
             progress.accept(String.format("Horizonte %d min: %d linhas carregadas · modelos %s", h, d.size(), models));
             out.add(runHorizon(h, d, models, oos, progress, t0));
         }

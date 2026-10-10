@@ -18,7 +18,7 @@ import java.util.Map;
 public final class ReportWriter {
 
     private static final Map<String, String> LABELS = Map.of("A", "A (preço)", "B", "B (+ calendário)",
-            "C", "C (+ texto do Jev)");
+            "C", "C (+ texto do Jev)", "D", "D (+ surpresa de tom)");
 
     private ReportWriter() {
     }
@@ -82,7 +82,7 @@ public final class ReportWriter {
             s.comparisons().forEach((k, v) -> h.append(String.format(Locale.ROOT, "<li>%s: <b class=\"%s\">%d de %d</b> "
                             + "folds com log loss menor (%.0f%%)%s</li>", k.replace("×", " melhor que "),
                     v >= 0.7 * s.folds() ? "good" : "", v, s.folds(), 100.0 * v / s.folds(),
-                    k.equals("C×B") ? (v >= 0.7 * s.folds() ? " — atende o critério" : " — não atende o critério (≥ 70%)") : "")));
+                    (k.equals("C×B") || k.equals("D×B")) ? (v >= 0.7 * s.folds() ? " — atende o critério" : " — não atende o critério (≥ 70%)") : "")));
             h.append("</ul>");
 
             h.append("<div class=\"wrap\"><table><tr><th>Fora da amostra</th><th>Base</th>");

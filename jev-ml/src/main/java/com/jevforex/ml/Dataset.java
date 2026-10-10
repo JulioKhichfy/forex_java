@@ -32,7 +32,15 @@ public final class Dataset {
             "text_long_base", "text_long_quote", "text_long_diff", "guidance_base", "guidance_quote", "text_docs_24h",
             "hours_since_text");
 
-    /** A = preço; B = A + calendário; C = B + texto do Jev (documento mestre, capítulo 11). */
+    /** Grupo TONE: surpresa de tom (tom − tom da divulgação anterior do mesmo banco e tipo; fset v3). */
+    public static final List<String> TONE = List.of("tone_policy_short_base", "tone_policy_short_quote",
+            "tone_policy_short_diff", "tone_policy_long_diff", "tone_speech_base", "tone_speech_quote",
+            "tone_speech_diff");
+
+    /**
+     * A = preço; B = A + calendário; C = B + texto do Jev (documento mestre, capítulo 11);
+     * D = B + surpresa de tom (teste da hipótese "o mercado reage à mudança de tom").
+     */
     public static final Map<String, List<String>> MODELS;
 
     static {
@@ -40,6 +48,7 @@ public final class Dataset {
         m.put("A", PRICE);
         m.put("B", concat(PRICE, CALENDAR));
         m.put("C", concat(concat(PRICE, CALENDAR), TEXT));
+        m.put("D", concat(concat(PRICE, CALENDAR), TONE));
         MODELS = java.util.Collections.unmodifiableMap(m);
     }
 
@@ -64,6 +73,8 @@ public final class Dataset {
     int missingValues;
     /** O gold tem o grupo C (fset v2 ou depois)? */
     boolean hasText;
+    /** O gold tem a surpresa de tom (fset v3 ou depois)? */
+    boolean hasTone;
 
     Dataset(int n, List<String> columns) {
         moment = new long[n];
@@ -109,6 +120,8 @@ public final class Dataset {
                 + "/**/*.parquet', hive_partitioning = true)", rs -> rs.getString(1));
         boolean hasText = available.containsAll(TEXT);
         if (hasText) feats.addAll(TEXT);
+        boolean hasTone = available.containsAll(TONE);
+        if (hasTone) feats.addAll(TONE);
         String select = String.join(", ", feats.stream()
                 .map(c -> c.equals("is_event") ? "CAST(f.kind = 'EVENT' AS DOUBLE) AS is_event" : "f." + c).toList());
         sql.execute("""
@@ -127,6 +140,7 @@ public final class Dataset {
         int n = (int) sql.scalar("SELECT count(*) FROM ds");
         Dataset d = new Dataset(n, List.copyOf(columns));
         d.hasText = hasText;
+        d.hasTone = hasTone;
         int[] row = {0};
         sql.query("SELECT * FROM ds ORDER BY m, symbol", rs -> {
             int i = row[0]++;

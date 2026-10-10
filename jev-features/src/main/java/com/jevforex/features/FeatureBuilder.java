@@ -244,6 +244,7 @@ public final class FeatureBuilder {
 
         // ---------------------------------------------------------------- grupo C: sinais do Jev por moeda
         long textSignals = buildTextFeatures(sql);
+        buildToneFeatures(sql);
 
         // ---------------------------------------------------------------- features
         sql.execute("""
@@ -297,12 +298,18 @@ public final class FeatureBuilder {
                        coalesce(tx.guid_base, 0) AS guidance_base, coalesce(tx.guid_quote, 0) AS guidance_quote,
                        coalesce(tx.docs_24h, 0) AS text_docs_24h,
                        coalesce(least(168, date_diff('hour', tx.last_text, j.t)), 168) AS hours_since_text,
+                       coalesce(tn.ps_base, 0) AS tone_policy_short_base, coalesce(tn.ps_quote, 0) AS tone_policy_short_quote,
+                       coalesce(tn.ps_base, 0) - coalesce(tn.ps_quote, 0) AS tone_policy_short_diff,
+                       coalesce(tn.pl_base, 0) - coalesce(tn.pl_quote, 0) AS tone_policy_long_diff,
+                       coalesce(tn.sp_base, 0) AS tone_speech_base, coalesce(tn.sp_quote, 0) AS tone_speech_quote,
+                       coalesce(tn.sp_base, 0) - coalesce(tn.sp_quote, 0) AS tone_speech_diff,
                        year(j.t) AS year
                   FROM j
                   LEFT JOIN spread_base sb ON sb.symbol = j.symbol AND sb.d = CAST(j.t AS DATE) AND sb.hr = hour(j.t)
                   LEFT JOIN usd u ON u.t = j.t
                   LEFT JOIN surprise s ON s.symbol = j.symbol AND s.t = j.t
                   LEFT JOIN text_feat tx ON tx.symbol = j.symbol AND tx.t = j.t
+                  LEFT JOIN tone_feat tn ON tn.symbol = j.symbol AND tn.t = j.t
                  WHERE j.t - j.last_bar_close <= to_minutes(%d)
                    AND j.atr > 0 AND j.regime IS NOT NULL AND j.sma50 IS NOT NULL
                 """.formatted(STALE_MINUTES));
@@ -415,6 +422,46 @@ public final class FeatureBuilder {
                   FROM x GROUP BY symbol, t
                 """, shortS, (long) (longS * 6), longS, minRel));
         return sql.scalar("SELECT count(*) FROM text_sig");
+    }
+
+    /**
+     * Surpresa de tom (fset v3): o mercado reage à MUDANÇA de tom, não ao tom. Por moeda:
+     * política (comunicado, ata, accounts, coletiva) = Σ surpresa × relevância × exp(−Δ/τ) com τ curto e longo;
+     * discursos = o mesmo com τ longo (disponíveis só no fim do dia). Sem gold/tone_surprises: tudo zero.
+     */
+    private void buildToneFeatures(LakeSql sql) {
+        FeatureConfig.Text t = cfg.text();
+        Path tone = t == null ? null : lakeRoot.resolve(t.tonePath());
+        if (tone == null || !Files.isDirectory(tone)) {
+            sql.execute("CREATE OR REPLACE TEMP TABLE tone_sig AS SELECT NULL::VARCHAR AS currency, "
+                    + "NULL::TIMESTAMP AS available_utc, NULL::DOUBLE AS surprise, NULL::BOOLEAN AS is_speech WHERE false");
+        } else {
+            sql.execute("""
+                    CREATE OR REPLACE TEMP TABLE tone_sig AS
+                    SELECT currency, available_utc, tone_surprise * relevance AS surprise, doc_kind = 'speech' AS is_speech
+                      FROM read_parquet('%s/**/*.parquet', hive_partitioning = true)
+                     WHERE tone_surprise IS NOT NULL
+                    """.formatted(LakeSql.slashes(tone)));
+        }
+        double shortS = (t == null ? 6 : t.tauShortHours()) * 3600, longS = (t == null ? 72 : t.tauLongHours()) * 3600;
+        sql.execute(String.format(Locale.ROOT, """
+                CREATE OR REPLACE TEMP TABLE tone_feat AS
+                WITH x AS (
+                    SELECT m.symbol, m.t, s.currency = p.base AS is_base, s.surprise, s.is_speech,
+                           date_diff('second', s.available_utc, m.t) AS age
+                      FROM moments m JOIN pairs p USING (symbol)
+                      JOIN tone_sig s ON s.currency IN (p.base, p.quote)
+                                     AND s.available_utc <= m.t
+                                     AND s.available_utc > m.t - to_seconds(%2$d))
+                SELECT symbol, t,
+                       sum(CASE WHEN is_base AND NOT is_speech AND age < %1$f * 6 THEN surprise * exp(-age / %1$f) END) AS ps_base,
+                       sum(CASE WHEN NOT is_base AND NOT is_speech AND age < %1$f * 6 THEN surprise * exp(-age / %1$f) END) AS ps_quote,
+                       sum(CASE WHEN is_base AND NOT is_speech THEN surprise * exp(-age / %3$f) END) AS pl_base,
+                       sum(CASE WHEN NOT is_base AND NOT is_speech THEN surprise * exp(-age / %3$f) END) AS pl_quote,
+                       sum(CASE WHEN is_base AND is_speech THEN surprise * exp(-age / %3$f) END) AS sp_base,
+                       sum(CASE WHEN NOT is_base AND is_speech THEN surprise * exp(-age / %3$f) END) AS sp_quote
+                  FROM x GROUP BY symbol, t
+                """, shortS, (long) (longS * 6), longS));
     }
 
     private static void write(LakeSql sql, String select, String partition, Path out) {

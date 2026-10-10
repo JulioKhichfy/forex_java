@@ -42,6 +42,14 @@ class ReleaseResolverTest {
     }
 
     @Test
+    void coletiva_valeSoNoFim_comAsPerguntas() {
+        // a transcrição das perguntas só existe inteira depois da coletiva: início + 75 min
+        assertEquals(java.time.Duration.ofMinutes(75), ReleaseResolver.extraDelay("press_conference"));
+        assertEquals(java.time.Duration.ZERO, ReleaseResolver.extraDelay("statement"));
+        assertEquals(java.time.Duration.ZERO, ReleaseResolver.extraDelay(null));
+    }
+
+    @Test
     void normalizador_arquivoUsaOCalendario_anexoHerda(@TempDir Path lakeRoot) throws Exception {
         LocalDiskLakeStorage lake = new LocalDiskLakeStorage(new LakeProperties(lakeRoot.toString()));
         try (LakeSql sql = LakeSql.open(lakeRoot.resolve("tmp"), "1GB")) {

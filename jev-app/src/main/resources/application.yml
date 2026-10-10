@@ -62,7 +62,7 @@ silver:
 #  Mudou algo que altera o significado das features → nova versão de fset (v2).
 # ---------------------------------------------------------------------
 features:
-  fset: v2                        # v1 = grupos A e B; v2 = + grupo C (texto do Jev). A v1 continua reproduzível.
+  fset: v3                        # v1 = grupos A e B; v2 = + grupo C (texto do Jev); v3 = + surpresa de tom. As anteriores continuam reproduzíveis.
   entry-delay-minutes: 1          # o M1 não tem preço no meio do minuto: 60 s (mais conservador que os 30 s do cap. 11)
   horizons-minutes: [15, 60]
   label-threshold-atr: 0.5        # ALTA/QUEDA se, depois dos custos, passar de 0,5 ATR (teste 0,3 e 0,7 no passo 5)
@@ -97,7 +97,7 @@ experiment:
   stop-atr: 1.5                   # R = resultado ÷ 1,5 ATR
   risk-per-trade-pct: 0.5         # só para o drawdown simulado do relatório
   threads: 0                      # 0 = núcleos − 1
-  models: [A, B, C]               # A = preço; B = + calendário; C = + texto do Jev (precisa de fset v2)
+  models: [A, B, C, D]            # A = preço; B = + calendário; C = + texto do Jev (fset v2+); D = B + surpresa de tom (fset v3+)
 
 # ---------------------------------------------------------------------
 #  Acervo de discursos do BIS (passo 4a) — comando backfill-bis
