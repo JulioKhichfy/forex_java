@@ -19,11 +19,15 @@ public final class Commands {
     public static final String BACKFILL_ARCHIVES = "backfill-archives";
     public static final String JEV_SCORE = "jev-score";
     public static final String JEV_SIGNALS = "jev-signals";
+    public static final String TRAIN_CHAMPION = "train-champion";
+    public static final String PROMOTE = "promote";
+    public static final String PREDICT_NOW = "predict-now";
 
     private static final Set<String> ALL = Set.of(HELP, PING, RISK, ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS,
-            NORMALIZE, FEATURES, TRAIN, BACKFILL_BIS, BACKFILL_ARCHIVES, JEV_SCORE, JEV_SIGNALS);
+            NORMALIZE, FEATURES, TRAIN, BACKFILL_BIS, BACKFILL_ARCHIVES, JEV_SCORE, JEV_SIGNALS, TRAIN_CHAMPION, PROMOTE,
+            PREDICT_NOW);
     private static final Set<String> NEED_DB = Set.of(ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS, BACKFILL_ARCHIVES,
-            JEV_SCORE, JEV_SIGNALS);
+            JEV_SCORE, JEV_SIGNALS, PREDICT_NOW);
 
     private Commands() {
     }
@@ -65,6 +69,12 @@ public final class Commands {
                                                 de 15/60 min (não precisa do Postgres; rode normalize antes)
                   train [--horizon=60]          experimento A × B com walk-forward, embargo e cofre; grava
                                                 reports\\walkforward\\<run>\\report.html (rode features antes)
+                  train --open-lockbox          ABRE O COFRE (uma única vez): avalia os modelos nos meses reservados
+                  train-champion                treina os modelos de produção (A, E, B) com os últimos 24 meses;
+                                                a primeira versão entra em produção, as seguintes esperam promote
+                  promote --version=<versão>    coloca uma versão de models/market=fx em produção
+                  predict-now [--at=2026-10-09T15:00]
+                                                previsão ao vivo agora (ou num instante UTC) e grava no Postgres
                   ask --qset=cb-text-v1 <fonte> [opções]
                        fontes:  --text="..." | --file=caminho.txt | --latest | --doc=<id>
                        opções:  --issuer="Federal Reserve" --currency=USD --previous="resumo anterior"

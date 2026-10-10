@@ -44,14 +44,36 @@ public final class CalendarNormalizer {
                          long valuesWithActual, Latency liveLatency, long eventDefs, Path output) {
     }
 
-    public Report run(LakeSql sql, int actualLatencySeconds) {
-        Path out = lakeRoot.resolve("silver").resolve(TABLE);
-        if (!Bronze.hasCsv(lakeRoot, SOURCE)) {
-            return new Report(0, 0, 0, Map.of(), 0, new Latency(0, null, null, null), 0, out);
+    /**
+     * Modo ao vivo: cria a temp table {@code table} (o mesmo formato do silver, sem market/year) só com os arquivos
+     * do bronze gravados a partir de {@code since}. Sem arquivos: tabela vazia.
+     *
+     * @return quantos arquivos entraram
+     */
+    public static int createRecent(LakeSql sql, Path lakeRoot, java.time.Instant since, int actualLatencySeconds,
+                                   String table) {
+        java.util.List<Path> csv = Bronze.recentCsv(lakeRoot, SOURCE, since);
+        java.util.List<Path> meta = Bronze.metaOf(csv);
+        if (csv.isEmpty() || meta.isEmpty()) {
+            sql.execute("CREATE OR REPLACE TEMP TABLE " + table + "_meta AS SELECT NULL::VARCHAR AS sha, "
+                    + "NULL::VARCHAR AS origin, NULL::TIMESTAMP AS seen_utc WHERE false");
+            sql.execute("CREATE OR REPLACE TEMP TABLE " + table + "_raw AS SELECT NULL::VARCHAR AS value_id, "
+                    + "NULL::VARCHAR AS event_id, NULL::VARCHAR AS event_code, NULL::VARCHAR AS currency, "
+                    + "NULL::VARCHAR AS country, NULL::VARCHAR AS importance, NULL::VARCHAR AS time_server, "
+                    + "NULL::VARCHAR AS time_utc, NULL::VARCHAR AS period, NULL::VARCHAR AS revision, "
+                    + "NULL::VARCHAR AS actual_raw, NULL::VARCHAR AS forecast_raw, NULL::VARCHAR AS prev_raw, "
+                    + "NULL::VARCHAR AS revised_prev_raw, NULL::VARCHAR AS impact, NULL::VARCHAR AS sha WHERE false");
+        } else {
+            Bronze.createMetaTable(sql, Bronze.list(meta), table + "_meta");
+            readRaw(sql, Bronze.list(csv), table + "_raw");
         }
-        Bronze.createMetaTable(sql, lakeRoot, SOURCE, "cal_meta");
+        states(sql, table + "_raw", table + "_meta", actualLatencySeconds, table);
+        return csv.size();
+    }
+
+    private static void readRaw(LakeSql sql, String files, String table) {
         sql.execute("""
-                CREATE OR REPLACE TEMP TABLE raw_cal AS
+                CREATE OR REPLACE TEMP TABLE %s AS
                 SELECT *, %s AS sha
                   FROM read_csv(%s, skip = 1, header = true, delim = ';', filename = true, auto_detect = false,
                                 columns = {'value_id': 'VARCHAR', 'event_id': 'VARCHAR', 'event_code': 'VARCHAR',
@@ -60,13 +82,13 @@ public final class CalendarNormalizer {
                                            'revision': 'VARCHAR', 'actual_raw': 'VARCHAR',
                                            'forecast_raw': 'VARCHAR', 'prev_raw': 'VARCHAR',
                                            'revised_prev_raw': 'VARCHAR', 'impact': 'VARCHAR'})
-                """.formatted(Bronze.shaOf("filename"), Bronze.csvGlob(lakeRoot, SOURCE)));
-        long files = sql.scalar("SELECT count(DISTINCT sha) FROM raw_cal");
-        long statesRead = sql.scalar("SELECT count(*) FROM raw_cal");
+                """.formatted(table, Bronze.shaOf("filename"), files));
+    }
 
-        // 1) tipa e decodifica; 2) um registro por estado, o visto primeiro
+    /** 1) tipa e decodifica; 2) um registro por estado, o visto primeiro; 3) quando o actual pode ser usado. */
+    private static void states(LakeSql sql, String raw, String meta, int actualLatencySeconds, String out) {
         sql.execute("""
-                CREATE OR REPLACE TEMP TABLE cal_typed AS
+                CREATE OR REPLACE TEMP TABLE %s_typed AS
                 SELECT CAST(r.value_id AS UBIGINT) AS value_id,
                        CAST(r.event_id AS UBIGINT) AS event_id,
                        r.event_code, r.currency, nullif(r.country, '') AS country, r.importance,
@@ -76,21 +98,34 @@ public final class CalendarNormalizer {
                        %s AS actual, %s AS forecast, %s AS previous, %s AS revised_previous,
                        nullif(r.impact, '') AS impact,
                        m.origin, m.seen_utc
-                  FROM raw_cal r JOIN cal_meta m ON m.sha = r.sha
-                """.formatted(decode("r.actual_raw"), decode("r.forecast_raw"), decode("r.prev_raw"),
-                decode("r.revised_prev_raw")));
+                  FROM %s r JOIN %s m ON m.sha = r.sha
+                """.formatted(out, decode("r.actual_raw"), decode("r.forecast_raw"), decode("r.prev_raw"),
+                decode("r.revised_prev_raw"), raw, meta));
         sql.execute("""
-                CREATE OR REPLACE TEMP TABLE cal_states AS
+                CREATE OR REPLACE TEMP TABLE %1$s AS
                 SELECT *,
                        CASE WHEN actual IS NULL THEN NULL
                             WHEN origin = 'LIVE' THEN seen_utc
-                            ELSE scheduled_utc + to_seconds(%d) END AS actual_available_utc,
+                            ELSE scheduled_utc + to_seconds(%2$d) END AS actual_available_utc,
                        origin <> 'LIVE' AS availability_estimated
-                  FROM cal_typed
+                  FROM %1$s_typed
                 QUALIFY row_number() OVER (PARTITION BY value_id, scheduled_utc, revision, actual, forecast,
                                                         previous, revised_previous, period, impact
                                            ORDER BY seen_utc, origin) = 1
-                """.formatted(actualLatencySeconds));
+                """.formatted(out, actualLatencySeconds));
+    }
+
+    public Report run(LakeSql sql, int actualLatencySeconds) {
+        Path out = lakeRoot.resolve("silver").resolve(TABLE);
+        if (!Bronze.hasCsv(lakeRoot, SOURCE)) {
+            return new Report(0, 0, 0, Map.of(), 0, new Latency(0, null, null, null), 0, out);
+        }
+        Bronze.createMetaTable(sql, lakeRoot, SOURCE, "cal_meta");
+        readRaw(sql, Bronze.csvGlob(lakeRoot, SOURCE), "raw_cal");
+        long files = sql.scalar("SELECT count(DISTINCT sha) FROM raw_cal");
+        long statesRead = sql.scalar("SELECT count(*) FROM raw_cal");
+
+        states(sql, "raw_cal", "cal_meta", actualLatencySeconds, "cal_states");
         long statesWritten = sql.scalar("SELECT count(*) FROM cal_states");
 
         Path tmp = out.resolveSibling(TABLE + ".tmp");

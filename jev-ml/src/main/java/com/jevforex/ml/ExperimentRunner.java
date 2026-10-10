@@ -40,10 +40,20 @@ public final class ExperimentRunner {
 
     private final Path lakeRoot;
     private final ExperimentConfig cfg;
+    private final boolean lockbox;
 
     public ExperimentRunner(Path lakeRoot, ExperimentConfig cfg) {
+        this(lakeRoot, cfg, false);
+    }
+
+    /**
+     * @param lockbox true = ABRE O COFRE: os folds são os meses do cofre (cada um treina só com o que era conhecido
+     *                antes dele). Decisão do usuário, uma única vez — quem chama garante a trava.
+     */
+    public ExperimentRunner(Path lakeRoot, ExperimentConfig cfg, boolean lockbox) {
         this.lakeRoot = lakeRoot;
         this.cfg = cfg;
+        this.lockbox = lockbox;
     }
 
     /** Métricas de um modelo num fold. */
@@ -54,9 +64,13 @@ public final class ExperimentRunner {
                              Map<String, FoldModel> models) {
     }
 
-    /** Métricas de um modelo em TODAS as linhas fora da amostra; *Event = só momentos de evento. */
+    /**
+     * Métricas de um modelo em TODAS as linhas fora da amostra; *Event = só momentos de evento.
+     * Operações (gate 4, stop/alvo/tempo): trades = base; tradesLate = entrada +lateMinutes; tradesCost = custos ×
+     * costStress (robustez do capítulo 11).
+     */
     public record ModelSummary(double ll, double llEvent, double aucUp, double aucDown, double aucUpEvent,
-                               Metrics.Trades trades) {
+                               Metrics.Trades trades, Metrics.Trades tradesLate, Metrics.Trades tradesCost) {
     }
 
     /**
@@ -79,7 +93,7 @@ public final class ExperimentRunner {
      * @param predictions pasta das previsões no gold; null se a gravação falhou (motivo em predictionsError)
      */
     public record Result(String runId, ExperimentConfig config, List<HorizonResult> horizons, Path report,
-                         Path predictions, String predictionsError) {
+                         Path predictions, String predictionsError, boolean lockbox) {
     }
 
     /** Previsões fora da amostra de um horizonte (para gravar no gold). */
@@ -92,7 +106,7 @@ public final class ExperimentRunner {
         List<Oos> oos = new ArrayList<>();
         for (int h : cfg.horizons()) {
             long t0 = System.nanoTime();
-            Dataset d = Dataset.load(sql, lakeRoot, cfg.fset(), h, cfg.from());
+            Dataset d = Dataset.load(sql, lakeRoot, cfg.fset(), h, cfg.from(), cfg.exits());
             List<String> models = new ArrayList<>(cfg.models());
             if (!d.hasText && models.remove("C")) {
                 progress.accept("ATENÇÃO: fset " + cfg.fset() + " sem o grupo C (texto do Jev): modelo C fica de fora");
@@ -103,14 +117,14 @@ public final class ExperimentRunner {
             progress.accept(String.format("Horizonte %d min: %d linhas carregadas · modelos %s", h, d.size(), models));
             out.add(runHorizon(h, d, models, oos, progress, t0));
         }
-        Path report = ReportWriter.write(lakeRoot, new Result(runId, cfg, out, null, null, null));
+        Path report = ReportWriter.write(lakeRoot, new Result(runId, cfg, out, null, null, null, lockbox));
         progress.accept("Relatório gravado: " + report);
         try {
             Path preds = Predictions.write(sql, lakeRoot, cfg.fset(), runId, oos);
-            return new Result(runId, cfg, out, report, preds, null);
+            return new Result(runId, cfg, out, report, preds, null, lockbox);
         } catch (RuntimeException e) {
             log.warn("Previsões não gravadas (o relatório está salvo): {}", e.getMessage());
-            return new Result(runId, cfg, out, report, null, e.getMessage());
+            return new Result(runId, cfg, out, report, null, e.getMessage(), lockbox);
         }
     }
 
@@ -122,7 +136,12 @@ public final class ExperimentRunner {
         YearMonth lockboxFrom = lockboxTo.minusMonths(cfg.lockboxMonths() - 1L);
         YearMonth firstTest = YearMonth.from(cfg.from()).plusMonths(cfg.trainMonths());
         List<YearMonth> tests = new ArrayList<>();
-        for (YearMonth m = firstTest; m.isBefore(lockboxFrom); m = m.plusMonths(cfg.testMonths())) tests.add(m);
+        if (lockbox) {
+            for (YearMonth m = lockboxFrom; !m.isAfter(lockboxTo); m = m.plusMonths(cfg.testMonths())) tests.add(m);
+        } else {
+            for (YearMonth m = firstTest; m.isBefore(lockboxFrom); m = m.plusMonths(cfg.testMonths())) tests.add(m);
+        }
+        YearMonth testLimit = lockbox ? lockboxTo.plusMonths(1) : lockboxFrom;
         if (tests.isEmpty()) throw new IllegalStateException("Dados insuficientes para um fold (treino de "
                 + cfg.trainMonths() + " meses + cofre de " + cfg.lockboxMonths() + ")");
 
@@ -151,7 +170,7 @@ public final class ExperimentRunner {
                 final int fold = f;
                 YearMonth m = tests.get(f);
                 foldMonth[f] = m.toString();
-                futures.add(pool.submit(() -> runFold(fold, m, lockboxFrom, d, models, cols, names)));
+                futures.add(pool.submit(() -> runFold(fold, m, testLimit, d, models, cols, names)));
             }
             int done = 0;
             for (Future<FoldOutput> fu : futures) {
@@ -182,7 +201,11 @@ public final class ExperimentRunner {
             double[][] p = sub(probs.get(m), rows), pEv = sub(probs.get(m), evRows);
             summaries.put(m, new ModelSummary(Metrics.logLoss(p, y), Metrics.logLoss(pEv, yEv),
                     Metrics.auc(p, y, Dataset.UP), Metrics.auc(p, y, Dataset.DOWN), Metrics.auc(pEv, yEv, Dataset.UP),
-                    trades(p, d, rows, cfg.decision().minProb(), cfg.decision().minMargin())));
+                    trades(p, d, rows, cfg.decision().minProb(), cfg.decision().minMargin()),
+                    Metrics.trades(p, subD(d.rBuyLate, rows), subD(d.rSellLate, rows), null, cfg.decision().minProb(),
+                            cfg.decision().minMargin(), cfg.riskPerTradePct()),
+                    Metrics.trades(p, subD(d.rBuy, rows), subD(d.rSell, rows), extraCost(d, rows),
+                            cfg.decision().minProb(), cfg.decision().minMargin(), cfg.riskPerTradePct())));
         }
         Map<String, Integer> comparisons = new LinkedHashMap<>();
         for (int a = 0; a < models.size(); a++) {
@@ -214,11 +237,12 @@ public final class ExperimentRunner {
                               Map<String, Map<String, Double>> importance, FoldResult result) {
     }
 
-    private FoldOutput runFold(int fold, YearMonth test, YearMonth lockboxFrom, Dataset d, List<String> models,
+    /** @param testLimit primeiro mês que o teste nunca alcança (início do cofre; no modo cofre, o mês depois dele) */
+    private FoldOutput runFold(int fold, YearMonth test, YearMonth testLimit, Dataset d, List<String> models,
                                Map<String, int[]> cols, Map<String, List<String>> names) {
         long testStart = Dataset.epoch(test.atDay(1));
         YearMonth endMonth = test.plusMonths(cfg.testMonths());
-        if (endMonth.isAfter(lockboxFrom)) endMonth = lockboxFrom;
+        if (endMonth.isAfter(testLimit)) endMonth = testLimit;
         long testEnd = Dataset.epoch(endMonth.atDay(1));
         long trainStart = Math.max(Dataset.epoch(test.minusMonths(cfg.trainMonths()).atDay(1)), Dataset.epoch(cfg.from()));
         long knownBy = testStart - cfg.embargoDays() * 86_400L;
@@ -254,8 +278,15 @@ public final class ExperimentRunner {
     }
 
     private Metrics.Trades trades(double[][] p, Dataset d, int[] rows, double minProb, double minMargin) {
-        return Metrics.trades(p, subD(d.yBuy, rows), subD(d.ySell, rows), minProb, minMargin, cfg.stopAtr(),
+        return Metrics.trades(p, subD(d.rBuy, rows), subD(d.rSell, rows), null, minProb, minMargin,
                 cfg.riskPerTradePct());
+    }
+
+    /** Custo extra por operação no teste de estresse: (costStress − 1) × custo de 1 spread, em R. */
+    private double[] extraCost(Dataset d, int[] rows) {
+        double[] out = subD(d.costR, rows);
+        for (int i = 0; i < out.length; i++) out[i] *= cfg.costStress() - 1;
+        return out;
     }
 
     private static double[][] matrix(Dataset d, int[] rows, int[] cols) {

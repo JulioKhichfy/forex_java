@@ -71,7 +71,7 @@ public final class FeatureBuilder {
             throw new IllegalStateException("Sem silver de candles em " + candles + ". Rode antes: normalize");
         }
 
-        // ---------------------------------------------------------------- entradas
+        // ---------------------------------------------------------------- entradas (silver inteiro)
         sql.execute("""
                 CREATE OR REPLACE TEMP TABLE m1 AS
                 SELECT symbol, time_utc AS t, time_utc + INTERVAL 1 MINUTE AS close_time,
@@ -79,6 +79,188 @@ public final class FeatureBuilder {
                   FROM read_parquet('%s/**/*.parquet', hive_partitioning = true)
                  WHERE market = 'fx'
                 """.formatted(LakeSql.slashes(candles)));
+        // ---------------------------------------------------------------- calendário: divulgações e surpresa z
+        Path calendar = silver.resolve("calendar_events");
+        String calendarSql = Files.isDirectory(calendar)
+                ? "SELECT * FROM read_parquet('" + LakeSql.slashes(calendar) + "/**/*.parquet', hive_partitioning = true)"
+                : "SELECT NULL::UBIGINT AS value_id, NULL::UBIGINT AS event_id, NULL::VARCHAR AS event_code, "
+                + "NULL::VARCHAR AS currency, NULL::VARCHAR AS importance, NULL::TIMESTAMP AS scheduled_utc, "
+                + "NULL::DOUBLE AS actual, NULL::DOUBLE AS forecast, NULL::TIMESTAMP AS actual_available_utc WHERE false";
+        sql.execute("CREATE OR REPLACE TEMP TABLE cal_states AS " + calendarSql);
+        Built b = computeFeatures(sql, silver, null);
+        List<String> withoutSpec = b.withoutSpec();
+        long textSignals = b.textSignals();
+
+        // ---------------------------------------------------------------- labels
+        String horizons = cfg.horizonsMinutes().stream().map(h -> "(" + h + ")").collect(Collectors.joining(","));
+        sql.execute("""
+                CREATE OR REPLACE TEMP TABLE labels AS
+                WITH want AS (
+                    SELECT f.symbol, f.moment_utc, f.atr, p.point, f.moment_utc + to_minutes(%1$d) AS want_in
+                      FROM feats f JOIN pairs p USING (symbol)),
+                entry AS (
+                    SELECT w.*, e.t AS entry_t, e.open AS bid_in, e.open + e.spread_points * w.point AS ask_in
+                      FROM want w ASOF JOIN m1 e ON e.symbol = w.symbol AND w.want_in <= e.t
+                     WHERE e.t - w.want_in <= to_minutes(%2$d)),
+                wx AS (SELECT entry.*, h.horizon, entry.entry_t + to_minutes(h.horizon) AS want_out
+                         FROM entry CROSS JOIN (VALUES %3$s) AS h(horizon))
+                SELECT wx.symbol, wx.moment_utc, CAST(wx.horizon AS VARCHAR) || 'm' AS horizon, wx.horizon AS horizon_min,
+                       wx.entry_t, wx.bid_in, wx.ask_in, x.t AS exit_t, x.open AS bid_out,
+                       x.open + x.spread_points * wx.point AS ask_out, wx.atr,
+                       (x.open - wx.ask_in) / wx.atr AS y_buy,
+                       (wx.bid_in - (x.open + x.spread_points * wx.point)) / wx.atr AS y_sell,
+                       -- custo de UMA operação (a compra paga o spread da entrada; a venda, o da saída): média dos dois
+                       ((wx.ask_in - wx.bid_in) + x.spread_points * wx.point) / 2 / wx.atr AS cost_atr,
+                       x.t + INTERVAL 1 MINUTE AS label_available_utc
+                  FROM wx ASOF JOIN m1 x ON x.symbol = wx.symbol AND wx.want_out <= x.t
+                 WHERE x.t - wx.want_out <= to_minutes(%2$d)
+                """.formatted(cfg.entryDelayMinutes(), MATCH_MINUTES, horizons));
+        sql.execute(String.format(Locale.ROOT, """
+                CREATE OR REPLACE TEMP TABLE labels_final AS
+                SELECT *, CASE WHEN y_buy > %1$f THEN 'ALTA' WHEN y_sell > %1$f THEN 'QUEDA' ELSE 'LATERAL' END AS label
+                  FROM labels
+                """, cfg.labelThresholdAtr()));
+
+        // ---------------------------------------------------------------- gravação (troca só quando completo)
+        write(sql, "SELECT * FROM feats ORDER BY moment_utc, symbol", "year", featuresOut);
+        write(sql, "SELECT * FROM labels_final ORDER BY moment_utc, symbol", "horizon", labelsOut);
+
+        // ---------------------------------------------------------------- relatório
+        long moments = sql.scalar("SELECT count(*) FROM feats");
+        long events = sql.scalar("SELECT count(*) FROM feats WHERE kind = 'EVENT'");
+        List<SymbolCounts> bySymbol = sql.query("""
+                SELECT symbol, count(*) FILTER (WHERE kind = 'EVENT'), count(*) FILTER (WHERE kind = 'CONTROL'),
+                       CAST(min(moment_utc) AS VARCHAR), CAST(max(moment_utc) AS VARCHAR)
+                  FROM feats GROUP BY symbol ORDER BY symbol
+                """, rs -> new SymbolCounts(rs.getString(1), rs.getLong(2), rs.getLong(3), rs.getString(4),
+                rs.getString(5)));
+        List<LabelStats> labels = sql.query("""
+                SELECT horizon_min, count(*), count(*) FILTER (WHERE label = 'ALTA'),
+                       count(*) FILTER (WHERE label = 'QUEDA'), count(*) FILTER (WHERE label = 'LATERAL'),
+                       avg(cost_atr)
+                  FROM labels_final GROUP BY horizon_min ORDER BY horizon_min
+                """, rs -> new LabelStats(rs.getInt(1), rs.getLong(2), rs.getLong(3), rs.getLong(4), rs.getLong(5),
+                rs.getDouble(6)));
+        Map<String, Double> nulls = new LinkedHashMap<>();
+        for (String col : List.of("ret240_atr", "spread_rel", "usd_factor60_bps", "min_since_event", "min_to_event")) {
+            nulls.put(col, moments == 0 ? 0 : sql.query("SELECT avg(CASE WHEN " + col + " IS NULL THEN 1.0 ELSE 0 END) "
+                    + "FROM feats", rs -> rs.getDouble(1)).get(0));
+        }
+        long releases = sql.scalar("SELECT count(*) FROM releases");
+        long withZ = sql.scalar("SELECT count(*) FROM releases WHERE z IS NOT NULL");
+        double textZero = moments == 0 ? 0 : sql.query("SELECT avg(CASE WHEN text_long_base = 0 AND "
+                + "text_long_quote = 0 THEN 1.0 ELSE 0 END) FROM feats", rs -> rs.getDouble(1)).get(0);
+        return new Report(cfg.fset(), moments, events, moments - events, releases, withZ, textSignals, textZero,
+                withoutSpec, bySymbol, labels, nulls, featuresOut, labelsOut);
+    }
+
+    /**
+     * Features ao vivo de um instante: uma linha por par (só pares com barra fresca, ATR e regime: senão o par fica
+     * de fora — falhar fechado).
+     *
+     * @param rows          colunas do gold de features (mesmos nomes do treino)
+     * @param candleFiles   arquivos do bronze lidos além do silver
+     * @param lastBarUtc    última barra M1 disponível (qualquer par)
+     */
+    public record Live(java.time.LocalDateTime at, List<Map<String, Object>> rows, int candleFiles, int calendarFiles,
+                       String lastBarUtc, Map<String, LastBar> lastBars) {
+    }
+
+    /** Última barra M1 fechada de um par até o instante (bid de fechamento e spread em pontos). */
+    public record LastBar(String openUtc, double close, int spreadPoints) {
+    }
+
+    /**
+     * O mesmo cálculo do treino ({@link #computeFeatures}) num instante: silver dos últimos {@code lookbackDays}
+     * dias + o que chegou ao bronze depois do último normalize.
+     *
+     * @param actualLatencySeconds latência do actual para estados não vistos ao vivo (silver.calendar)
+     */
+    public Live live(LakeSql sql, java.time.LocalDateTime at, int lookbackDays, int actualLatencySeconds) {
+        Path silver = lakeRoot.resolve("silver");
+        Path candles = silver.resolve("candles_m1");
+        if (!Files.isDirectory(candles)) throw new IllegalStateException("Sem silver de candles. Rode antes: normalize");
+        String atSql = "TIMESTAMP '" + at.toString().replace('T', ' ') + "'";
+        String from = "TIMESTAMP '" + at.minusDays(lookbackDays).toString().replace('T', ' ') + "'";
+        sql.execute("""
+                CREATE OR REPLACE TEMP TABLE silver_m1 AS
+                SELECT symbol, time_utc, open, high, low, close, spread_points
+                  FROM read_parquet('%s/**/*.parquet', hive_partitioning = true)
+                 WHERE market = 'fx' AND time_utc >= %s AND time_utc < %s
+                """.formatted(LakeSql.slashes(candles), from, atSql));
+        // o bronze que falta é o que chegou DEPOIS do último arquivo que já está no silver (seen_utc): pela data do
+        // arquivo, com 10 min de folga (o importador grava logo depois de o exportador ver)
+        String seenCol = sql.query("DESCRIBE SELECT * FROM read_parquet('" + LakeSql.slashes(candles)
+                + "/**/*.parquet', hive_partitioning = true)", rs -> rs.getString(1)).contains("seen_utc")
+                ? "max(seen_utc)" : "max(time_utc)";
+        String silverMax = sql.query("SELECT CAST(" + seenCol + " AS VARCHAR) FROM read_parquet('"
+                + LakeSql.slashes(candles) + "/**/*.parquet', hive_partitioning = true) WHERE market = 'fx' AND time_utc >= "
+                + from, rs -> rs.getString(1)).get(0);
+        java.time.Instant since = silverMax == null ? java.time.Instant.EPOCH
+                : java.time.LocalDateTime.parse(silverMax.replace(' ', 'T')).minusMinutes(10)
+                .toInstant(java.time.ZoneOffset.UTC);
+        int candleFiles = com.jevforex.normalize.CandleNormalizer.createRecent(sql, lakeRoot, since, "live_candles");
+        sql.execute("""
+                CREATE OR REPLACE TEMP TABLE m1 AS
+                SELECT symbol, time_utc AS t, time_utc + INTERVAL 1 MINUTE AS close_time,
+                       open, high, low, close, spread_points
+                  FROM (SELECT * FROM silver_m1
+                        UNION ALL
+                        SELECT symbol, time_utc, open, high, low, close, spread_points FROM live_candles
+                         WHERE market = 'fx' AND time_utc >= %s AND time_utc < %s
+                           AND time_utc > coalesce((SELECT max(time_utc) FROM silver_m1), TIMESTAMP '1970-01-01'))
+                """.formatted(from, atSql));
+
+        Path calendar = silver.resolve("calendar_events");
+        boolean hasCal = Files.isDirectory(calendar);
+        java.time.Instant calSince = java.time.Instant.EPOCH;
+        String calRead = "read_parquet('" + LakeSql.slashes(calendar) + "/**/*.parquet', hive_partitioning = true)";
+        if (hasCal && sql.query("DESCRIBE SELECT * FROM " + calRead, rs -> rs.getString(1)).contains("seen_utc")) {
+            String calMax = sql.query("SELECT CAST(max(seen_utc) AS VARCHAR) FROM " + calRead,
+                    rs -> rs.getString(1)).get(0);
+            if (calMax != null) {
+                calSince = java.time.LocalDateTime.parse(calMax.replace(' ', 'T')).minusDays(1)
+                        .toInstant(java.time.ZoneOffset.UTC);
+            }
+        }
+        int calFiles = com.jevforex.normalize.CalendarNormalizer.createRecent(sql, lakeRoot, calSince,
+                actualLatencySeconds, "live_cal");
+        // silver + estados novos, sem repetir o mesmo estado (point-in-time pelo actual_available_utc, como no lote)
+        sql.execute("""
+                CREATE OR REPLACE TEMP TABLE cal_states AS
+                SELECT * FROM (%s SELECT * FROM live_cal)
+                QUALIFY row_number() OVER (PARTITION BY value_id, scheduled_utc, revision, actual, forecast,
+                                                        previous, revised_previous, period, impact
+                                           ORDER BY seen_utc, origin) = 1
+                """.formatted(hasCal ? "SELECT * EXCLUDE (market, year) FROM read_parquet('" + LakeSql.slashes(calendar)
+                + "/**/*.parquet', hive_partitioning = true) UNION ALL BY NAME" : ""));
+
+        computeFeatures(sql, silver, at);
+        List<String> cols = sql.query("DESCRIBE feats", rs -> rs.getString(1));
+        List<Map<String, Object>> rows = sql.query("SELECT * FROM feats ORDER BY symbol", rs -> {
+            Map<String, Object> r = new LinkedHashMap<>();
+            for (String c : cols) r.put(c, rs.getObject(c));
+            return r;
+        });
+        String last = sql.query("SELECT CAST(max(t) AS VARCHAR) FROM m1", rs -> rs.getString(1)).get(0);
+        Map<String, LastBar> bars = new LinkedHashMap<>();
+        sql.query("SELECT symbol, CAST(max(t) AS VARCHAR), arg_max(close, t), arg_max(spread_points, t) FROM m1 "
+                + "GROUP BY symbol ORDER BY symbol", rs -> bars.put(rs.getString(1),
+                new LastBar(rs.getString(2), rs.getDouble(3), rs.getInt(4))));
+        return new Live(at, rows, candleFiles, calFiles, last, bars);
+    }
+
+    /** Resultado do cálculo das features (temp table feats). */
+    private record Built(List<String> withoutSpec, long textSignals) {
+    }
+
+    /**
+     * O cálculo de TODAS as features, igual no treino e ao vivo. Precisa das temp tables m1 (barras M1 de bid) e
+     * cal_states (estados do calendário, point-in-time); cria feats.
+     *
+     * @param liveAt null = momentos históricos (eventos + controle); senão, um momento por par neste instante
+     */
+    private Built computeFeatures(LakeSql sql, Path silver, java.time.LocalDateTime liveAt) {
         Path specs = silver.resolve("instrument_specs/part-0.parquet");
         String specSql = Files.exists(specs)
                 ? "SELECT symbol, point FROM read_parquet(" + LakeSql.literal(specs) + ") WHERE market = 'fx'"
@@ -138,23 +320,18 @@ public final class FeatureBuilder {
                 """);
 
         // ---------------------------------------------------------------- spread típico do horário (20 dias ANTERIORES)
+        // base de cada dia INCLUINDO ele; o momento usa a do último dia ANTERIOR (ASOF): são os mesmos 20 dias, e
+        // ao vivo funciona mesmo antes da primeira barra da hora corrente
         sql.execute("""
                 CREATE OR REPLACE TEMP TABLE spread_base AS
                 WITH h AS (SELECT symbol, CAST(t AS DATE) AS d, hour(t) AS hr, median(spread_points) AS med
                              FROM m1 GROUP BY ALL)
                 SELECT symbol, d, hr,
                        CASE WHEN count(med) OVER w >= 10 THEN median(med) OVER w END AS base
-                  FROM h WINDOW w AS (PARTITION BY symbol, hr ORDER BY d ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING)
+                  FROM h WINDOW w AS (PARTITION BY symbol, hr ORDER BY d ROWS BETWEEN 19 PRECEDING AND CURRENT ROW)
                 """);
 
         // ---------------------------------------------------------------- calendário: divulgações e surpresa z
-        Path calendar = silver.resolve("calendar_events");
-        String calendarSql = Files.isDirectory(calendar)
-                ? "SELECT * FROM read_parquet('" + LakeSql.slashes(calendar) + "/**/*.parquet', hive_partitioning = true)"
-                : "SELECT NULL::UBIGINT AS value_id, NULL::UBIGINT AS event_id, NULL::VARCHAR AS event_code, "
-                + "NULL::VARCHAR AS currency, NULL::VARCHAR AS importance, NULL::TIMESTAMP AS scheduled_utc, "
-                + "NULL::DOUBLE AS actual, NULL::DOUBLE AS forecast, NULL::TIMESTAMP AS actual_available_utc WHERE false";
-        sql.execute("CREATE OR REPLACE TEMP TABLE cal_states AS " + calendarSql);
         sql.execute("""
                 CREATE OR REPLACE TEMP TABLE releases AS
                 WITH r AS (
@@ -183,31 +360,48 @@ public final class FeatureBuilder {
                 """.formatted(weight("importance")));
 
         // ---------------------------------------------------------------- momentos de decisão
-        String hours = cfg.controlHoursUtc().isEmpty() ? "-1"
-                : cfg.controlHoursUtc().stream().map(String::valueOf).collect(Collectors.joining(","));
-        List<String> span = sql.query("SELECT CAST(date_trunc('hour', min(first_close)) AS VARCHAR), "
-                + "CAST(max(last_close) AS VARCHAR) FROM bounds", rs -> rs.getString(1) + "|" + rs.getString(2));
-        String[] ends = span.get(0).split("\\|");
-        sql.execute("""
-                CREATE OR REPLACE TEMP TABLE moments AS
-                WITH ev AS (
-                    SELECT DISTINCT p.symbol,
-                           time_bucket(INTERVAL 1 MINUTE, r.scheduled_utc) + to_minutes(%d) AS t, 'EVENT' AS kind
-                      FROM releases r JOIN pairs p ON r.currency IN (p.base, p.quote)
-                     WHERE r.weight > 0),
-                ctrl AS (
-                    SELECT p.symbol, g.t, 'CONTROL' AS kind
-                      FROM generate_series(TIMESTAMP '%s', TIMESTAMP '%s', INTERVAL 1 HOUR) AS g(t), pairs p
-                     WHERE isodow(g.t) BETWEEN 1 AND 5 AND hour(g.t) IN (%s)
-                       AND NOT (isodow(g.t) = 5 AND hour(g.t) >= 19)),
-                u AS (SELECT symbol, t, max(kind) AS kind
-                        FROM (SELECT * FROM ev UNION ALL SELECT * FROM ctrl) GROUP BY symbol, t)
-                SELECT u.symbol, u.t, u.kind,
-                       u.t - INTERVAL 15 MINUTE AS t15, u.t - INTERVAL 60 MINUTE AS t60,
-                       u.t - INTERVAL 240 MINUTE AS t240
-                  FROM u JOIN bounds b USING (symbol)
-                 WHERE u.t BETWEEN b.first_close AND b.last_close
-                """.formatted(cfg.eventLagMinutes(), ends[0], ends[1], hours));
+        if (liveAt != null) {
+            // ao vivo: um momento por par no instante pedido; EVENTO se um evento com peso saiu há até 10 min
+            sql.execute(String.format(Locale.ROOT, """
+                    CREATE OR REPLACE TEMP TABLE moments AS
+                    WITH x AS (SELECT p.symbol, TIMESTAMP '%1$s' AS t FROM pairs p)
+                    SELECT x.symbol, x.t,
+                           CASE WHEN EXISTS (SELECT 1 FROM releases r JOIN pairs p2 ON r.currency IN (p2.base, p2.quote)
+                                              WHERE p2.symbol = x.symbol AND r.weight > 0
+                                                AND time_bucket(INTERVAL 1 MINUTE, r.scheduled_utc) + to_minutes(%2$d)
+                                                    BETWEEN x.t - INTERVAL 10 MINUTE AND x.t)
+                                THEN 'EVENT' ELSE 'CONTROL' END AS kind,
+                           x.t - INTERVAL 15 MINUTE AS t15, x.t - INTERVAL 60 MINUTE AS t60,
+                           x.t - INTERVAL 240 MINUTE AS t240
+                      FROM x
+                    """, liveAt.toString().replace('T', ' '), cfg.eventLagMinutes()));
+        } else {
+            String hours = cfg.controlHoursUtc().isEmpty() ? "-1"
+                    : cfg.controlHoursUtc().stream().map(String::valueOf).collect(Collectors.joining(","));
+            List<String> span = sql.query("SELECT CAST(date_trunc('hour', min(first_close)) AS VARCHAR), "
+                    + "CAST(max(last_close) AS VARCHAR) FROM bounds", rs -> rs.getString(1) + "|" + rs.getString(2));
+            String[] ends = span.get(0).split("\\|");
+            sql.execute("""
+                    CREATE OR REPLACE TEMP TABLE moments AS
+                    WITH ev AS (
+                        SELECT DISTINCT p.symbol,
+                               time_bucket(INTERVAL 1 MINUTE, r.scheduled_utc) + to_minutes(%d) AS t, 'EVENT' AS kind
+                          FROM releases r JOIN pairs p ON r.currency IN (p.base, p.quote)
+                         WHERE r.weight > 0),
+                    ctrl AS (
+                        SELECT p.symbol, g.t, 'CONTROL' AS kind
+                          FROM generate_series(TIMESTAMP '%s', TIMESTAMP '%s', INTERVAL 1 HOUR) AS g(t), pairs p
+                         WHERE isodow(g.t) BETWEEN 1 AND 5 AND hour(g.t) IN (%s)
+                           AND NOT (isodow(g.t) = 5 AND hour(g.t) >= 19)),
+                    u AS (SELECT symbol, t, max(kind) AS kind
+                            FROM (SELECT * FROM ev UNION ALL SELECT * FROM ctrl) GROUP BY symbol, t)
+                    SELECT u.symbol, u.t, u.kind,
+                           u.t - INTERVAL 15 MINUTE AS t15, u.t - INTERVAL 60 MINUTE AS t60,
+                           u.t - INTERVAL 240 MINUTE AS t240
+                      FROM u JOIN bounds b USING (symbol)
+                     WHERE u.t BETWEEN b.first_close AND b.last_close
+                    """.formatted(cfg.eventLagMinutes(), ends[0], ends[1], hours));
+        }
 
         // ---------------------------------------------------------------- fator USD (média nas 7 moedas)
         sql.execute("""
@@ -305,7 +499,7 @@ public final class FeatureBuilder {
                        coalesce(tn.sp_base, 0) - coalesce(tn.sp_quote, 0) AS tone_speech_diff,
                        year(j.t) AS year
                   FROM j
-                  LEFT JOIN spread_base sb ON sb.symbol = j.symbol AND sb.d = CAST(j.t AS DATE) AND sb.hr = hour(j.t)
+                  ASOF LEFT JOIN spread_base sb ON sb.symbol = j.symbol AND sb.hr = hour(j.t) AND CAST(j.t AS DATE) > sb.d
                   LEFT JOIN usd u ON u.t = j.t
                   LEFT JOIN surprise s ON s.symbol = j.symbol AND s.t = j.t
                   LEFT JOIN text_feat tx ON tx.symbol = j.symbol AND tx.t = j.t
@@ -314,67 +508,7 @@ public final class FeatureBuilder {
                    AND j.atr > 0 AND j.regime IS NOT NULL AND j.sma50 IS NOT NULL
                 """.formatted(STALE_MINUTES));
 
-        // ---------------------------------------------------------------- labels
-        String horizons = cfg.horizonsMinutes().stream().map(h -> "(" + h + ")").collect(Collectors.joining(","));
-        sql.execute("""
-                CREATE OR REPLACE TEMP TABLE labels AS
-                WITH want AS (
-                    SELECT f.symbol, f.moment_utc, f.atr, p.point, f.moment_utc + to_minutes(%1$d) AS want_in
-                      FROM feats f JOIN pairs p USING (symbol)),
-                entry AS (
-                    SELECT w.*, e.t AS entry_t, e.open AS bid_in, e.open + e.spread_points * w.point AS ask_in
-                      FROM want w ASOF JOIN m1 e ON e.symbol = w.symbol AND w.want_in <= e.t
-                     WHERE e.t - w.want_in <= to_minutes(%2$d)),
-                wx AS (SELECT entry.*, h.horizon, entry.entry_t + to_minutes(h.horizon) AS want_out
-                         FROM entry CROSS JOIN (VALUES %3$s) AS h(horizon))
-                SELECT wx.symbol, wx.moment_utc, CAST(wx.horizon AS VARCHAR) || 'm' AS horizon, wx.horizon AS horizon_min,
-                       wx.entry_t, wx.bid_in, wx.ask_in, x.t AS exit_t, x.open AS bid_out,
-                       x.open + x.spread_points * wx.point AS ask_out, wx.atr,
-                       (x.open - wx.ask_in) / wx.atr AS y_buy,
-                       (wx.bid_in - (x.open + x.spread_points * wx.point)) / wx.atr AS y_sell,
-                       -- custo de UMA operação (a compra paga o spread da entrada; a venda, o da saída): média dos dois
-                       ((wx.ask_in - wx.bid_in) + x.spread_points * wx.point) / 2 / wx.atr AS cost_atr,
-                       x.t + INTERVAL 1 MINUTE AS label_available_utc
-                  FROM wx ASOF JOIN m1 x ON x.symbol = wx.symbol AND wx.want_out <= x.t
-                 WHERE x.t - wx.want_out <= to_minutes(%2$d)
-                """.formatted(cfg.entryDelayMinutes(), MATCH_MINUTES, horizons));
-        sql.execute(String.format(Locale.ROOT, """
-                CREATE OR REPLACE TEMP TABLE labels_final AS
-                SELECT *, CASE WHEN y_buy > %1$f THEN 'ALTA' WHEN y_sell > %1$f THEN 'QUEDA' ELSE 'LATERAL' END AS label
-                  FROM labels
-                """, cfg.labelThresholdAtr()));
-
-        // ---------------------------------------------------------------- gravação (troca só quando completo)
-        write(sql, "SELECT * FROM feats ORDER BY moment_utc, symbol", "year", featuresOut);
-        write(sql, "SELECT * FROM labels_final ORDER BY moment_utc, symbol", "horizon", labelsOut);
-
-        // ---------------------------------------------------------------- relatório
-        long moments = sql.scalar("SELECT count(*) FROM feats");
-        long events = sql.scalar("SELECT count(*) FROM feats WHERE kind = 'EVENT'");
-        List<SymbolCounts> bySymbol = sql.query("""
-                SELECT symbol, count(*) FILTER (WHERE kind = 'EVENT'), count(*) FILTER (WHERE kind = 'CONTROL'),
-                       CAST(min(moment_utc) AS VARCHAR), CAST(max(moment_utc) AS VARCHAR)
-                  FROM feats GROUP BY symbol ORDER BY symbol
-                """, rs -> new SymbolCounts(rs.getString(1), rs.getLong(2), rs.getLong(3), rs.getString(4),
-                rs.getString(5)));
-        List<LabelStats> labels = sql.query("""
-                SELECT horizon_min, count(*), count(*) FILTER (WHERE label = 'ALTA'),
-                       count(*) FILTER (WHERE label = 'QUEDA'), count(*) FILTER (WHERE label = 'LATERAL'),
-                       avg(cost_atr)
-                  FROM labels_final GROUP BY horizon_min ORDER BY horizon_min
-                """, rs -> new LabelStats(rs.getInt(1), rs.getLong(2), rs.getLong(3), rs.getLong(4), rs.getLong(5),
-                rs.getDouble(6)));
-        Map<String, Double> nulls = new LinkedHashMap<>();
-        for (String col : List.of("ret240_atr", "spread_rel", "usd_factor60_bps", "min_since_event", "min_to_event")) {
-            nulls.put(col, moments == 0 ? 0 : sql.query("SELECT avg(CASE WHEN " + col + " IS NULL THEN 1.0 ELSE 0 END) "
-                    + "FROM feats", rs -> rs.getDouble(1)).get(0));
-        }
-        long releases = sql.scalar("SELECT count(*) FROM releases");
-        long withZ = sql.scalar("SELECT count(*) FROM releases WHERE z IS NOT NULL");
-        double textZero = moments == 0 ? 0 : sql.query("SELECT avg(CASE WHEN text_long_base = 0 AND "
-                + "text_long_quote = 0 THEN 1.0 ELSE 0 END) FROM feats", rs -> rs.getDouble(1)).get(0);
-        return new Report(cfg.fset(), moments, events, moments - events, releases, withZ, textSignals, textZero,
-                withoutSpec, bySymbol, labels, nulls, featuresOut, labelsOut);
+        return new Built(withoutSpec, textSignals);
     }
 
     /**

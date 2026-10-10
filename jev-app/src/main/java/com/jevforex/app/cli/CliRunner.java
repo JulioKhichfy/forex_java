@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jevforex.app.config.RiskConfig.InstrumentCatalog;
 import com.jevforex.app.config.ExperimentProperties;
+import com.jevforex.app.live.LivePredictionService;
+import com.jevforex.ml.ModelStore;
 import com.jevforex.app.config.FeatureProperties;
 import com.jevforex.ml.ExperimentConfig;
 import com.jevforex.ml.ExperimentRunner;
@@ -103,6 +105,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     @org.springframework.beans.factory.annotation.Value("${jev.score-concurrency:4}")
     private int jevConcurrency;
     private int exitCode = 0;
+    private final LivePredictionService livePredictions;
 
     public CliRunner(JevClient jev, QuestionSetRegistry questionSets, JevCallRepository jevCalls,
                      RawDocumentRepository documents, FeedCollector collector, LakeStorage lake,
@@ -110,7 +113,9 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                      Mt5Importer mt5Importer, Mt5Repository mt5Repo, Mt5Properties mt5,
                      Mt5StatusService mt5Status, SilverProperties silver, FeatureProperties featureProps,
                      ExperimentProperties experimentProps, BisSpeechCollector bisCollector, BisProperties bisProps,
-                     ArchiveCollector archiveCollector, JevScorer jevScorer, JevSignalExporter jevSignalExporter) {
+                     ArchiveCollector archiveCollector, JevScorer jevScorer, JevSignalExporter jevSignalExporter,
+                     LivePredictionService livePredictions) {
+        this.livePredictions = livePredictions;
         this.archiveCollector = archiveCollector;
         this.jevScorer = jevScorer;
         this.jevSignalExporter = jevSignalExporter;
@@ -154,6 +159,9 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.BACKFILL_ARCHIVES -> backfillArchives(args);
                 case Commands.JEV_SCORE -> jevScore(args);
                 case Commands.JEV_SIGNALS -> jevSignals(args);
+                case Commands.TRAIN_CHAMPION -> trainChampion();
+                case Commands.PROMOTE -> promote(args);
+                case Commands.PREDICT_NOW -> predictNow(args);
                 default -> System.out.println(Commands.usage());
             }
         } catch (JevApiException e) {
@@ -519,20 +527,44 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     // ------------------------------------------------------------------ train (walk-forward A × B)
 
     private void train(ApplicationArguments args) throws Exception {
-        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset());
+        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(), risk.exits());
         String h = opt(args, "horizon", null);
         if (h != null) cfg = cfg.withHorizons(List.of(Integer.parseInt(h)));
+        boolean openLockbox = args.containsOption("open-lockbox");
+        Path lock = lake.root().resolve("reports/lockbox/OPENED.json");
+        Instant openedAt = Instant.now();
+        if (openLockbox) {
+            // o cofre é aberto UMA vez (documento mestre, cap. 11): a trava é gravada antes de rodar, porque os
+            // resultados parciais dos folds já aparecem na tela
+            if (Files.exists(lock)) {
+                System.out.println("O cofre JÁ FOI ABERTO (" + lock + "):\n" + Files.readString(lock)
+                        + "\nNão há segunda abertura. Nada foi executado.");
+                return;
+            }
+            Files.createDirectories(lock.getParent());
+            Files.writeString(lock, String.format(Locale.ROOT, "{\"opened_at\": \"%s\", \"models\": \"%s\", "
+                    + "\"fset\": \"%s\", \"status\": \"iniciado\"}%n", openedAt, String.join(",", cfg.models()),
+                    cfg.fset()));
+            System.out.println("ABRINDO O COFRE (uma única vez). Trava gravada em " + lock);
+        }
         System.out.printf("Walk-forward %s · fset %s · horizontes %s · desde %s · %d threads%n",
                 String.join(" × ", cfg.models()), cfg.fset(), cfg.horizons(), cfg.from(), cfg.threads());
         ExperimentRunner.Result r;
         try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
-            r = new ExperimentRunner(lake.root(), cfg).run(sql, System.out::println);
+            r = new ExperimentRunner(lake.root(), cfg, openLockbox).run(sql, System.out::println);
+        }
+        if (openLockbox) {
+            Files.writeString(lock, String.format(Locale.ROOT, "{\"opened_at\": \"%s\", \"run\": \"%s\", "
+                    + "\"models\": \"%s\", \"fset\": \"%s\", \"status\": \"concluído\", \"report\": \"%s\"}%n",
+                    openedAt, r.runId(),
+                    String.join(",", cfg.models()), cfg.fset(), LakeSql.slashes(r.report())));
         }
         Path report = r.report();
         for (ExperimentRunner.HorizonResult hr : r.horizons()) {
             ExperimentRunner.Summary s = hr.summary();
-            System.out.printf(Locale.ROOT, "%n=== Horizonte %d min · %d folds (teste %s a %s) · cofre %s a %s (não avaliado) ===%n",
-                    hr.horizon(), s.folds(), hr.firstTest(), hr.lastTest(), hr.lockboxFrom(), hr.lockboxTo());
+            System.out.printf(Locale.ROOT, "%n=== Horizonte %d min · %d folds (teste %s a %s) · cofre %s a %s (%s) ===%n",
+                    hr.horizon(), s.folds(), hr.firstTest(), hr.lastTest(), hr.lockboxFrom(), hr.lockboxTo(),
+                    openLockbox ? "ABERTO: é o que está sendo avaliado" : "não avaliado");
             StringBuilder head = new StringBuilder(String.format("  %-30s %10s", "fora da amostra", "base"));
             hr.models().forEach(m -> head.append(String.format(" %10s", m)));
             System.out.println(head);
@@ -549,6 +581,70 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
         System.out.println("\nRelatório: " + report);
         System.out.println(r.predictions() != null ? "Previsões: " + r.predictions()
                 : "Previsões NÃO gravadas: " + r.predictionsError());
+    }
+
+    // ------------------------------------------------------------------ modelos de produção (passo 6a)
+
+    private void trainChampion() throws Exception {
+        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(), risk.exits());
+        Path lock = lake.root().resolve("reports/lockbox/OPENED.json");
+        if (!Files.exists(lock) || !Files.readString(lock).contains("concluído")) {
+            // o modelo de produção treina com os meses do cofre: depois disso o cofre não serve mais como teste
+            System.out.println("O cofre ainda não foi aberto e avaliado. O modelo de produção treina com os meses do "
+                    + "cofre; abra-o antes (train --open-lockbox). Nada foi treinado.");
+            return;
+        }
+        String lockboxRun = Files.readString(lock).replaceAll("(?s).*\"run\": \"([^\"]+)\".*", "$1");
+        Path wf = lake.root().resolve("reports/walkforward");
+        String walkForwardRun = null;
+        if (Files.isDirectory(wf)) {
+            try (var s = Files.list(wf)) {
+                walkForwardRun = s.map(p -> p.getFileName().toString()).sorted().reduce((a, b) -> b).orElse(null);
+            }
+        }
+        System.out.printf("Treinando modelos de produção %s · horizontes %s · últimos %d meses · fset %s%n",
+                String.join(", ", cfg.models()), cfg.horizons(), cfg.trainMonths(), cfg.fset());
+        ModelStore store = new ModelStore(lake.root());
+        ModelStore.Manifest mf;
+        try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
+            mf = store.train(sql, lake.root(), cfg, lockboxRun, walkForwardRun, System.out::println);
+        }
+        System.out.printf("%nVersão %s gravada em %s (janela %s a %s)%n", mf.version(),
+                lake.root().resolve("models/market=fx").resolve(mf.version()), mf.trainFrom(), mf.trainTo());
+        if (store.champion().isEmpty()) {
+            store.promote(mf.version(), "primeira versão (cofre avaliado no run " + lockboxRun + ")");
+            System.out.println("Sem modelo em produção até agora: esta versão entrou em produção.");
+        } else {
+            System.out.printf("Em produção continua a versão %s. Para trocar: promote --version=%s%n",
+                    store.champion().get().version(), mf.version());
+        }
+    }
+
+    private void promote(ApplicationArguments args) {
+        String version = opt(args, "version", null);
+        if (version == null) {
+            ModelStore store = new ModelStore(lake.root());
+            System.out.println("Versões: " + store.versions() + " · em produção: "
+                    + store.champion().map(ModelStore.Champion::version).orElse("nenhuma"));
+            System.out.println("Uso: promote --version=<versão>");
+            return;
+        }
+        ModelStore.Champion c = new ModelStore(lake.root()).promote(version, opt(args, "note", "promovida pela CLI"));
+        System.out.println("Em produção: " + c.version() + " (" + c.promotedAt() + ")");
+    }
+
+    private void predictNow(ApplicationArguments args) {
+        String at = opt(args, "at", null);
+        java.time.LocalDateTime t = at == null
+                ? java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).truncatedTo(java.time.temporal.ChronoUnit.MINUTES)
+                : java.time.LocalDateTime.parse(at);
+        LivePredictionService.Run r = livePredictions.predict(t, "MANUAL");
+        System.out.printf("%nPrevisão %s · versão %s · última barra %s%n", r.at(), r.modelVersion(), r.lastBarUtc());
+        if (r.note() != null) {
+            System.out.println("  " + r.note());
+            return;
+        }
+        System.out.printf("  %d previsões gravadas · pares %s%n", r.rows(), r.symbols());
     }
 
     private static void printRow(String name, double base, List<String> models,

@@ -30,14 +30,19 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 - Contrato MT5 → Java: arquivos `<tipo>_<AAAAMMDDTHHMMSSZ>_<etiqueta>.csv` em `Common\Files\jev\inbox`,
   linha `#meta` + cabeçalho + linhas `;`. Colunas em `Mt5FileKind`. Mudou o formato → mude os dois lados
   e os testes de `Mt5ParsersTest`.
-- O EA do passo 2 é só shadow: **não** adicionar envio de ordens antes do passo 6.
+- **Execução (passo 6c):** o operador decide e clica no dashboard; o `OrderService` confere todas as travas
+  (falhar fechado) e o EA executa com SL/TP no servidor. O EA só envia com TRÊS chaves: input `InpExecute=true`,
+  `trading.mode` DEMO ou LIVE e o modo batendo com a conta (LIVE só em conta real). Stop/alvo vão como
+  DISTÂNCIA; o EA aplica sobre o preço da execução. O EA só mexe em posições com o magic dele e nunca reenvia.
+  Testar a mecânica em DEMO antes de apontar para a conta real (a troca é decisão do usuário).
 - Features: mudou o significado de alguma feature ou do label → nova versão `features.fset` (v2), nunca
   reescrever a v1. O mesmo código calcula features no treino e ao vivo (não reimplementar "só para produção").
   Todo cálculo novo precisa respeitar point-in-time e ganhar teste no `FeatureBuilderTest`.
 - **Custo do Jev:** chamada em escala só com `jev-score --run` depois de mostrar o plano ao usuário e ele
   aprovar; sempre com `--max-usd`. O cache por `request_sha` evita pagar duas vezes.
 - **Cofre:** os últimos `experiment.lockbox-months` meses nunca entram em treino, ajuste ou comparação.
-  Abrir o cofre é uma decisão do usuário (passo 5), uma única vez.
+  Abrir o cofre é uma decisão do usuário (passo 5), uma única vez. **Aberto em 10/10/2026** (run
+  20261010-133737, modelos A/E/B; trava em `reports/lockbox/OPENED.json`): não há outro teste limpo.
 
 ## Segurança
 - **Nunca** escrever a chave do Jev em arquivo versionado, log ou teste. Ela vem de `TYPESAFE_API_KEY`
@@ -52,10 +57,11 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-lake | LakeStorage em disco local (bronze/silver/gold), LakeSql (DuckDB embarcado) |
 | jev-normalize | bronze → silver em Parquet: Candle/Calendar/DocumentNormalizer, WeeklyOpenCheck, DocumentText (HTML/PDF), Chunker (sem Spring) |
 | jev-features | silver → gold: FeatureBuilder (momentos de decisão, features A/B, labels 15/60 min), FeatureConfig (sem Spring) |
-| jev-ml | walk-forward A×B×C: Dataset, Gbm (Smile), Metrics, ExperimentRunner, ReportWriter (sem Spring) |
+| jev-ml | walk-forward: Dataset, Outcomes (stop/alvo/tempo no M1), Gbm (Smile), Metrics, ExperimentRunner (modo cofre), ReportWriter, ModelStore (versões em produção) (sem Spring) |
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5 |
-| jev-app | Spring Boot: CLI, agendadores, API `/api/status` e `/api/ea/*`, Flyway, application.yml |
-| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor (shadow), `install.ps1` |
+| jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/ea/*` |
+| dashboard | Angular 20 (Hoje, Previsões, Operar, Modelos, Saúde); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/ |
+| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor (executor com 3 chaves), `install.ps1` |
 
 ## Comandos
 ```
@@ -67,7 +73,10 @@ java -jar jev-app/target/jev-app.jar import-mt5-once | mt5-status | risk --balan
 java -jar jev-app/target/jev-app.jar jev-score [--run --max-usd=1.5] | jev-signals   # sem --run: só o plano e o custo
 java -jar jev-app/target/jev-app.jar normalize [--only=candles|calendar|documents]   # silver (sem Postgres)
 java -jar jev-app/target/jev-app.jar features                    # gold: features + labels (fset do yml)
-java -Xmx8g -jar jev-app/target/jev-app.jar train [--horizon=60]  # walk-forward A×B×C → reports/walkforward/<run>
+java -Xmx8g -jar jev-app/target/jev-app.jar train [--horizon=60]  # walk-forward → reports/walkforward/<run>
+java -Xmx8g -jar jev-app/target/jev-app.jar train-champion       # modelos de produção (A, E, B) → models/market=fx/<versão>
+java -jar jev-app/target/jev-app.jar promote --version=<v> | predict-now [--at=2026-10-09T15:00]
+cd dashboard && npm install && npx ng build   # dashboard (dev: npx ng serve, com proxy para :8080)
 mvn -q package -Djar.name=jev-app-dev      # jar de desenvolvimento com o servidor rodando (sem clean)
 java -jar jev-app/target/jev-app.jar       # modo servidor
 powershell -ExecutionPolicy Bypass -File mql5\install.ps1   # copia e compila os MQL5 no terminal da Exness
@@ -101,4 +110,16 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             reação imediata zero; +2→+60 min corr −0,13 (p 0,05) que não se repete em 2024–26 → sem sinal robusto.
             Corrigido vazamento: coletiva do BCE só vale no início + 75 min (`ReleaseResolver.extraDelay`)
 - [ ] Passo 5 — experimento A/B/C walk-forward e go/no-go
-- [ ] Passo 6 — decision engine (gates), API bridge, EA executor, dashboard Angular; shadow → demo
+      - [x] 5a operações realistas (`Outcomes`: stop 1,5 ATR, alvo 1,5 × stop, saída por tempo, M1; stop/alvo em
+            `trading.risk.exits`) + robustez +5 min e custos × 1,5 — resultado: gate 4 com 1 a 5 operações em 28
+            folds, todas no stop; limiares frouxos (0,45/0,15) dão 68–122 operações com E[R] −0,13 a −0,26
+      - [ ] 5b limiar do label 0,3/0,7, grade de hiperparâmetros no treino, calibração
+      - [ ] 5c relatório go/no-go (critérios do cap. 11) e abertura do cofre (decisão do usuário, uma vez)
+- [ ] Passo 6 — ferramenta de apoio à decisão (pedido do operador em 10/10/2026: dashboard, botão de ordem,
+      conta real de US$ 50, índices e ações). Cofre aberto antes (5c antecipada).
+      - [x] 6a modelo E (só eventos), cofre aberto (A/E/B), ModelStore + train-champion, features ao vivo com o
+            mesmo código (teste de paridade), previsões ao vivo (Flyway V5, agendador nos momentos do treino)
+      - [x] 6b dashboard Angular (Hoje, Previsões com placar ao vivo, Modelos com cofre e walk-forward, Saúde)
+      - [ ] 6c ordens pelo dashboard (Flyway V6, OrderService com as travas, EA executor) — testar em DEMO
+      - [ ] 6d botão "aplicar treinamento" mensal (champion/challenger) e placar resolvido automaticamente
+      - [ ] 7 índices e ações (mercados novos, candles do MT5, modelos por mercado)

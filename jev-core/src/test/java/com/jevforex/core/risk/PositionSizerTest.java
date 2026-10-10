@@ -16,7 +16,8 @@ class PositionSizerTest {
     private RiskSettings settings(double fxPct, double capPct, double capUsd, RiskSettings.MinLotPolicy policy) {
         var global = new RiskSettings.Global(capPct, capUsd, 50, 20, 35, 3, 50, policy);
         var fx = new RiskSettings.MarketRisk(true, fxPct, 50, 3, 1.0);
-        return new RiskSettings(global, Map.of(Market.FX, fx));
+        return new RiskSettings(global, Map.of(Market.FX, fx), new RiskSettings.Exits(1.5, 1.5),
+                new RiskSettings.Orders(0.01, 0.05, 60, 20, 30, 30, 90, 10, 2, 2.0, 300));
     }
 
     @Test

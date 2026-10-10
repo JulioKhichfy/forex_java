@@ -40,7 +40,8 @@ final class Predictions {
         try {
             Files.createDirectories(csv.getParent());
             try (BufferedWriter w = Files.newBufferedWriter(csv, StandardCharsets.UTF_8)) {
-                w.write("m,symbol,kind,horizon,fold,label," + String.join(",", probCols) + ",y_buy,y_sell\n");
+                w.write("m,symbol,kind,horizon,fold,label," + String.join(",", probCols)
+                        + ",y_buy,y_sell,r_buy,r_sell,r_buy_late,r_sell_late\n");
                 for (ExperimentRunner.Oos o : all) {
                     Dataset d = o.data();
                     for (int i = 0; i < d.size(); i++) {
@@ -57,6 +58,10 @@ final class Predictions {
                             }
                         }
                         line.append(String.format(Locale.ROOT, ",%.6f,%.6f", d.yBuy[i], d.ySell[i]));
+                        for (double r : new double[]{d.rBuy[i], d.rSell[i], d.rBuyLate[i], d.rSellLate[i]}) {
+                            line.append(',');
+                            if (!Double.isNaN(r)) line.append(String.format(Locale.ROOT, "%.6f", r));   // vazio = NULL
+                        }
                         w.write(line.append('\n').toString());   // "\n" explícito: %n vira \r\n no Windows
                     }
                 }
@@ -64,7 +69,8 @@ final class Predictions {
             StringBuilder columns = new StringBuilder("'m': 'BIGINT', 'symbol': 'VARCHAR', 'kind': 'VARCHAR', "
                     + "'horizon': 'VARCHAR', 'fold': 'VARCHAR', 'label': 'VARCHAR'");
             probCols.forEach(c -> columns.append(", '").append(c).append("': 'DOUBLE'"));
-            columns.append(", 'y_buy': 'DOUBLE', 'y_sell': 'DOUBLE'");
+            columns.append(", 'y_buy': 'DOUBLE', 'y_sell': 'DOUBLE', 'r_buy': 'DOUBLE', 'r_sell': 'DOUBLE', "
+                    + "'r_buy_late': 'DOUBLE', 'r_sell_late': 'DOUBLE'");
             Files.createDirectories(out.getParent());
             LakeSql.deleteRecursively(out);
             sql.execute("""

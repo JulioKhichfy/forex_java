@@ -8,12 +8,18 @@ import smile.data.vector.IntVector;
 import smile.data.vector.ValueVector;
 import smile.math.MathEx;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /** Gradient boosting de árvores do Smile, 3 classes, com probabilidades. */
-final class Gbm {
+public final class Gbm {
 
     private static final String LABEL = "y";
 
@@ -32,12 +38,37 @@ final class Gbm {
         return new Gbm(GradientTreeBoost.fit(Formula.lhs(LABEL), frame(x, y, names), opts), names);
     }
 
-    /** P(QUEDA), P(LATERAL), P(ALTA) para cada linha. */
-    double[][] predict(double[][] x) {
+    /** P(QUEDA), P(LATERAL), P(ALTA) para cada linha (colunas na ordem de {@link #names()}). */
+    public double[][] predict(double[][] x) {
         DataFrame df = frame(x, new int[x.length], names);
         double[][] out = new double[x.length][Dataset.CLASSES.size()];
         for (int i = 0; i < x.length; i++) model.predict(df.get(i), out[i]);
         return out;
+    }
+
+    /** Features na ordem exata em que o modelo foi treinado. */
+    public List<String> names() {
+        return names;
+    }
+
+    /** Grava o modelo (serialização Java do Smile) e a ordem das features. */
+    void save(Path file) {
+        try (ObjectOutputStream out = new ObjectOutputStream(Files.newOutputStream(file))) {
+            out.writeObject(model);
+            out.writeObject(new java.util.ArrayList<>(names));
+        } catch (IOException e) {
+            throw new UncheckedIOException("Não consegui gravar o modelo em " + file, e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static Gbm load(Path file) {
+        try (ObjectInputStream in = new ObjectInputStream(Files.newInputStream(file))) {
+            GradientTreeBoost m = (GradientTreeBoost) in.readObject();
+            return new Gbm(m, List.copyOf((List<String>) in.readObject()));
+        } catch (IOException | ClassNotFoundException e) {
+            throw new IllegalStateException("Não consegui ler o modelo " + file + ": " + e.getMessage(), e);
+        }
     }
 
     /** Importância de cada feature (redução de perda somada nas árvores), normalizada para somar 1. */

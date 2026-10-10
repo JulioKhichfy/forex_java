@@ -34,14 +34,20 @@ class MetricsTest {
                 {0.65, 0.25, 0.10},   // venda
                 {0.30, 0.20, 0.50},   // fica de fora (P < 0,60)
                 {0.05, 0.30, 0.65}};  // compra
-        double[] yBuy = {1.5, 0, 0, -3.0};
-        double[] ySell = {0, 0.75, 0, 0};
-        Metrics.Trades t = Metrics.trades(p, yBuy, ySell, 0.60, 0.35, 1.5, 0.5);
+        double[] rBuy = {1.0, 0, 0, -2.0};
+        double[] rSell = {0, 0.5, 0, 0};
+        Metrics.Trades t = Metrics.trades(p, rBuy, rSell, null, 0.60, 0.35, 0.5);
         assertEquals(3, t.n());
-        assertEquals((1.0 + 0.5 - 2.0) / 3, t.expectancyR(), 1e-12);   // R = resultado ÷ 1,5 ATR
+        assertEquals((1.0 + 0.5 - 2.0) / 3, t.expectancyR(), 1e-12);
         assertEquals(1.5 / 2.0, t.profitFactor(), 1e-12);
         assertEquals(2.0 * 0.5, t.maxDrawdownPct(), 1e-12);            // pico 0,75% → −0,25%
         assertEquals(2.0 / 3, t.hitRate(), 1e-12);
+
+        // custo extra (custos × 1,5) desconta de cada operação; NaN = sem preço → não opera
+        double[] extra = {0.1, 0.1, 0.1, 0.1};
+        assertEquals((0.9 + 0.4 - 2.1) / 3, Metrics.trades(p, rBuy, rSell, extra, 0.60, 0.35, 0.5).expectancyR(), 1e-12);
+        rBuy[3] = Double.NaN;
+        assertEquals(2, Metrics.trades(p, rBuy, rSell, null, 0.60, 0.35, 0.5).n());
     }
 
     @Test

@@ -50,16 +50,32 @@ public final class CandleNormalizer {
      *                        corretora pode estar gravado em outro fuso (a checagem de abertura semanal mostra).
      *                        O bronze continua intacto. null = sem corte.
      */
-    public Report run(LakeSql sql, LocalDate utcReliableFrom) {
-        Path out = lakeRoot.resolve("silver").resolve(TABLE);
-        if (!Bronze.hasCsv(lakeRoot, SOURCE)) {
-            return new Report(0, 0, 0, 0, utcReliableFrom, 0, List.of(), WeeklyOpenCheck.evaluate(List.of()), out);
+    /**
+     * Modo ao vivo: cria a temp table {@code table} (o mesmo formato do silver) só com os arquivos do bronze
+     * gravados a partir de {@code since}. Sem arquivos: tabela vazia.
+     *
+     * @return quantos arquivos entraram
+     */
+    public static int createRecent(LakeSql sql, Path lakeRoot, java.time.Instant since, String table) {
+        List<Path> csv = Bronze.recentCsv(lakeRoot, SOURCE, since);
+        List<Path> meta = Bronze.metaOf(csv);
+        if (csv.isEmpty() || meta.isEmpty()) {
+            sql.execute("CREATE OR REPLACE TEMP TABLE " + table + " AS SELECT NULL::VARCHAR AS market, "
+                    + "NULL::VARCHAR AS symbol, NULL::VARCHAR AS broker_symbol, NULL::TIMESTAMP AS time_utc, "
+                    + "NULL::DOUBLE AS open, NULL::DOUBLE AS high, NULL::DOUBLE AS low, NULL::DOUBLE AS close, "
+                    + "NULL::BIGINT AS tick_volume, NULL::INTEGER AS spread_points, NULL::BIGINT AS real_volume, "
+                    + "NULL::VARCHAR AS origin, NULL::TIMESTAMP AS seen_utc WHERE false");
+            return 0;
         }
-        String cutoff = utcReliableFrom == null ? "TIMESTAMP '1970-01-01'"
-                : "TIMESTAMP '" + utcReliableFrom + " 00:00:00'";
-        Bronze.createMetaTable(sql, lakeRoot, SOURCE, "candle_meta");
+        Bronze.createMetaTable(sql, Bronze.list(meta), table + "_meta");
+        readRaw(sql, Bronze.list(csv), table + "_raw");
+        dedup(sql, table + "_raw", table + "_meta", "TIMESTAMP '1970-01-01'", table);
+        return csv.size();
+    }
+
+    private static void readRaw(LakeSql sql, String files, String table) {
         sql.execute("""
-                CREATE OR REPLACE TEMP TABLE raw_candles AS
+                CREATE OR REPLACE TEMP TABLE %s AS
                 SELECT market, symbol, broker_symbol, time_utc, open, high, low, close, tick_volume,
                        spread_points, real_volume, %s AS sha
                   FROM read_csv(%s, skip = 1, header = true, delim = ';', filename = true, auto_detect = false,
@@ -68,22 +84,38 @@ public final class CandleNormalizer {
                                            'high': 'DOUBLE', 'low': 'DOUBLE', 'close': 'DOUBLE',
                                            'tick_volume': 'BIGINT', 'spread_points': 'INTEGER',
                                            'real_volume': 'BIGINT'})
-                """.formatted(Bronze.shaOf("filename"), Bronze.csvGlob(lakeRoot, SOURCE)));
-        long files = sql.scalar("SELECT count(DISTINCT sha) FROM raw_candles");
-        long rowsRead = sql.scalar("SELECT count(*) FROM raw_candles");
-        long withoutMeta = sql.scalar("SELECT count(*) FROM raw_candles r ANTI JOIN candle_meta m ON m.sha = r.sha");
+                """.formatted(table, Bronze.shaOf("filename"), files));
+    }
 
+    /** Uma barra por (mercado, símbolo, minuto): a vista primeiro. */
+    private static void dedup(LakeSql sql, String raw, String meta, String cutoff, String out) {
         sql.execute("""
-                CREATE OR REPLACE TEMP TABLE candles AS
+                CREATE OR REPLACE TEMP TABLE %4$s AS
                 SELECT r.market, r.symbol, r.broker_symbol,
                        CAST(replace(r.time_utc, 'Z', '') AS TIMESTAMP) AS time_utc,
                        r.open, r.high, r.low, r.close, r.tick_volume, r.spread_points, r.real_volume,
                        m.origin, m.seen_utc
-                  FROM raw_candles r JOIN candle_meta m ON m.sha = r.sha
-                 WHERE CAST(replace(r.time_utc, 'Z', '') AS TIMESTAMP) >= %s
+                  FROM %1$s r JOIN %2$s m ON m.sha = r.sha
+                 WHERE CAST(replace(r.time_utc, 'Z', '') AS TIMESTAMP) >= %3$s
                 QUALIFY row_number() OVER (PARTITION BY r.market, r.symbol, r.time_utc
                                            ORDER BY m.seen_utc, m.origin) = 1
-                """.formatted(cutoff));
+                """.formatted(raw, meta, cutoff, out));
+    }
+
+    public Report run(LakeSql sql, LocalDate utcReliableFrom) {
+        Path out = lakeRoot.resolve("silver").resolve(TABLE);
+        if (!Bronze.hasCsv(lakeRoot, SOURCE)) {
+            return new Report(0, 0, 0, 0, utcReliableFrom, 0, List.of(), WeeklyOpenCheck.evaluate(List.of()), out);
+        }
+        String cutoff = utcReliableFrom == null ? "TIMESTAMP '1970-01-01'"
+                : "TIMESTAMP '" + utcReliableFrom + " 00:00:00'";
+        Bronze.createMetaTable(sql, lakeRoot, SOURCE, "candle_meta");
+        readRaw(sql, Bronze.csvGlob(lakeRoot, SOURCE), "raw_candles");
+        long files = sql.scalar("SELECT count(DISTINCT sha) FROM raw_candles");
+        long rowsRead = sql.scalar("SELECT count(*) FROM raw_candles");
+        long withoutMeta = sql.scalar("SELECT count(*) FROM raw_candles r ANTI JOIN candle_meta m ON m.sha = r.sha");
+
+        dedup(sql, "raw_candles", "candle_meta", cutoff, "candles");
         long rowsWritten = sql.scalar("SELECT count(*) FROM candles");
         long beforeReliable = sql.scalar("SELECT count(DISTINCT (market, symbol, time_utc)) FROM raw_candles "
                 + "WHERE CAST(replace(time_utc, 'Z', '') AS TIMESTAMP) < " + cutoff);

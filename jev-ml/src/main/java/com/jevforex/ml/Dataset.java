@@ -39,7 +39,8 @@ public final class Dataset {
 
     /**
      * A = preço; B = A + calendário; C = B + texto do Jev (documento mestre, capítulo 11);
-     * D = B + surpresa de tom (teste da hipótese "o mercado reage à mudança de tom").
+     * D = B + surpresa de tom (teste da hipótese "o mercado reage à mudança de tom");
+     * E = só eventos (calendário, sem preço): um dos 3 modelos do dashboard (preço = A, eventos = E, eventos + preço = B).
      */
     public static final Map<String, List<String>> MODELS;
 
@@ -49,6 +50,7 @@ public final class Dataset {
         m.put("B", concat(PRICE, CALENDAR));
         m.put("C", concat(concat(PRICE, CALENDAR), TEXT));
         m.put("D", concat(concat(PRICE, CALENDAR), TONE));
+        m.put("E", CALENDAR);
         MODELS = java.util.Collections.unmodifiableMap(m);
     }
 
@@ -70,6 +72,10 @@ public final class Dataset {
     final List<String> columns;
     final int[] y;
     final double[] yBuy, ySell;
+    /** Operação com stop/alvo/tempo em R (Outcomes); *Late = entrada 5 min depois; NaN = sem preço para executar. */
+    final double[] rBuy, rSell, rBuyLate, rSellLate;
+    /** Custo de uma operação (1 spread) em R: base do teste "custos × 1,5". */
+    final double[] costR;
     int missingValues;
     /** O gold tem o grupo C (fset v2 ou depois)? */
     boolean hasText;
@@ -86,6 +92,11 @@ public final class Dataset {
         y = new int[n];
         yBuy = new double[n];
         ySell = new double[n];
+        rBuy = new double[n];
+        rSell = new double[n];
+        rBuyLate = new double[n];
+        rSellLate = new double[n];
+        costR = new double[n];
     }
 
     public int size() {
@@ -108,7 +119,11 @@ public final class Dataset {
         return out;
     }
 
-    public static Dataset load(LakeSql sql, Path lakeRoot, String fset, int horizon, LocalDate from) {
+    /**
+     * @param exits stop/alvo das operações simuladas (trading.risk.exits) e o atraso do teste de robustez
+     */
+    public static Dataset load(LakeSql sql, Path lakeRoot, String fset, int horizon, LocalDate from,
+                               ExperimentConfig.Exits exits) {
         Path features = lakeRoot.resolve("gold/features/market=fx/fset=" + fset);
         Path labels = lakeRoot.resolve("gold/labels/market=fx/fset=" + fset);
         if (!Files.isDirectory(features) || !Files.isDirectory(labels)) {
@@ -122,17 +137,24 @@ public final class Dataset {
         if (hasText) feats.addAll(TEXT);
         boolean hasTone = available.containsAll(TONE);
         if (hasTone) feats.addAll(TONE);
+        Outcomes.prepare(sql, lakeRoot, from);
+        Outcomes.create(sql, labels, "outc", horizon, from, exits.stopAtr(), exits.targetR(), 0);
+        Outcomes.create(sql, labels, "outc_late", horizon, from, exits.stopAtr(), exits.targetR(), exits.lateMinutes());
         String select = String.join(", ", feats.stream()
                 .map(c -> c.equals("is_event") ? "CAST(f.kind = 'EVENT' AS DOUBLE) AS is_event" : "f." + c).toList());
         sql.execute("""
                 CREATE OR REPLACE TEMP TABLE ds AS
                 SELECT CAST(epoch(f.moment_utc) AS BIGINT) AS m, CAST(epoch(l.label_available_utc) AS BIGINT) AS la,
-                       f.symbol, f.kind = 'EVENT' AS ev, %s, l.label, l.y_buy, l.y_sell
+                       f.symbol, f.kind = 'EVENT' AS ev, %s, l.label, l.y_buy, l.y_sell, l.cost_atr / %s AS cost_r,
+                       o.r_buy, o.r_sell, ol.r_buy AS r_buy_late, ol.r_sell AS r_sell_late
                   FROM read_parquet('%s/**/*.parquet', hive_partitioning = true) f
                   JOIN read_parquet('%s/**/*.parquet', hive_partitioning = true) l
                     ON l.symbol = f.symbol AND l.moment_utc = f.moment_utc
+                  LEFT JOIN outc o ON o.symbol = f.symbol AND o.moment_utc = f.moment_utc
+                  LEFT JOIN outc_late ol ON ol.symbol = f.symbol AND ol.moment_utc = f.moment_utc
                  WHERE l.horizon_min = %d AND f.moment_utc >= TIMESTAMP '%s 00:00:00'
-                """.formatted(select, LakeSql.slashes(features), LakeSql.slashes(labels), horizon, from));
+                """.formatted(select, String.format(java.util.Locale.ROOT, "%f", exits.stopAtr()),
+                LakeSql.slashes(features), LakeSql.slashes(labels), horizon, from));
         List<String> pairs = new ArrayList<>(new TreeSet<>(sql.query("SELECT DISTINCT symbol FROM ds",
                 rs -> rs.getString(1))));
         List<String> columns = new ArrayList<>(feats);
@@ -161,10 +183,21 @@ public final class Dataset {
             d.y[i] = CLASSES.indexOf(rs.getString("label"));
             d.yBuy[i] = rs.getDouble("y_buy");
             d.ySell[i] = rs.getDouble("y_sell");
+            d.costR[i] = rs.getDouble("cost_r");
+            d.rBuy[i] = nanIfNull(rs, "r_buy");
+            d.rSell[i] = nanIfNull(rs, "r_sell");
+            d.rBuyLate[i] = nanIfNull(rs, "r_buy_late");
+            d.rSellLate[i] = nanIfNull(rs, "r_sell_late");
             return null;
         });
         sql.execute("DROP TABLE ds");   // os dados já estão em memória no Java: libera o DuckDB
+        for (String t : List.of("outc", "outc_late", "m1o", "pto")) sql.execute("DROP TABLE IF EXISTS " + t);
         return d;
+    }
+
+    private static double nanIfNull(java.sql.ResultSet rs, String col) throws java.sql.SQLException {
+        double v = rs.getDouble(col);
+        return rs.wasNull() ? Double.NaN : v;
     }
 
     static long epoch(LocalDate date) {

@@ -13,6 +13,14 @@ spring:
     password: ${PG_PASSWORD:jevlocal}
   flyway:
     enabled: true
+  web:
+    resources:
+      # dashboard Angular compilado (cd dashboard && npx ng build); o servidor roda na raiz do repositório
+      static-locations: classpath:/static/,file:${DASHBOARD_DIR:./dashboard/dist/jev-dashboard/browser/}
+  task:
+    scheduling:
+      pool:
+        size: 4               # importação do MT5, coleta e previsões ao vivo não esperam umas pelas outras
 
 server:
   address: 127.0.0.1        # API só acessível pela sua máquina
@@ -94,10 +102,20 @@ experiment:
   lockbox-months: 6               # cofre: os últimos 6 meses completos NÃO são avaliados aqui (passo 5, uma vez)
   gbm: { ntrees: 200, max-depth: 4, max-nodes: 16, node-size: 50, shrinkage: 0.05, subsample: 0.7 }
   decision: { min-prob: 0.60, min-margin: 0.35 }   # gate 4 (cap. 12)
-  stop-atr: 1.5                   # R = resultado ÷ 1,5 ATR
+  late-minutes: 5                 # robustez: entrada atrasada em +5 min ("não pode desabar", cap. 11)
+  cost-stress: 1.5                # robustez: custos × 1,5
+  # stop e alvo das operações simuladas vêm de trading.risk.exits
   risk-per-trade-pct: 0.5         # só para o drawdown simulado do relatório
   threads: 0                      # 0 = núcleos − 1
-  models: [A, B, C, D]            # A = preço; B = + calendário; C = + texto do Jev (fset v2+); D = B + surpresa de tom (fset v3+)
+  models: [A, E, B]               # dashboard: A = preço; E = só eventos; B = eventos + preço (C = + texto do Jev e D = + surpresa de tom seguem disponíveis)
+
+# ---------------------------------------------------------------------
+#  Previsões ao vivo (passo 6a): modelos em produção (train-champion), mesmos momentos do treino
+# ---------------------------------------------------------------------
+live:
+  enabled: true                   # modo servidor: prevê na hora cheia e em evento + 2 min (seg a sex)
+  lookback-days: 40               # M1 lido para as features (regime e spread típico pedem ~28 dias)
+  cron: "20 * * * * *"            # segundo 20 de cada minuto (UTC): dá tempo da barra do momento chegar do MT5
 
 # ---------------------------------------------------------------------
 #  Acervo de discursos do BIS (passo 4a) — comando backfill-bis
@@ -230,6 +248,26 @@ trading:
       # SKIP            = se nem o lote mínimo cabe no risco-alvo, NÃO opera (mais seguro)
       # ALLOW_UP_TO_CAP = opera com o lote mínimo se o risco não passar do teto acima
       min-lot-policy: ALLOW_UP_TO_CAP
+
+    # ===== SAÍDAS (cap. 12): toda ordem vai com SL e TP no servidor =====
+    exits:
+      stop-atr: 1.5                   # stop = 1,5 × ATR(14) M15 (= 1 R)
+      target-r: 1.5                   # alvo = 1,5 × stop; sem stop nem alvo, sai no fim do horizonte
+
+    # ===== ORDENS (passo 6c): travas de cada ordem enviada ao MT5 =====
+    # O dashboard só escolhe o lote (entre o lote mínimo e max-lot). Todo o resto é decidido aqui.
+    orders:
+      default-lot: 0.01               # lote inicial do tíquete
+      max-lot: 0.05                   # nenhuma ordem passa disso, peça o dashboard o que pedir
+      close-after-minutes: 60         # saída por tempo (0 = só SL/TP); 60 = horizonte do modelo principal
+      deviation-points: 20            # desvio máximo na execução (20 pontos = 2 pips)
+      validity-seconds: 30            # o EA recusa ordem mais velha que isso
+      quote-max-age-seconds: 30       # cotação do EA mais velha = sem ordem
+      atr-max-age-minutes: 90         # ATR da última previsão mais velho = sem ordem (clique "Prever agora")
+      blackout-before-minutes: 10     # gate 2: sem entrada de 10 min antes…
+      blackout-after-minutes: 2       # …até 2 min depois de evento de importância alta da moeda
+      max-spread-ratio: 2.0           # gate 3: spread atual até 2 × o típico do horário
+      min-margin-level-pct: 300       # sem entrada nova se o nível de margem estiver abaixo de 300%
 
     # ===== ORÇAMENTO POR MERCADO =====
     markets:

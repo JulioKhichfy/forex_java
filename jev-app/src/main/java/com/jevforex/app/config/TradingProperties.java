@@ -33,7 +33,8 @@ public record TradingProperties(
     public record Account(double referenceBalanceUsd) {
     }
 
-    public record Risk(Global global, Map<String, MarketRiskConfig> markets) {
+    public record Risk(Global global, Map<String, MarketRiskConfig> markets, RiskSettings.Exits exits,
+                       RiskSettings.Orders orders) {
     }
 
     public record Global(double maxRiskPerTradePct, double maxRiskPerTradeUsd, double maxOpenRiskPct,
@@ -61,7 +62,7 @@ public record TradingProperties(
             risk.markets().forEach((code, c) -> m.put(Market.fromCode(code), new RiskSettings.MarketRisk(
                     c.enabled(), c.riskPerTradePct(), c.maxOpenRiskPct(), c.maxPositions(), c.usdWeight())));
         }
-        return new RiskSettings(global, m);
+        return new RiskSettings(global, m, risk.exits(), risk.orders());
     }
 
     public Map<String, Instrument> toInstruments() {

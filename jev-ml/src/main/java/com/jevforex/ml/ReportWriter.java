@@ -18,13 +18,14 @@ import java.util.Map;
 public final class ReportWriter {
 
     private static final Map<String, String> LABELS = Map.of("A", "A (preço)", "B", "B (+ calendário)",
-            "C", "C (+ texto do Jev)", "D", "D (+ surpresa de tom)");
+            "C", "C (+ texto do Jev)", "D", "D (+ surpresa de tom)",
+            "E", "E (só eventos)");
 
     private ReportWriter() {
     }
 
     public static Path write(Path lakeRoot, ExperimentRunner.Result r) {
-        Path dir = lakeRoot.resolve("reports/walkforward").resolve(r.runId());
+        Path dir = lakeRoot.resolve(r.lockbox() ? "reports/lockbox" : "reports/walkforward").resolve(r.runId());
         try {
             Files.createDirectories(dir);
             new ObjectMapper().registerModule(new JavaTimeModule())
@@ -57,19 +58,25 @@ public final class ReportWriter {
                   th,td{border-color:#2c323b}.muted{color:#9aa3b2}.note{background:#1b2027}.good{color:#4cc27a}.bad{color:#ff7a70}}
                 </style></head><body>
                 """);
-        h.append("<h1>Experimento A × B × C — walk-forward</h1>");
+        h.append(r.lockbox() ? "<h1>COFRE ABERTO — avaliação única nos meses reservados</h1>"
+                + "<p class=\"bad\">Este é o único teste limpo: os meses do cofre nunca entraram em treino, ajuste ou "
+                + "comparação antes desta execução. Não há segunda abertura.</p>"
+                : "<h1>Experimento — walk-forward</h1>");
         h.append(String.format(Locale.ROOT, "<p class=\"muted\">run %s · fset %s · treino %d meses · teste %d mês · "
                         + "embargo %d dia · cofre %d meses (não avaliado) · gate 4: P ≥ %.2f e margem ≥ %.2f · "
-                        + "R = resultado ÷ %.1f ATR</p>", r.runId(), c.fset(), c.trainMonths(), c.testMonths(),
-                c.embargoDays(), c.lockboxMonths(), c.decision().minProb(), c.decision().minMargin(), c.stopAtr()));
+                        + "operações: stop %.1f ATR, alvo %.1f × stop, saída no fim do horizonte (R = resultado ÷ stop) · "
+                        + "robustez: entrada +%d min e custos × %.1f</p>", r.runId(), c.fset(), c.trainMonths(),
+                c.testMonths(), c.embargoDays(), c.lockboxMonths(), c.decision().minProb(), c.decision().minMargin(),
+                c.exits().stopAtr(), c.exits().targetR(), c.exits().lateMinutes(), c.costStress()));
         h.append("""
                 <div class="note"><b>Como ler.</b> A = só preço (volatilidade, custo, sessão, fator USD).
                 B = A + calendário (surpresa padronizada). C = B + texto do Jev (sinal por moeda com decaimento).
                 Todos foram treinados e avaliados nos mesmos momentos: <b>C contra B mede o valor do Jev</b>.
                 Critério do documento mestre (cap. 11): C melhor que B (log loss) em ≥ 70% dos folds.
                 Log loss menor = probabilidades melhores; a linha de base usa só a frequência das classes no treino.
-                AUC 0,5 = acaso. As operações não simulam stop/alvo dentro do horizonte (passo 5) e ignoram os gates
-                de exposição: servem para comparar modelos, não para prever lucro.</div>
+                AUC 0,5 = acaso. As operações seguem stop, alvo e saída por tempo minuto a minuto no M1 (na mesma barra,
+                o stop vem primeiro; stop com gap sai na abertura), mas ignoram os gates de exposição e de spread
+                (passo 6). Uma operação por momento e par, sem limite de posições simultâneas.</div>
                 """);
         for (ExperimentRunner.HorizonResult hr : r.horizons()) {
             ExperimentRunner.Summary s = hr.summary();
@@ -96,6 +103,11 @@ public final class ReportWriter {
             row(h, "AUC ALTA — só eventos", Double.NaN, models, m -> s.models().get(m).aucUpEvent(), false);
             h.append("<tr><td>Operações (gate 4)</td><td></td>");
             models.forEach(m -> h.append("<td>").append(trades(s.models().get(m).trades())).append("</td>"));
+            h.append(String.format(Locale.ROOT, "</tr><tr><td>Operações — entrada +%d min</td><td></td>",
+                    c.exits().lateMinutes()));
+            models.forEach(m -> h.append("<td>").append(trades(s.models().get(m).tradesLate())).append("</td>"));
+            h.append(String.format(Locale.ROOT, "</tr><tr><td>Operações — custos × %.1f</td><td></td>", c.costStress()));
+            models.forEach(m -> h.append("<td>").append(trades(s.models().get(m).tradesCost())).append("</td>"));
             h.append("</tr></table></div>");
 
             h.append("<h3>Sensibilidade aos limiares (operações · E[R] · PF)</h3><div class=\"wrap\"><table>"

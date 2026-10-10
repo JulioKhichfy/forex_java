@@ -1,0 +1,22 @@
+<header class="top">
+  <div class="brand">Jev Forex</div>
+  <nav>
+    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Hoje</a>
+    <a routerLink="/previsoes" routerLinkActive="active">Previsões</a>
+    <a routerLink="/operar" routerLinkActive="active">Operar</a>
+    <a routerLink="/modelos" routerLinkActive="active">Modelos</a>
+    <a routerLink="/saude" routerLinkActive="active">Saúde</a>
+  </nav>
+  <div class="state">
+    @if (offline()) {
+      <span class="badge high">API fora do ar</span>
+    } @else if (status(); as s) {
+      <span class="badge" [class.ok]="s['mode'] !== 'LIVE'" [class.warn]="s['mode'] === 'LIVE'">modo {{ s['mode'] }}</span>
+      <span class="muted small mono">{{ s['time_utc'] | slice: 11 : 19 }} UTC</span>
+    }
+  </div>
+</header>
+
+<main>
+  <router-outlet />
+</main>

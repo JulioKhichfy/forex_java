@@ -20,7 +20,6 @@
         <dependency>
             <groupId>com.jevforex</groupId>
             <artifactId>jev-normalize</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

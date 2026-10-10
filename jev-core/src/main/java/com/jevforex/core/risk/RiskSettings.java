@@ -10,10 +10,12 @@ import java.util.Map;
  *
  * <p>Regra geral: quando existe limite em % e em US$, vale o MENOR dos dois.</p>
  */
-public record RiskSettings(Global global, Map<Market, MarketRisk> markets) {
+public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits exits, Orders orders) {
 
     public RiskSettings {
         if (global == null) throw new IllegalArgumentException("trading.risk.global é obrigatório");
+        if (exits == null) throw new IllegalArgumentException("trading.risk.exits é obrigatório");
+        if (orders == null) throw new IllegalArgumentException("trading.risk.orders é obrigatório");
         markets = markets == null ? Map.of() : Map.copyOf(markets);
     }
 
@@ -24,6 +26,50 @@ public record RiskSettings(Global global, Map<Market, MarketRisk> markets) {
                     + " (trading.risk.markets." + market.code() + ")");
         }
         return r;
+    }
+
+    /**
+     * Saídas de toda operação (documento mestre, capítulo 12): enviadas ao servidor junto com a ordem.
+     *
+     * @param stopAtr distância do stop em múltiplos do ATR(14) M15 (1 R)
+     * @param targetR alvo em múltiplos do stop
+     */
+    public record Exits(double stopAtr, double targetR) {
+        public Exits {
+            if (!(stopAtr > 0)) throw new IllegalArgumentException("exits.stop-atr deve ser > 0");
+            if (!(targetR > 0)) throw new IllegalArgumentException("exits.target-r deve ser > 0");
+        }
+    }
+
+    /**
+     * Travas de cada ordem enviada ao MT5 (passo 6c). O dashboard só escolhe o lote, dentro de [lote mínimo, maxLot].
+     *
+     * @param defaultLot           lote inicial do tíquete (o dashboard pode mudar, até maxLot)
+     * @param maxLot               maior lote aceito numa ordem, qualquer que seja o pedido
+     * @param closeAfterMinutes    saída por tempo (0 = só SL/TP); 60 = horizonte do modelo principal
+     * @param deviationPoints      desvio máximo de preço na execução (pontos)
+     * @param validitySeconds      o EA recusa a ordem depois disso (o preço do clique já ficou velho)
+     * @param quoteMaxAgeSeconds   cotação do EA mais velha que isso = sem ordem
+     * @param atrMaxAgeMinutes     ATR (da última previsão) mais velho que isso = sem ordem
+     * @param blackoutBeforeMinutes sem entrada nos N min antes de evento de importância alta
+     * @param blackoutAfterMinutes  … nem nos N min depois
+     * @param maxSpreadRatio       spread atual ÷ spread típico do horário acima disso = sem ordem (gate 3)
+     * @param minMarginLevelPct    nível de margem (equity ÷ margem) abaixo disso = sem entrada nova
+     */
+    public record Orders(double defaultLot, double maxLot, int closeAfterMinutes, int deviationPoints,
+                         int validitySeconds, int quoteMaxAgeSeconds, int atrMaxAgeMinutes, int blackoutBeforeMinutes,
+                         int blackoutAfterMinutes, double maxSpreadRatio, double minMarginLevelPct) {
+        public Orders {
+            if (!(defaultLot > 0) || maxLot < defaultLot) {
+                throw new IllegalArgumentException("orders: precisa 0 < default-lot <= max-lot");
+            }
+            if (closeAfterMinutes < 0 || deviationPoints < 0 || validitySeconds < 5 || quoteMaxAgeSeconds < 1
+                    || atrMaxAgeMinutes < 1 || blackoutBeforeMinutes < 0 || blackoutAfterMinutes < 0) {
+                throw new IllegalArgumentException("orders: tempos/desvio inválidos");
+            }
+            if (!(maxSpreadRatio >= 1)) throw new IllegalArgumentException("orders.max-spread-ratio deve ser >= 1");
+            if (minMarginLevelPct < 100) throw new IllegalArgumentException("orders.min-margin-level-pct deve ser >= 100");
+        }
     }
 
     /** O que fazer quando nem o lote mínimo cabe no risco-alvo do trade. */

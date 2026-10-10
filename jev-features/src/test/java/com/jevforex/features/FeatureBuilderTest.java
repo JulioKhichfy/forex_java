@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.sql.ResultSetMetaData;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -203,6 +204,54 @@ class FeatureBuilderTest {
         // ao meio-dia a ata do BCE já entrou
         assertEquals(0.4 * Math.exp(-3600.0 / (6 * 3600)),
                 value(lake, "EURUSD", "2026-02-10 12:00:00", "tone_policy_short_base"), 1e-9);
+    }
+
+    @Test
+    void paridade_aoVivoIgualAoLote_noMesmoInstante(@TempDir Path lake) {
+        silver(lake, "2030-01-01 00:00", 1.0);
+        build(lake);
+        String moment = "2026-02-12 10:00:00";
+        FeatureBuilder.Live live;
+        try (LakeSql sql = LakeSql.open(lake.resolve("tmp"), "1GB")) {
+            live = new FeatureBuilder(lake, FeatureConfig.defaults())
+                    .live(sql, java.time.LocalDateTime.parse("2026-02-12T10:00:00"), 40, 35);
+        }
+        assertEquals(2, live.rows().size());
+        for (String symbol : List.of("EURUSD", "USDJPY")) {
+            Map<String, Object> row = live.rows().stream().filter(r -> symbol.equals(r.get("symbol"))).findFirst()
+                    .orElseThrow();
+            Map<String, String> batchRow;
+            try (LakeSql sql = LakeSql.open(lake.resolve("tmp"), "1GB")) {
+                batchRow = sql.query("SELECT * FROM read_parquet('" + LakeSql.slashes(lake.resolve("gold/features"))
+                        + "/**/*.parquet', hive_partitioning = true) WHERE symbol = '" + symbol
+                        + "' AND moment_utc = TIMESTAMP '" + moment + "'", rs -> {
+                    ResultSetMetaData md = rs.getMetaData();
+                    Map<String, String> m = new java.util.LinkedHashMap<>();
+                    for (int i = 1; i <= md.getColumnCount(); i++) m.put(md.getColumnName(i), rs.getString(i));
+                    return m;
+                }).get(0);
+            }
+            batchRow.remove("market");   // colunas de partição do caminho do gold, não do cálculo
+            batchRow.remove("fset");
+            assertEquals(batchRow.keySet(), row.keySet());
+            for (var cell : batchRow.entrySet()) {
+                String col = cell.getKey();
+                String batch = String.valueOf(cell.getValue());
+                Object v = row.get(col);
+                if (v instanceof Number n && !batch.equals("null")) {
+                    assertEquals(Double.parseDouble(batch), n.doubleValue(), 1e-9, symbol + " " + col);
+                } else {
+                    String lv = v instanceof java.time.temporal.Temporal || v instanceof java.util.Date
+                            ? String.valueOf(v).replace('T', ' ') : String.valueOf(v);
+                    assertEquals(noFraction(batch), noFraction(lv), symbol + " " + col);
+                }
+            }
+        }
+    }
+
+    /** "2026-02-12 10:00:00.0" e "2026-02-12 10:00:00" são o mesmo instante. */
+    private static String noFraction(String s) {
+        return s.endsWith(".0") ? s.substring(0, s.length() - 2) : s;
     }
 
     private static double value(Path lake, String symbol, String moment, String col) {

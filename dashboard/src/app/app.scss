@@ -1,0 +1,33 @@
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 10px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.brand { font-weight: 700; font-size: 16px; }
+
+nav { display: flex; gap: 4px; flex-wrap: wrap; }
+nav a {
+  padding: 6px 12px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-weight: 500;
+}
+nav a:hover { text-decoration: none; background: var(--panel-2); color: var(--text); }
+nav a.active { background: var(--panel-2); color: var(--text); }
+
+.state { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+
+main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+
+@media (max-width: 640px) {
+  .top { gap: 10px; padding: 10px 16px; }
+  main { padding: 16px; }
+}

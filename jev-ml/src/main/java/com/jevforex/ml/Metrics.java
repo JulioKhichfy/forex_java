@@ -39,8 +39,8 @@ public final class Metrics {
 
     /**
      * Operações simuladas com o gate 4: compra se P(ALTA) ≥ minProb e P(ALTA) − P(QUEDA) ≥ minMargin
-     * (venda simétrica). Resultado em R = (resultado no horizonte, já com o spread, em ATR) ÷ stop em ATR.
-     * Aproximação: não simula stop/alvo dentro do horizonte (o passo 5 simula).
+     * (venda simétrica). O resultado de cada lado já vem em R, com stop, alvo e saída por tempo (Outcomes).
+     * Resultado NaN = sem preço para executar: a operação não acontece.
      *
      * @param n              operações
      * @param expectancyR    média em R
@@ -51,18 +51,23 @@ public final class Metrics {
     public record Trades(int n, double expectancyR, double profitFactor, double maxDrawdownPct, double hitRate) {
     }
 
-    /** As linhas precisam estar em ordem cronológica (para o drawdown). */
-    public static Trades trades(double[][] p, double[] yBuy, double[] ySell, double minProb, double minMargin,
-                                double stopAtr, double riskPct) {
+    /**
+     * As linhas precisam estar em ordem cronológica (para o drawdown).
+     *
+     * @param extraCostR custo extra por operação em R (teste "custos × 1,5"); null = nenhum
+     */
+    public static Trades trades(double[][] p, double[] rBuy, double[] rSell, double[] extraCostR, double minProb,
+                                double minMargin, double riskPct) {
         int n = 0, wins = 0;
         double sum = 0, gains = 0, losses = 0, equity = 0, peak = 0, maxDd = 0;
         for (int i = 0; i < p.length; i++) {
             double up = p[i][Dataset.UP], down = p[i][Dataset.DOWN];
-            double result;
-            if (up >= minProb && up - down >= minMargin) result = yBuy[i];
-            else if (down >= minProb && down - up >= minMargin) result = ySell[i];
+            double r;
+            if (up >= minProb && up - down >= minMargin) r = rBuy[i];
+            else if (down >= minProb && down - up >= minMargin) r = rSell[i];
             else continue;
-            double r = result / stopAtr;
+            if (Double.isNaN(r)) continue;
+            if (extraCostR != null) r -= extraCostR[i];
             n++;
             sum += r;
             if (r > 0) {
