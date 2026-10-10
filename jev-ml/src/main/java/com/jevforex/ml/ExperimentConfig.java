@@ -21,10 +21,12 @@ import java.util.List;
  * @param threads        folds treinados em paralelo
  * @param seed           semente do subsample (reprodutível)
  * @param models         modelos comparados (A = preço; B = + calendário; C = + texto do Jev; D = + surpresa de tom); ver Dataset.MODELS
+ * @param market         fx | indices | stocks (gold, modelos e relatórios separados por mercado)
  */
 public record ExperimentConfig(String fset, List<Integer> horizons, LocalDate from, int trainMonths, int testMonths,
                                int embargoDays, int lockboxMonths, Gbm gbm, Decision decision, Exits exits,
-                               double costStress, double riskPerTradePct, int threads, long seed, List<String> models) {
+                               double costStress, double riskPerTradePct, int threads, long seed, List<String> models,
+                               String market) {
 
     public record Gbm(int ntrees, int maxDepth, int maxNodes, int nodeSize, double shrinkage, double subsample) {
     }
@@ -57,18 +59,26 @@ public record ExperimentConfig(String fset, List<Integer> horizons, LocalDate fr
             if (!Dataset.MODELS.containsKey(m)) throw new IllegalArgumentException("experiment.models: modelo desconhecido " + m);
         }
         models = List.copyOf(models);
+        if (market == null || market.isBlank()) market = "fx";
+        if (!market.matches("[a-z]+")) throw new IllegalArgumentException("experiment: mercado inválido " + market);
     }
 
     /** Valores do documento mestre, exceto stop/alvo: esses vêm sempre de trading.risk.exits. */
     public static ExperimentConfig defaults(Exits exits) {
         return new ExperimentConfig("v3", List.of(60, 15), LocalDate.parse("2021-12-01"), 24, 1, 1, 6,
                 new Gbm(200, 4, 16, 50, 0.05, 0.7), new Decision(0.60, 0.35), exits, 1.5, 0.5,
-                Math.max(1, Runtime.getRuntime().availableProcessors() - 1), 19650218L, List.of("A", "B", "C"));
+                Math.max(1, Runtime.getRuntime().availableProcessors() - 1), 19650218L, List.of("A", "B", "C"), "fx");
     }
 
     /** O mesmo experimento com outros horizontes. */
     public ExperimentConfig withHorizons(List<Integer> h) {
         return new ExperimentConfig(fset, h, from, trainMonths, testMonths, embargoDays, lockboxMonths, gbm, decision,
-                exits, costStress, riskPerTradePct, threads, seed, models);
+                exits, costStress, riskPerTradePct, threads, seed, models, market);
+    }
+
+    /** O mesmo experimento noutro mercado (o início do período pode mudar: índices e ações começam depois). */
+    public ExperimentConfig withMarket(String m, LocalDate start) {
+        return new ExperimentConfig(fset, horizons, start == null ? from : start, trainMonths, testMonths, embargoDays,
+                lockboxMonths, gbm, decision, exits, costStress, riskPerTradePct, threads, seed, models, m);
     }
 }

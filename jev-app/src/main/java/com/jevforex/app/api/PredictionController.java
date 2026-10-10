@@ -43,13 +43,14 @@ public class PredictionController {
     }
 
     @GetMapping("/latest")
-    public Map<String, Object> latest() {
+    public Map<String, Object> latest(@RequestParam(defaultValue = "fx") String market) {
         Map<String, Object> out = new LinkedHashMap<>();
-        ModelStore.Loaded m = live.champion();
+        ModelStore.Loaded m = live.champion(market);
+        out.put("market", market);
         out.put("model_version", m == null ? null : m.manifest().version());
         out.put("trained_until", m == null ? null : m.manifest().trainTo());
         out.put("lockbox_run", m == null ? null : m.manifest().lockboxRun());
-        List<PredictionRepository.Prediction> rows = repo.latest("fx");
+        List<PredictionRepository.Prediction> rows = repo.latest(market);
         out.put("age_minutes", rows.stream().map(PredictionRepository.Prediction::momentUtc).max(Instant::compareTo)
                 .map(t -> Duration.between(t, Instant.now()).toMinutes()).orElse(null));
         out.put("predictions", rows);
@@ -57,17 +58,19 @@ public class PredictionController {
     }
 
     @GetMapping
-    public List<PredictionRepository.Prediction> history(@RequestParam(required = false) String symbol,
+    public List<PredictionRepository.Prediction> history(@RequestParam(defaultValue = "fx") String market,
+                                                         @RequestParam(required = false) String symbol,
                                                          @RequestParam(defaultValue = "24") int hours,
                                                          @RequestParam(defaultValue = "500") int limit) {
-        return repo.history("fx", symbol, Instant.now().minus(Duration.ofHours(hours)), Math.min(limit, 5000));
+        return repo.history(market, symbol, Instant.now().minus(Duration.ofHours(hours)), Math.min(limit, 5000));
     }
 
     @GetMapping("/scoreboard")
-    public Map<String, Object> scoreboard(@RequestParam(defaultValue = "90") int days) {
+    public Map<String, Object> scoreboard(@RequestParam(defaultValue = "fx") String market,
+                                          @RequestParam(defaultValue = "90") int days) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("since", Instant.now().minus(Duration.ofDays(days)).toString());
-        out.put("models", repo.scoreboard("fx", Instant.now().minus(Duration.ofDays(days))));
+        out.put("models", repo.scoreboard(market, Instant.now().minus(Duration.ofDays(days))));
         return out;
     }
 

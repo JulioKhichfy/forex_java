@@ -1,8 +1,9 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Api, CalendarItem, LatestPredictions, MODEL_NAMES, NewsItem } from '../api';
 import { ProbBar } from './prob-bar';
+import { MarketState } from '../market';
 
 @Component({
   selector: 'page-hoje',
@@ -39,7 +40,7 @@ import { ProbBar } from './prob-bar';
               }
             </table></div>
           }
-          <h3 style="margin-top:16px">Mais provável por par (Eventos + Preço, 60 min)</h3>
+          <h3 style="margin-top:16px">Mais provável por símbolo (Eventos + Preço, 60 min)</h3>
           <div class="table-wrap"><table>
             <tr><th>Par</th><th>Momento</th><th>Probabilidades (queda · lateral · alta)</th></tr>
             @for (p of mainModel(); track p.id) {
@@ -105,6 +106,7 @@ import { ProbBar } from './prob-bar';
 })
 export class Hoje implements OnInit, OnDestroy {
   private api = inject(Api);
+  private marketState = inject(MarketState);
   protected names = MODEL_NAMES;
   protected latest = signal<LatestPredictions | null>(null);
   protected events = signal<CalendarItem[]>([]);
@@ -114,8 +116,11 @@ export class Hoje implements OnInit, OnDestroy {
     (this.latest()?.predictions ?? []).filter((p) => p.model === 'B' && p.horizonMin === 60));
   private timer?: ReturnType<typeof setInterval>;
 
+  constructor() {
+    effect(() => { this.marketState.market(); this.load(); });
+  }
+
   ngOnInit(): void {
-    this.load();
     this.timer = setInterval(() => this.load(), 60_000);
   }
 
@@ -128,7 +133,7 @@ export class Hoje implements OnInit, OnDestroy {
   }
 
   private load(): void {
-    this.api.latest().subscribe({ next: (l) => this.latest.set(l), error: () => this.latest.set(null) });
+    this.api.latest(this.marketState.market()).subscribe({ next: (l) => this.latest.set(l), error: () => this.latest.set(null) });
     this.api.upcoming(24).subscribe({ next: (e) => this.events.set(e), error: () => this.events.set([]) });
     this.api.news(25).subscribe({ next: (n) => this.news.set(n), error: () => this.news.set([]) });
   }

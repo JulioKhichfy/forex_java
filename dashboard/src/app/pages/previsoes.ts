@@ -1,7 +1,8 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
 import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, Prediction, RunResult, Score } from '../api';
 import { ProbBar } from './prob-bar';
+import { MarketState } from '../market';
 
 @Component({
   selector: 'page-previsoes',
@@ -116,6 +117,7 @@ import { ProbBar } from './prob-bar';
 })
 export class Previsoes implements OnInit, OnDestroy {
   private api = inject(Api);
+  private marketState = inject(MarketState);
   protected names = MODEL_NAMES;
   protected models = MODEL_ORDER;
   protected horizons = [15, 60];
@@ -133,8 +135,11 @@ export class Previsoes implements OnInit, OnDestroy {
   });
   private timer?: ReturnType<typeof setInterval>;
 
+  constructor() {
+    effect(() => { this.marketState.market(); this.selected.set(null); this.history.set([]); this.load(); });
+  }
+
   ngOnInit(): void {
-    this.load();
     this.timer = setInterval(() => this.load(), 60_000);
   }
 
@@ -152,7 +157,7 @@ export class Previsoes implements OnInit, OnDestroy {
 
   protected select(symbol: string): void {
     this.selected.set(symbol);
-    this.api.history(symbol, 48).subscribe((h) => this.history.set(h));
+    this.api.history(symbol, 48, this.marketState.market()).subscribe((h) => this.history.set(h));
   }
 
   protected runNow(): void {
@@ -168,9 +173,9 @@ export class Previsoes implements OnInit, OnDestroy {
   }
 
   private load(): void {
-    this.api.latest().subscribe({ next: (l) => this.latest.set(l), error: () => this.latest.set(null) });
-    this.api.scoreboard(90).subscribe({ next: (s) => this.score.set(s.models), error: () => this.score.set([]) });
+    this.api.latest(this.marketState.market()).subscribe({ next: (l) => this.latest.set(l), error: () => this.latest.set(null) });
+    this.api.scoreboard(90, this.marketState.market()).subscribe({ next: (s) => this.score.set(s.models), error: () => this.score.set([]) });
     const s = this.selected();
-    if (s) this.api.history(s, 48).subscribe((h) => this.history.set(h));
+    if (s) this.api.history(s, 48, this.marketState.market()).subscribe((h) => this.history.set(h));
   }
 }

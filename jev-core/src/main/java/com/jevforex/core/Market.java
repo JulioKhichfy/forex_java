@@ -7,7 +7,9 @@ package com.jevforex.core;
 public enum Market {
     FX("fx"),
     METALS("metals"),
-    CRYPTO("crypto");
+    CRYPTO("crypto"),
+    INDICES("indices"),
+    STOCKS("stocks");
 
     private final String code;
 

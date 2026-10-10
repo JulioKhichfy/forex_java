@@ -42,7 +42,7 @@ public class LivePredictionService {
     private final LiveProperties props;
     private final PredictionRepository repo;
     private final ObjectMapper mapper;
-    private ModelStore.Loaded models;   // cache da versão em produção
+    private final Map<String, ModelStore.Loaded> models = new java.util.HashMap<>();   // versão em produção por mercado
 
     public LivePredictionService(LakeStorage lake, FeatureProperties featureProps, ExperimentProperties experimentProps,
                                  SilverProperties silver, RiskSettings risk, LiveProperties props,
@@ -66,27 +66,51 @@ public class LivePredictionService {
                       String lastBarUtc, String note) {
     }
 
-    /** Modelos em produção; recarrega se a versão promovida mudou. */
-    public synchronized ModelStore.Loaded champion() {
-        ModelStore store = new ModelStore(lake.root());
-        String version = store.champion().map(ModelStore.Champion::version).orElse(null);
-        if (version == null) return null;
-        if (models == null || !models.manifest().version().equals(version)) {
-            models = store.load(version);
-            log.info("Modelos em produção carregados: versão {}", version);
-        }
-        return models;
+    /** Modelos em produção do forex (compatibilidade). */
+    public ModelStore.Loaded champion() {
+        return champion("fx");
     }
 
+    /** Modelos em produção de um mercado; recarrega se a versão promovida mudou. null = sem modelo. */
+    public synchronized ModelStore.Loaded champion(String market) {
+        ModelStore store = new ModelStore(lake.root(), market);
+        String version = store.champion().map(ModelStore.Champion::version).orElse(null);
+        if (version == null) return null;
+        ModelStore.Loaded cached = models.get(market);
+        if (cached == null || !cached.manifest().version().equals(version)) {
+            cached = store.load(version);
+            models.put(market, cached);
+            log.info("Modelos em produção de {} carregados: versão {}", market, version);
+        }
+        return cached;
+    }
+
+    /** Prevê em todos os mercados com modelo em produção (experiment.markets). */
     public synchronized Run predict(LocalDateTime at, String trigger) {
-        ModelStore.Loaded m = champion();
+        int rows = 0;
+        List<String> symbols = new ArrayList<>(), notes = new ArrayList<>(), versions = new ArrayList<>();
+        String last = null;
+        for (String market : experimentProps.marketList()) {
+            Run r = predict(market, at, trigger);
+            rows += r.rows();
+            symbols.addAll(r.symbols());
+            if (r.modelVersion() != null) versions.add(market + " " + r.modelVersion());
+            if (r.note() != null) notes.add(market + ": " + r.note());
+            if (r.lastBarUtc() != null && (last == null || r.lastBarUtc().compareTo(last) > 0)) last = r.lastBarUtc();
+        }
+        return new Run(at, trigger, versions.isEmpty() ? null : String.join(" · ", versions), rows, symbols, last,
+                rows > 0 ? null : notes.isEmpty() ? "sem previsão" : String.join(" | ", notes));
+    }
+
+    public synchronized Run predict(String market, LocalDateTime at, String trigger) {
+        ModelStore.Loaded m = champion(market);
         if (m == null) return new Run(at, trigger, null, 0, List.of(), null,
-                "Sem modelo em produção. Rode: train-champion");
+                "Sem modelo em produção. Rode: train-champion --market=" + market);
         ExperimentConfig.Decision gate = experimentProps.toConfig(featureProps.toConfig().fset(),
                 risk.exits()).decision();
         FeatureBuilder.Live live;
         try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb-live"), silver.duckdbMemory())) {
-            live = new FeatureBuilder(lake.root(), featureProps.toConfig())
+            live = new FeatureBuilder(lake.root(), featureProps.toConfig(), market)
                     .live(sql, at, props.lookbackDays(), silver.calendar().actualLatencySeconds());
         }
         Instant moment = at.toInstant(ZoneOffset.UTC);
@@ -95,7 +119,7 @@ public class LivePredictionService {
                 moment).toSeconds();
         if (live.rows().isEmpty()) {
             return new Run(at, trigger, m.manifest().version(), 0, List.of(), live.lastBarUtc(),
-                    "Nenhum par com dados frescos (mercado fechado ou MT5 parado): sem previsão");
+                    "Nenhum símbolo com dados frescos (mercado fechado ou MT5 parado): sem previsão");
         }
         int n = 0;
         List<String> symbols = new ArrayList<>();
@@ -109,14 +133,14 @@ public class LivePredictionService {
                 double[] p = g.predict(new double[][]{x})[0];
                 ObjectNode feats = mapper.createObjectNode();
                 for (int i = 0; i < x.length; i++) feats.put(e.features().get(i), x[i]);
-                boolean saved = repo.insert(new PredictionRepository.Prediction(null, "fx", symbol, moment,
+                boolean saved = repo.insert(new PredictionRepository.Prediction(null, market, symbol, moment,
                         (String) row.get("kind"), trigger, e.model(), e.horizon(), m.manifest().version(), p[0], p[1],
                         p[2], signal(p, gate), number(row.get("atr")), bar == null ? null : bar.close(),
                         bar == null ? null : bar.spreadPoints(), lag, feats.toString(), null, null, null, null, null));
                 if (saved) n++;
             }
         }
-        log.info("Previsões {} {}: {} gravadas ({} pares, modelos {})", trigger, at, n, symbols.size(),
+        log.info("Previsões {} {} {}: {} gravadas ({} símbolos, modelos {})", market, trigger, at, n, symbols.size(),
                 m.models().keySet());
         return new Run(at, trigger, m.manifest().version(), n, symbols, live.lastBarUtc(), null);
     }

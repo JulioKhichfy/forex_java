@@ -157,7 +157,7 @@ public final class ReportWriter {
             }
             h.append("</table></div>");
         }
-        h.append("<p class=\"muted\">Previsões fora da amostra: gold/predictions/market=fx/fset=").append(c.fset())
+        h.append("<p class=\"muted\">Previsões fora da amostra: gold/predictions/market=").append(c.market()).append("/fset=").append(c.fset())
                 .append("/run=").append(r.runId()).append("</p></body></html>");
         return h.toString();
     }

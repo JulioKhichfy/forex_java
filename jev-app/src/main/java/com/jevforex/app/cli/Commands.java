@@ -22,12 +22,13 @@ public final class Commands {
     public static final String TRAIN_CHAMPION = "train-champion";
     public static final String PROMOTE = "promote";
     public static final String PREDICT_NOW = "predict-now";
+    public static final String RESOLVE_PREDICTIONS = "resolve-predictions";
 
     private static final Set<String> ALL = Set.of(HELP, PING, RISK, ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS,
             NORMALIZE, FEATURES, TRAIN, BACKFILL_BIS, BACKFILL_ARCHIVES, JEV_SCORE, JEV_SIGNALS, TRAIN_CHAMPION, PROMOTE,
-            PREDICT_NOW);
+            PREDICT_NOW, RESOLVE_PREDICTIONS);
     private static final Set<String> NEED_DB = Set.of(ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS, BACKFILL_ARCHIVES,
-            JEV_SCORE, JEV_SIGNALS, PREDICT_NOW);
+            JEV_SCORE, JEV_SIGNALS, PREDICT_NOW, RESOLVE_PREDICTIONS);
 
     private Commands() {
     }
@@ -75,6 +76,7 @@ public final class Commands {
                   promote --version=<versão>    coloca uma versão de models/market=fx em produção
                   predict-now [--at=2026-10-09T15:00]
                                                 previsão ao vivo agora (ou num instante UTC) e grava no Postgres
+                  resolve-predictions           placar: dá o resultado às previsões com o horizonte vencido
                   ask --qset=cb-text-v1 <fonte> [opções]
                        fontes:  --text="..." | --file=caminho.txt | --latest | --doc=<id>
                        opções:  --issuer="Federal Reserve" --currency=USD --previous="resumo anterior"

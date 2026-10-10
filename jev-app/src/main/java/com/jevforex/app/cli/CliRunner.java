@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jevforex.app.config.RiskConfig.InstrumentCatalog;
 import com.jevforex.app.config.ExperimentProperties;
 import com.jevforex.app.live.LivePredictionService;
+import com.jevforex.app.live.PredictionResolver;
 import com.jevforex.ml.ModelStore;
 import com.jevforex.app.config.FeatureProperties;
 import com.jevforex.ml.ExperimentConfig;
@@ -106,6 +107,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private int jevConcurrency;
     private int exitCode = 0;
     private final LivePredictionService livePredictions;
+    private final PredictionResolver predictionResolver;
 
     public CliRunner(JevClient jev, QuestionSetRegistry questionSets, JevCallRepository jevCalls,
                      RawDocumentRepository documents, FeedCollector collector, LakeStorage lake,
@@ -114,8 +116,9 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                      Mt5StatusService mt5Status, SilverProperties silver, FeatureProperties featureProps,
                      ExperimentProperties experimentProps, BisSpeechCollector bisCollector, BisProperties bisProps,
                      ArchiveCollector archiveCollector, JevScorer jevScorer, JevSignalExporter jevSignalExporter,
-                     LivePredictionService livePredictions) {
+                     LivePredictionService livePredictions, PredictionResolver predictionResolver) {
         this.livePredictions = livePredictions;
+        this.predictionResolver = predictionResolver;
         this.archiveCollector = archiveCollector;
         this.jevScorer = jevScorer;
         this.jevSignalExporter = jevSignalExporter;
@@ -153,15 +156,17 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.IMPORT_MT5_ONCE -> importMt5Once();
                 case Commands.MT5_STATUS -> mt5Status();
                 case Commands.NORMALIZE -> normalize(args);
-                case Commands.FEATURES -> features();
+                case Commands.FEATURES -> features(args);
                 case Commands.TRAIN -> train(args);
                 case Commands.BACKFILL_BIS -> backfillBis(args);
                 case Commands.BACKFILL_ARCHIVES -> backfillArchives(args);
                 case Commands.JEV_SCORE -> jevScore(args);
                 case Commands.JEV_SIGNALS -> jevSignals(args);
-                case Commands.TRAIN_CHAMPION -> trainChampion();
+                case Commands.TRAIN_CHAMPION -> trainChampion(args);
                 case Commands.PROMOTE -> promote(args);
                 case Commands.PREDICT_NOW -> predictNow(args);
+                case Commands.RESOLVE_PREDICTIONS -> System.out.println("Placar: " + predictionResolver.resolve()
+                        + " previsões resolvidas");
                 default -> System.out.println(Commands.usage());
             }
         } catch (JevApiException e) {
@@ -483,11 +488,12 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
 
     // ------------------------------------------------------------------ features (gold)
 
-    private void features() {
+    private void features(ApplicationArguments args) {
         FeatureConfig cfg = featureProps.toConfig();
+        String market = opt(args, "market", "fx");
         Timed<FeatureBuilder.Report> t;
         try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
-            t = timed(() -> new FeatureBuilder(lake.root(), cfg).run(sql));
+            t = timed(() -> new FeatureBuilder(lake.root(), cfg, market).run(sql));
         }
         FeatureBuilder.Report r = t.value();
         System.out.printf("%nFeatures %s → %s  (%.1f s)%n", r.fset(), r.featuresOut(), t.seconds());
@@ -526,12 +532,19 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
 
     // ------------------------------------------------------------------ train (walk-forward A × B)
 
+    /** Trava do cofre de um mercado (o do fx ficou no lugar original). */
+    private Path lockFile(String market) {
+        return "fx".equals(market) ? lake.root().resolve("reports/lockbox/OPENED.json")
+                : lake.root().resolve("reports/lockbox/market=" + market + "/OPENED.json");
+    }
+
     private void train(ApplicationArguments args) throws Exception {
-        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(), risk.exits());
+        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(), risk.exits(),
+                opt(args, "market", "fx"));
         String h = opt(args, "horizon", null);
         if (h != null) cfg = cfg.withHorizons(List.of(Integer.parseInt(h)));
         boolean openLockbox = args.containsOption("open-lockbox");
-        Path lock = lake.root().resolve("reports/lockbox/OPENED.json");
+        Path lock = lockFile(cfg.market());
         Instant openedAt = Instant.now();
         if (openLockbox) {
             // o cofre é aberto UMA vez (documento mestre, cap. 11): a trava é gravada antes de rodar, porque os
@@ -585,9 +598,10 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
 
     // ------------------------------------------------------------------ modelos de produção (passo 6a)
 
-    private void trainChampion() throws Exception {
-        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(), risk.exits());
-        Path lock = lake.root().resolve("reports/lockbox/OPENED.json");
+    private void trainChampion(ApplicationArguments args) throws Exception {
+        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(), risk.exits(),
+                opt(args, "market", "fx"));
+        Path lock = lockFile(cfg.market());
         if (!Files.exists(lock) || !Files.readString(lock).contains("concluído")) {
             // o modelo de produção treina com os meses do cofre: depois disso o cofre não serve mais como teste
             System.out.println("O cofre ainda não foi aberto e avaliado. O modelo de produção treina com os meses do "
@@ -604,13 +618,13 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
         }
         System.out.printf("Treinando modelos de produção %s · horizontes %s · últimos %d meses · fset %s%n",
                 String.join(", ", cfg.models()), cfg.horizons(), cfg.trainMonths(), cfg.fset());
-        ModelStore store = new ModelStore(lake.root());
+        ModelStore store = new ModelStore(lake.root(), cfg.market());
         ModelStore.Manifest mf;
         try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
             mf = store.train(sql, lake.root(), cfg, lockboxRun, walkForwardRun, System.out::println);
         }
         System.out.printf("%nVersão %s gravada em %s (janela %s a %s)%n", mf.version(),
-                lake.root().resolve("models/market=fx").resolve(mf.version()), mf.trainFrom(), mf.trainTo());
+                lake.root().resolve("models/market=" + cfg.market()).resolve(mf.version()), mf.trainFrom(), mf.trainTo());
         if (store.champion().isEmpty()) {
             store.promote(mf.version(), "primeira versão (cofre avaliado no run " + lockboxRun + ")");
             System.out.println("Sem modelo em produção até agora: esta versão entrou em produção.");
@@ -623,13 +637,14 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private void promote(ApplicationArguments args) {
         String version = opt(args, "version", null);
         if (version == null) {
-            ModelStore store = new ModelStore(lake.root());
+            ModelStore store = new ModelStore(lake.root(), opt(args, "market", "fx"));
             System.out.println("Versões: " + store.versions() + " · em produção: "
                     + store.champion().map(ModelStore.Champion::version).orElse("nenhuma"));
             System.out.println("Uso: promote --version=<versão>");
             return;
         }
-        ModelStore.Champion c = new ModelStore(lake.root()).promote(version, opt(args, "note", "promovida pela CLI"));
+        ModelStore.Champion c = new ModelStore(lake.root(), opt(args, "market", "fx"))
+                .promote(version, opt(args, "note", "promovida pela CLI"));
         System.out.println("Em produção: " + c.version() + " (" + c.promotedAt() + ")");
     }
 

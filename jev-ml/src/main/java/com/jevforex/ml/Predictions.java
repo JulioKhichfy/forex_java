@@ -28,8 +28,13 @@ final class Predictions {
     }
 
     static Path write(LakeSql sql, Path lakeRoot, String fset, String runId, List<ExperimentRunner.Oos> all) {
+        return write(sql, lakeRoot, "fx", fset, runId, all);
+    }
+
+    static Path write(LakeSql sql, Path lakeRoot, String market, String fset, String runId,
+                      List<ExperimentRunner.Oos> all) {
         Path csv = lakeRoot.resolve("tmp").resolve("predictions-" + runId + ".csv");
-        Path out = lakeRoot.resolve("gold/predictions/market=fx/fset=" + fset + "/run=" + runId);
+        Path out = lakeRoot.resolve("gold/predictions/market=" + market + "/fset=" + fset + "/run=" + runId);
         // os modelos podem variar por horizonte (C sem grupo C): usa a união, vazio onde não houver
         List<String> models = new ArrayList<>();
         all.forEach(o -> o.probs().keySet().forEach(m -> {

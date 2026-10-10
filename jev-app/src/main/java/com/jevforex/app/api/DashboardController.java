@@ -142,8 +142,8 @@ public class DashboardController {
     }
 
     @GetMapping("/models")
-    public Map<String, Object> models() throws IOException {
-        ModelStore store = new ModelStore(lake.root());
+    public Map<String, Object> models(@RequestParam(defaultValue = "fx") String market) throws IOException {
+        ModelStore store = new ModelStore(lake.root(), market);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("champion", store.champion().orElse(null));
         List<Map<String, Object>> versions = new ArrayList<>();
@@ -155,12 +155,14 @@ public class DashboardController {
             m.put("train_from", mf.trainFrom());
             m.put("train_to", mf.trainTo());
             m.put("lockbox_run", mf.lockboxRun());
+            m.put("challenge", store.challenge(v));
             m.put("entries", mf.entries().stream().map(e -> Map.of("model", e.model(), "horizon", e.horizon(),
                     "rows", e.rows(), "features", e.features().size())).toList());
             versions.add(m);
         }
         out.put("versions", versions);
-        Path lock = lake.root().resolve("reports/lockbox/OPENED.json");
+        Path lock = "fx".equals(market) ? lake.root().resolve("reports/lockbox/OPENED.json")
+                : lake.root().resolve("reports/lockbox/market=" + market + "/OPENED.json");
         JsonNode lockInfo = Files.exists(lock) ? mapper.readTree(lock.toFile()) : null;
         out.put("lockbox", lockInfo);
         if (lockInfo != null && lockInfo.hasNonNull("run")) {
@@ -169,7 +171,10 @@ public class DashboardController {
         Path wf = lake.root().resolve("reports/walkforward");
         if (Files.isDirectory(wf)) {
             try (var s = Files.list(wf)) {
-                String last = s.map(p -> p.getFileName().toString()).sorted().reduce((a, b) -> b).orElse(null);
+                // runs do fx não têm sufixo; os dos outros mercados terminam em -<mercado>
+                String last = s.map(p -> p.getFileName().toString())
+                        .filter(n -> "fx".equals(market) ? !n.matches(".*-[a-z]+$") : n.endsWith("-" + market))
+                        .sorted().reduce((a, b) -> b).orElse(null);
                 if (last != null) {
                     out.put("walkforward_run", last);
                     out.put("walkforward_summary", summary(wf.resolve(last)));

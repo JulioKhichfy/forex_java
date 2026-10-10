@@ -124,8 +124,13 @@ public final class Dataset {
      */
     public static Dataset load(LakeSql sql, Path lakeRoot, String fset, int horizon, LocalDate from,
                                ExperimentConfig.Exits exits) {
-        Path features = lakeRoot.resolve("gold/features/market=fx/fset=" + fset);
-        Path labels = lakeRoot.resolve("gold/labels/market=fx/fset=" + fset);
+        return load(sql, lakeRoot, "fx", fset, horizon, from, exits);
+    }
+
+    public static Dataset load(LakeSql sql, Path lakeRoot, String market, String fset, int horizon, LocalDate from,
+                               ExperimentConfig.Exits exits) {
+        Path features = lakeRoot.resolve("gold/features/market=" + market + "/fset=" + fset);
+        Path labels = lakeRoot.resolve("gold/labels/market=" + market + "/fset=" + fset);
         if (!Files.isDirectory(features) || !Files.isDirectory(labels)) {
             throw new IllegalStateException("Sem gold fset=" + fset + ". Rode antes: features");
         }
@@ -137,7 +142,7 @@ public final class Dataset {
         if (hasText) feats.addAll(TEXT);
         boolean hasTone = available.containsAll(TONE);
         if (hasTone) feats.addAll(TONE);
-        Outcomes.prepare(sql, lakeRoot, from);
+        Outcomes.prepare(sql, lakeRoot, market, from);
         Outcomes.create(sql, labels, "outc", horizon, from, exits.stopAtr(), exits.targetR(), 0);
         Outcomes.create(sql, labels, "outc_late", horizon, from, exits.stopAtr(), exits.targetR(), exits.lateMinutes());
         String select = String.join(", ", feats.stream()

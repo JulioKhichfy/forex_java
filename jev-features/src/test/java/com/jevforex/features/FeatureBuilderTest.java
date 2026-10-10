@@ -249,6 +249,45 @@ class FeatureBuilderTest {
         }
     }
 
+    @Test
+    void indices_moedaDaCorretora_calendarioPelaMoedaDoIndice(@TempDir Path lake) {
+        silver(lake, "2030-01-01 00:00", 1.0);
+        try (LakeSql sql = LakeSql.open(lake.resolve("tmp"), "1GB")) {
+            sql.execute("""
+                    COPY (
+                      SELECT s.symbol, s.symbol || 'm' AS broker_symbol, g.ts AS time_utc,
+                             px AS open, px * 1.0004 AS high, px * 0.9996 AS low, px AS close,
+                             10::BIGINT AS tick_volume, 50 AS spread_points, 0::BIGINT AS real_volume,
+                             'HISTORY' AS origin, g.ts AS seen_utc, year(g.ts) AS year, month(g.ts) AS month
+                        FROM (VALUES ('US500', 5000.0), ('DE30', 18000.0)) s(symbol, p0),
+                             generate_series(TIMESTAMP '2026-01-05 00:00', TIMESTAMP '2026-02-13 23:59',
+                                             INTERVAL 1 MINUTE) g(ts),
+                             LATERAL (SELECT s.p0 * (1 + 0.003 * sin(epoch(g.ts) / 7200.0)) AS px)
+                       WHERE isodow(g.ts) BETWEEN 1 AND 5)
+                    TO %s (FORMAT PARQUET, PARTITION_BY (symbol, year, month))
+                    """.formatted(LakeSql.literal(lake.resolve("silver/candles_m1/market=indices"))));
+            sql.execute("COPY (SELECT * FROM (VALUES ('fx', 'EURUSD', 0.00001, 'USD'), ('fx', 'USDJPY', 0.001, 'JPY'), "
+                    + "('indices', 'US500', 0.01, 'USD'), ('indices', 'DE30', 0.01, 'EUR')) t(market, symbol, point, "
+                    + "currency_profit)) TO " + LakeSql.literal(lake.resolve("silver/instrument_specs/part-0.parquet"))
+                    + " (FORMAT PARQUET)");
+        }
+        FeatureBuilder.Report r;
+        try (LakeSql sql = LakeSql.open(lake.resolve("tmp"), "1GB")) {
+            r = new FeatureBuilder(lake, FeatureConfig.defaults(), "indices").run(sql);
+        }
+        assertTrue(r.featuresOut().toString().replace('\\', '/').contains("market=indices"));
+        assertTrue(r.symbolsWithoutSpec().isEmpty(), "sem spec: " + r.symbolsWithoutSpec());
+        assertEquals(List.of("DE30", "US500"), r.symbols().stream().map(FeatureBuilder.SymbolCounts::symbol).toList(),
+                "momentos " + r.moments() + " · " + r.symbols());
+        String t = "2026-02-10 13:32:00";   // CPI dos EUA às 13:30 (+2 min): surpresa positiva no USD
+        assertTrue(value(lake, "US500", t, "surprise_base") > 0);
+        assertEquals(0.0, value(lake, "US500", t, "surprise_quote"), 1e-12);
+        assertEquals("EVENT", text(lake, "US500", t, "kind"));
+        // DE30 não tem momento de evento (nada saiu em EUR); na hora cheia seguinte a surpresa do USD não chega nele
+        assertTrue(value(lake, "US500", "2026-02-10 14:00:00", "surprise_base") > 0);
+        assertEquals(0.0, value(lake, "DE30", "2026-02-10 14:00:00", "surprise_base"), 1e-12);
+    }
+
     /** "2026-02-12 10:00:00.0" e "2026-02-12 10:00:00" são o mesmo instante. */
     private static String noFraction(String s) {
         return s.endsWith(".0") ? s.substring(0, s.length() - 2) : s;

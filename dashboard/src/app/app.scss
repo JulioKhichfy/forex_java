@@ -23,6 +23,8 @@ nav a {
 nav a:hover { text-decoration: none; background: var(--panel-2); color: var(--text); }
 nav a.active { background: var(--panel-2); color: var(--text); }
 
+.markets { display: flex; gap: 4px; }
+.markets button { padding: 4px 10px; font-size: 13px; }
 .state { margin-left: auto; display: flex; gap: 10px; align-items: center; }
 
 main { padding: 20px; max-width: 1400px; margin: 0 auto; }

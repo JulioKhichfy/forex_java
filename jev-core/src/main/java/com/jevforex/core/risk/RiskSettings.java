@@ -10,13 +10,51 @@ import java.util.Map;
  *
  * <p>Regra geral: quando existe limite em % e em US$, vale o MENOR dos dois.</p>
  */
-public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits exits, Orders orders) {
+public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits exits, Orders orders,
+                           Map<String, LossProfile> lossProfiles) {
+
+    /** Perfil de perda implícito: os limites de {@code global}. */
+    public static final String DEFAULT_PROFILE = "padrao";
 
     public RiskSettings {
         if (global == null) throw new IllegalArgumentException("trading.risk.global é obrigatório");
         if (exits == null) throw new IllegalArgumentException("trading.risk.exits é obrigatório");
         if (orders == null) throw new IllegalArgumentException("trading.risk.orders é obrigatório");
         markets = markets == null ? Map.of() : Map.copyOf(markets);
+        java.util.LinkedHashMap<String, LossProfile> p = new java.util.LinkedHashMap<>();
+        p.put(DEFAULT_PROFILE, new LossProfile("Padrão", global.maxDailyLossPct(), global.maxWeeklyLossPct()));
+        if (lossProfiles != null) {
+            lossProfiles.forEach((k, v) -> {
+                if (DEFAULT_PROFILE.equals(k)) {
+                    throw new IllegalArgumentException("loss-profiles." + k + ": o perfil padrão vem de global");
+                }
+                p.put(k, v);
+            });
+        }
+        lossProfiles = java.util.Collections.unmodifiableMap(p);
+    }
+
+    /** Limites de perda do perfil escolhido (nome desconhecido = falha, não cai no padrão em silêncio). */
+    public LossProfile lossProfile(String name) {
+        LossProfile p = lossProfiles.get(name == null ? DEFAULT_PROFILE : name);
+        if (p == null) throw new IllegalArgumentException("Perfil de perda desconhecido: " + name + " " + lossProfiles.keySet());
+        return p;
+    }
+
+    /**
+     * Perfil de perda escolhível no dashboard (trading.risk.loss-profiles). Os números ficam no yml; o dashboard
+     * só escolhe qual vale.
+     *
+     * @param label            nome mostrado no dashboard
+     * @param maxDailyLossPct  perda no dia que bloqueia entradas novas até 00:00 UTC
+     * @param maxWeeklyLossPct perda na semana que bloqueia até segunda-feira
+     */
+    public record LossProfile(String label, double maxDailyLossPct, double maxWeeklyLossPct) {
+        public LossProfile {
+            if (!(maxDailyLossPct > 0 && maxDailyLossPct <= 100) || !(maxWeeklyLossPct > 0 && maxWeeklyLossPct <= 100)) {
+                throw new IllegalArgumentException("loss-profiles: limites devem estar entre 0 e 100%");
+            }
+        }
     }
 
     public MarketRisk forMarket(Market market) {

@@ -123,6 +123,7 @@ export interface HorizonSummary {
 export interface ModelsInfo {
   champion: { version: string; promotedAt: string; note: string } | null;
   versions: { version: string; trained_at: string; train_from: string; train_to: string; lockbox_run: string | null;
+    challenge: Challenge | null;
     entries: { model: string; horizon: number; rows: number; features: number }[] }[];
   lockbox: { opened_at: string; run?: string; status: string } | null;
   lockbox_summary?: HorizonSummary[];
@@ -202,7 +203,10 @@ export interface TradeState {
   lot: number;
   blocked: boolean;
   flattening: boolean;
+  loss_profile: string;
+  loss_profiles: Record<string, { label: string; maxDailyLossPct: number; maxWeeklyLossPct: number }>;
   symbols: string[];
+  symbols_by_market: Record<string, string[]>;
   limits: {
     global: { maxRiskPerTradePct: number; maxRiskPerTradeUsd: number; maxDailyLossPct: number; maxPositions: number };
     exits: { stopAtr: number; targetR: number };
@@ -210,8 +214,59 @@ export interface TradeState {
   };
 }
 
+export interface JobDef {
+  name: string;
+  label: string;
+  help: string;
+}
+
+export interface JobStatus {
+  id: string;
+  name: string;
+  label: string;
+  startedAt: string;
+  finishedAt: string | null;
+  step: string | null;
+  exitCode: number | null;
+  running: boolean;
+  tail: string[];
+  logFile: string;
+}
+
+export interface ChallengeRow {
+  model: string;
+  horizon: number;
+  rows: number;
+  llChampion: number;
+  llChallenger: number;
+  tradesChampion: Trades | null;
+  tradesChallenger: Trades | null;
+}
+
+export interface Challenge {
+  month: string;
+  championVersion: string;
+  championOutOfSample: boolean;
+  mainModel: string;
+  rows: ChallengeRow[];
+  recommended: boolean;
+  reason: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class Api {
+  jobs(): Observable<{ available: JobDef[]; current: JobStatus | null }> {
+    return this.http.get<{ available: JobDef[]; current: JobStatus | null }>('/api/ops/jobs');
+  }
+
+  startJob(name: string): Observable<JobStatus> {
+    return this.http.post<JobStatus>(`/api/ops/jobs/${name}`, {});
+  }
+
+  promote(version: string, market = 'fx'): Observable<unknown> {
+    return this.http.post(`/api/ops/promote?version=${encodeURIComponent(version)}&market=${market}`, {});
+  }
+
   tradeState(): Observable<TradeState> {
     return this.http.get<TradeState>('/api/trade/state');
   }
@@ -236,6 +291,10 @@ export class Api {
     return this.http.post(`/api/trade/block?on=${on}`, {});
   }
 
+  setLossProfile(name: string): Observable<unknown> {
+    return this.http.post(`/api/trade/loss-profile?name=${encodeURIComponent(name)}`, {});
+  }
+
   setLot(value: number): Observable<{ lot: number }> {
     return this.http.post<{ lot: number }>(`/api/trade/lot?value=${value}`, {});
   }
@@ -246,17 +305,17 @@ export class Api {
     return this.http.get<Record<string, unknown>>('/api/status');
   }
 
-  latest(): Observable<LatestPredictions> {
-    return this.http.get<LatestPredictions>('/api/predictions/latest');
+  latest(market = 'fx'): Observable<LatestPredictions> {
+    return this.http.get<LatestPredictions>(`/api/predictions/latest?market=${market}`);
   }
 
-  history(symbol: string | null, hours = 48): Observable<Prediction[]> {
+  history(symbol: string | null, hours = 48, market = 'fx'): Observable<Prediction[]> {
     const q = symbol ? `symbol=${encodeURIComponent(symbol)}&` : '';
-    return this.http.get<Prediction[]>(`/api/predictions?${q}hours=${hours}`);
+    return this.http.get<Prediction[]>(`/api/predictions?${q}hours=${hours}&market=${market}`);
   }
 
-  scoreboard(days = 90): Observable<{ since: string; models: Score[] }> {
-    return this.http.get<{ since: string; models: Score[] }>(`/api/predictions/scoreboard?days=${days}`);
+  scoreboard(days = 90, market = 'fx'): Observable<{ since: string; models: Score[] }> {
+    return this.http.get<{ since: string; models: Score[] }>(`/api/predictions/scoreboard?days=${days}&market=${market}`);
   }
 
   runNow(): Observable<RunResult> {
@@ -271,7 +330,7 @@ export class Api {
     return this.http.get<NewsItem[]>(`/api/news?limit=${limit}`);
   }
 
-  models(): Observable<ModelsInfo> {
-    return this.http.get<ModelsInfo>('/api/models');
+  models(market = 'fx'): Observable<ModelsInfo> {
+    return this.http.get<ModelsInfo>(`/api/models?market=${market}`);
   }
 }

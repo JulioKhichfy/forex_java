@@ -35,7 +35,10 @@ input long   InpMagic            = 770001;                  // Magic number do m
 input string InpSuffix           = "m";                     // Sufixo da corretora (Exness: m)
 input bool   InpExecute          = false;                   // ENVIAR ORDENS (false = só registra e recusa)
 input double InpMaxLot           = 0.05;                    // Teto de lote do próprio EA, peça o Java o que pedir
-input string InpSymbols          = "EURUSD,GBPUSD,USDJPY,USDCHF,AUDUSD,USDCAD,NZDUSD"; // Cotações no heartbeat
+input string InpSymbols          = "EURUSD,GBPUSD,USDJPY,USDCHF,AUDUSD,USDCAD,NZDUSD,AUS200,DE30,FR40,HK50,JP225,STOXX50,UK100,US30,US500,USTEC,IN50"; // Cotações no heartbeat: forex e índices
+input string InpSymbols2         = "AAPL,ABBV,ABT,ADBE,ADP,AMD,AMGN,AMT,AMZN,AVGO,BA,BABA,BAC,BIIB,BMY,C,CHTR,CMCSA,CME,COST,CSCO,CSX,CVS,EA,EBAY,EQIX,F,GILD,GOOGL,HD,IBM,INTC,INTU,ISRG,JNJ,JPM,KO,LIN,LLY,LMT,MA,MCD,MDLZ,MMM,MO,MRK,MS"; // Cotações: ações (1/3)
+input string InpSymbols3         = "MSFT,NFLX,NKE,NVDA,ORCL,PEP,PFE,PG,PM,PYPL,REGN,SBUX,T,TMO,TMUS,TSLA,UNH,UPS,V,VRTX,VZ,WFC,WMT,XOM,AMC,BB,BEKE,BIDU,BILI,BRQS,BYND,CAN,EDU,FTNT,FUTU,IQ,JD,LI,NIO,NTES,PDD,RLX,TAL,TIGR,TME,TSM,VIPS"; // Cotações: ações (2/3)
+input string InpSymbols4         = "XPEV,YUMC,ZTO,META,SPCX"; // Cotações: ações (3/3)
 input int    InpPollSeconds      = 1;                       // Busca de ordens (s)
 input int    InpHeartbeatSeconds = 5;                       // Heartbeat (s)
 
@@ -101,7 +104,7 @@ int OnInit()
       Print("JevExecutor: não consegui criar o timer");
       return INIT_FAILED;
      }
-   JevSplitList(InpSymbols, g_symbols);
+   JevSplitList(InpSymbols + "," + InpSymbols2 + "," + InpSymbols3 + "," + InpSymbols4, g_symbols);
    g_trade.SetExpertMagicNumber(InpMagic);
    g_trade.SetAsyncMode(false);
    PrintFormat("JevExecutor %s iniciado: conta %I64d em %s (%s), API %s, %s, teto %.2f lote.", EA_VERSION,

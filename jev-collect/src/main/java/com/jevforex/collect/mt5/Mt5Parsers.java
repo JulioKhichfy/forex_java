@@ -23,7 +23,7 @@ public final class Mt5Parsers {
     /** O MT5 marca valor ausente do calendário com LONG_MIN. */
     static final String MQL_LONG_MIN = String.valueOf(Long.MIN_VALUE);
     private static final Set<String> ORIGINS = Set.of("LIVE", "SNAPSHOT", "HISTORY");
-    private static final Set<String> MARKETS = Set.of("fx", "metals", "crypto");
+    private static final Set<String> MARKETS = Set.of("fx", "metals", "crypto", "indices", "stocks");
 
     private Mt5Parsers() {
     }

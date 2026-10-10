@@ -1,8 +1,9 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, OrderPreview, Prediction, Submit, TradeState } from '../api';
 import { ProbBar } from './prob-bar';
+import { MarketState } from '../market';
 
 @Component({
   selector: 'page-operar',
@@ -45,9 +46,16 @@ import { ProbBar } from './prob-bar';
             <button class="danger" (click)="flatten()" [disabled]="s.positions.length === 0 && !s.flattening">
               {{ s.flattening ? 'FLATTEN em andamento…' : 'FLATTEN (fechar tudo)' }}</button>
           </div>
+          <div class="profile">
+            <span class="small muted">Perfil de perda:</span>
+            @for (p of profileKeys(s); track p) {
+              <button [class.primary]="s.loss_profile === p" (click)="setProfile(p)">
+                {{ s.loss_profiles[p].label }} · {{ s.loss_profiles[p].maxDailyLossPct }}% dia /
+                {{ s.loss_profiles[p].maxWeeklyLossPct }}% semana</button>
+            }
+          </div>
           <p class="muted small">Limites (trading.risk): teto por trade {{ s.limits.global.maxRiskPerTradePct }}% ou
-            US$ {{ s.limits.global.maxRiskPerTradeUsd | number: '1.2-2' }} · perda máx. do dia
-            {{ s.limits.global.maxDailyLossPct }}% · até {{ s.limits.global.maxPositions }} posições · stop
+            US$ {{ s.limits.global.maxRiskPerTradeUsd | number: '1.2-2' }} · até {{ s.limits.global.maxPositions }} posições · stop
             {{ s.limits.exits.stopAtr }} ATR, alvo {{ s.limits.exits.targetR }} × stop · lote até
             {{ s.limits.orders.maxLot }}.</p>
         </section>
@@ -57,7 +65,7 @@ import { ProbBar } from './prob-bar';
           <div class="ticket">
             <label>Par
               <select [(ngModel)]="symbol" (ngModelChange)="resetPreview()">
-                @for (sym of s.symbols; track sym) { <option [value]="sym">{{ sym }}</option> }
+                @for (sym of marketSymbols(s); track sym) { <option [value]="sym">{{ sym }}</option> }
               </select>
             </label>
             <label>Lote
@@ -170,6 +178,7 @@ import { ProbBar } from './prob-bar';
   `,
   styles: `
     .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+    .profile { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0 8px; }
     .ticket { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
     .ticket label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
     select, input { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border);
@@ -184,6 +193,7 @@ import { ProbBar } from './prob-bar';
 })
 export class Operar implements OnInit, OnDestroy {
   private api = inject(Api);
+  private marketState = inject(MarketState);
   protected names = MODEL_NAMES;
   protected models = MODEL_ORDER;
   protected state = signal<TradeState | null>(null);
@@ -198,6 +208,19 @@ export class Operar implements OnInit, OnDestroy {
     try { return JSON.parse(this.state()?.account?.detailJson ?? '{}'); } catch { return {}; }
   });
   private timer?: ReturnType<typeof setInterval>;
+
+  constructor() {
+    effect(() => {
+      const m = this.marketState.market();
+      const list = this.state()?.symbols_by_market?.[m] ?? [];
+      if (list.length && !list.includes(this.symbol)) { this.symbol = list[0]; this.resetPreview(); }
+      this.api.latest(m).subscribe({ next: (l) => this.latest.set(l), error: () => {} });
+    });
+  }
+
+  protected marketSymbols(s: TradeState): string[] {
+    return s.symbols_by_market?.[this.marketState.market()] ?? [];
+  }
 
   ngOnInit(): void {
     this.load();
@@ -273,6 +296,14 @@ export class Operar implements OnInit, OnDestroy {
     this.api.flatten().subscribe(() => this.load());
   }
 
+  protected profileKeys(s: TradeState): string[] {
+    return Object.keys(s.loss_profiles ?? {});
+  }
+
+  protected setProfile(name: string): void {
+    this.api.setLossProfile(name).subscribe(() => this.load());
+  }
+
   protected block(on: boolean): void {
     this.api.block(on).subscribe(() => this.load());
   }
@@ -285,6 +316,6 @@ export class Operar implements OnInit, OnDestroy {
       },
       error: () => this.state.set(null),
     });
-    this.api.latest().subscribe({ next: (l) => this.latest.set(l), error: () => {} });
+    this.api.latest(this.marketState.market()).subscribe({ next: (l) => this.latest.set(l), error: () => {} });
   }
 }

@@ -1,13 +1,18 @@
 import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { JsonPipe, KeyValuePipe } from '@angular/common';
 import { Api } from '../api';
+import { JobsPanel } from './jobs-panel';
 
 /** Saúde do sistema: o que o /api/status devolve (MT5, coletores, Jev, risco), sem esconder nada. */
 @Component({
   selector: 'page-saude',
-  imports: [JsonPipe, KeyValuePipe],
+  imports: [JsonPipe, KeyValuePipe, JobsPanel],
   template: `
     <h1>Saúde</h1>
+    <section class="panel" style="margin-bottom:16px">
+      <h3>Ações</h3>
+      <jobs-panel [names]="['coletar', 'normalizar', 'features', 'placar']" />
+    </section>
     @if (error()) {
       <div class="notice">A API não respondeu. O servidor (java -jar jev-app.jar) está rodando?</div>
     }

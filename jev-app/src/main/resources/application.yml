@@ -108,6 +108,11 @@ experiment:
   risk-per-trade-pct: 0.5         # só para o drawdown simulado do relatório
   threads: 0                      # 0 = núcleos − 1
   models: [A, E, B]               # dashboard: A = preço; E = só eventos; B = eventos + preço (C = + texto do Jev e D = + surpresa de tom seguem disponíveis)
+  markets: [fx]                   # mercados com modelo (treino mensal e previsões ao vivo); inclua indices e stocks
+                                  # depois de: features --market=…, train --market=… e o cofre de cada um
+  market-from:                    # início do período por mercado (índices e ações: histórico desde 2022)
+    indices: 2022-01-01
+    stocks: 2022-01-01
 
 # ---------------------------------------------------------------------
 #  Previsões ao vivo (passo 6a): modelos em produção (train-champion), mesmos momentos do treino
@@ -254,6 +259,12 @@ trading:
       stop-atr: 1.5                   # stop = 1,5 × ATR(14) M15 (= 1 R)
       target-r: 1.5                   # alvo = 1,5 × stop; sem stop nem alvo, sai no fim do horizonte
 
+    # ===== PERFIS DE PERDA: escolha no dashboard (Operar) =====
+    # "padrao" = os limites de global acima (20% no dia, 35% na semana). Os outros ficam aqui; o dashboard só
+    # escolhe qual vale (a escolha fica no Postgres, em app_setting).
+    loss-profiles:
+      conservador: { label: Conservador, max-daily-loss-pct: 6.0, max-weekly-loss-pct: 12.0 }
+
     # ===== ORDENS (passo 6c): travas de cada ordem enviada ao MT5 =====
     # O dashboard só escolhe o lote (entre o lote mínimo e max-lot). Todo o resto é decidido aqui.
     orders:
@@ -283,6 +294,18 @@ trading:
         max-open-risk-pct: 10.0
         max-positions: 1
         usd-weight: 1.0
+      indices:                         # índices (passo 7): mesmos limites do fx até haver placar próprio
+        enabled: true
+        risk-per-trade-pct: 5.0
+        max-open-risk-pct: 10.0
+        max-positions: 2
+        usd-weight: 0.0                # exposição a USD só conta no forex
+      stocks:                          # ações (passo 7)
+        enabled: true
+        risk-per-trade-pct: 5.0
+        max-open-risk-pct: 10.0
+        max-positions: 2
+        usd-weight: 0.0
       crypto:                          # BTCUSD (fase F9)
         enabled: false
         risk-per-trade-pct: 5.0

@@ -101,12 +101,13 @@ public final class ExperimentRunner {
     }
 
     public Result run(LakeSql sql, Consumer<String> progress) throws Exception {
-        String runId = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC).format(Instant.now());
+        String runId = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC).format(Instant.now())
+                + ("fx".equals(cfg.market()) ? "" : "-" + cfg.market());
         List<HorizonResult> out = new ArrayList<>();
         List<Oos> oos = new ArrayList<>();
         for (int h : cfg.horizons()) {
             long t0 = System.nanoTime();
-            Dataset d = Dataset.load(sql, lakeRoot, cfg.fset(), h, cfg.from(), cfg.exits());
+            Dataset d = Dataset.load(sql, lakeRoot, cfg.market(), cfg.fset(), h, cfg.from(), cfg.exits());
             List<String> models = new ArrayList<>(cfg.models());
             if (!d.hasText && models.remove("C")) {
                 progress.accept("ATENÇÃO: fset " + cfg.fset() + " sem o grupo C (texto do Jev): modelo C fica de fora");
@@ -120,7 +121,7 @@ public final class ExperimentRunner {
         Path report = ReportWriter.write(lakeRoot, new Result(runId, cfg, out, null, null, null, lockbox));
         progress.accept("Relatório gravado: " + report);
         try {
-            Path preds = Predictions.write(sql, lakeRoot, cfg.fset(), runId, oos);
+            Path preds = Predictions.write(sql, lakeRoot, cfg.market(), cfg.fset(), runId, oos);
             return new Result(runId, cfg, out, report, preds, null, lockbox);
         } catch (RuntimeException e) {
             log.warn("Previsões não gravadas (o relatório está salvo): {}", e.getMessage());

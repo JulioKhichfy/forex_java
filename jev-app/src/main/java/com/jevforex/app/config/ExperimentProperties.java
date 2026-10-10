@@ -13,7 +13,20 @@ public record ExperimentProperties(List<Integer> horizons, LocalDate from, Integ
                                    Integer embargoDays, Integer lockboxMonths, ExperimentConfig.Gbm gbm,
                                    ExperimentConfig.Decision decision, Integer lateMinutes, Double costStress,
                                    Double riskPerTradePct,
-                                   Integer threads, Long seed, List<String> models) {
+                                   Integer threads, Long seed, List<String> models, List<String> markets,
+                                   java.util.Map<String, LocalDate> marketFrom) {
+
+    /** Mercados com modelo (treino mensal e previsões ao vivo); o padrão é só fx. */
+    public List<String> marketList() {
+        return markets == null || markets.isEmpty() ? List.of("fx") : markets;
+    }
+
+    /** O experimento de um mercado: o início do período pode ser outro (índices e ações têm histórico mais curto). */
+    public ExperimentConfig toConfig(String fset, RiskSettings.Exits riskExits, String market) {
+        ExperimentConfig c = toConfig(fset, riskExits);
+        if (market == null || "fx".equals(market)) return c;
+        return c.withMarket(market, marketFrom == null ? null : marketFrom.get(market));
+    }
 
     /**
      * Valores ausentes ficam com os do documento mestre; o fset vem do bloco features e o stop/alvo das operações
@@ -37,6 +50,7 @@ public record ExperimentProperties(List<Integer> horizons, LocalDate from, Integ
                 riskPerTradePct == null ? d.riskPerTradePct() : riskPerTradePct,
                 threads == null || threads <= 0 ? d.threads() : threads,
                 seed == null ? d.seed() : seed,
-                models == null ? d.models() : models);
+                models == null ? d.models() : models,
+                "fx");
     }
 }

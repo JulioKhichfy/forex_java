@@ -38,10 +38,25 @@ public final class FeatureBuilder {
 
     private final Path lakeRoot;
     private final FeatureConfig cfg;
+    private final String market;
 
     public FeatureBuilder(Path lakeRoot, FeatureConfig cfg) {
+        this(lakeRoot, cfg, "fx");
+    }
+
+    /**
+     * @param market fx (pares: moeda base e cotada pelo nome) | indices | stocks (um instrumento numa moeda só: a
+     *               moeda de lucro da corretora, currency_profit — o calendário entra pela moeda dele)
+     */
+    public FeatureBuilder(Path lakeRoot, FeatureConfig cfg, String market) {
+        if (market == null || !market.matches("[a-z]+")) throw new IllegalArgumentException("mercado inválido: " + market);
         this.lakeRoot = lakeRoot;
         this.cfg = cfg;
+        this.market = market;
+    }
+
+    private boolean fx() {
+        return "fx".equals(market);
     }
 
     public record SymbolCounts(String symbol, long eventMoments, long controlMoments, String firstMoment,
@@ -64,8 +79,8 @@ public final class FeatureBuilder {
 
     public Report run(LakeSql sql) {
         Path silver = lakeRoot.resolve("silver");
-        Path featuresOut = lakeRoot.resolve("gold/features/market=fx/fset=" + cfg.fset());
-        Path labelsOut = lakeRoot.resolve("gold/labels/market=fx/fset=" + cfg.fset());
+        Path featuresOut = lakeRoot.resolve("gold/features/market=" + market + "/fset=" + cfg.fset());
+        Path labelsOut = lakeRoot.resolve("gold/labels/market=" + market + "/fset=" + cfg.fset());
         Path candles = silver.resolve("candles_m1");
         if (!Files.isDirectory(candles)) {
             throw new IllegalStateException("Sem silver de candles em " + candles + ". Rode antes: normalize");
@@ -77,8 +92,8 @@ public final class FeatureBuilder {
                 SELECT symbol, time_utc AS t, time_utc + INTERVAL 1 MINUTE AS close_time,
                        open, high, low, close, spread_points
                   FROM read_parquet('%s/**/*.parquet', hive_partitioning = true)
-                 WHERE market = 'fx'
-                """.formatted(LakeSql.slashes(candles)));
+                 WHERE market = '%s'
+                """.formatted(LakeSql.slashes(candles), market));
         // ---------------------------------------------------------------- calendário: divulgações e surpresa z
         Path calendar = silver.resolve("calendar_events");
         String calendarSql = Files.isDirectory(calendar)
@@ -186,15 +201,15 @@ public final class FeatureBuilder {
                 CREATE OR REPLACE TEMP TABLE silver_m1 AS
                 SELECT symbol, time_utc, open, high, low, close, spread_points
                   FROM read_parquet('%s/**/*.parquet', hive_partitioning = true)
-                 WHERE market = 'fx' AND time_utc >= %s AND time_utc < %s
-                """.formatted(LakeSql.slashes(candles), from, atSql));
+                 WHERE market = '%s' AND time_utc >= %s AND time_utc < %s
+                """.formatted(LakeSql.slashes(candles), market, from, atSql));
         // o bronze que falta é o que chegou DEPOIS do último arquivo que já está no silver (seen_utc): pela data do
         // arquivo, com 10 min de folga (o importador grava logo depois de o exportador ver)
         String seenCol = sql.query("DESCRIBE SELECT * FROM read_parquet('" + LakeSql.slashes(candles)
                 + "/**/*.parquet', hive_partitioning = true)", rs -> rs.getString(1)).contains("seen_utc")
                 ? "max(seen_utc)" : "max(time_utc)";
         String silverMax = sql.query("SELECT CAST(" + seenCol + " AS VARCHAR) FROM read_parquet('"
-                + LakeSql.slashes(candles) + "/**/*.parquet', hive_partitioning = true) WHERE market = 'fx' AND time_utc >= "
+                + LakeSql.slashes(candles) + "/**/*.parquet', hive_partitioning = true) WHERE market = '" + market + "' AND time_utc >= "
                 + from, rs -> rs.getString(1)).get(0);
         java.time.Instant since = silverMax == null ? java.time.Instant.EPOCH
                 : java.time.LocalDateTime.parse(silverMax.replace(' ', 'T')).minusMinutes(10)
@@ -207,9 +222,9 @@ public final class FeatureBuilder {
                   FROM (SELECT * FROM silver_m1
                         UNION ALL
                         SELECT symbol, time_utc, open, high, low, close, spread_points FROM live_candles
-                         WHERE market = 'fx' AND time_utc >= %s AND time_utc < %s
+                         WHERE market = '%s' AND time_utc >= %s AND time_utc < %s
                            AND time_utc > coalesce((SELECT max(time_utc) FROM silver_m1), TIMESTAMP '1970-01-01'))
-                """.formatted(from, atSql));
+                """.formatted(market, from, atSql));
 
         Path calendar = silver.resolve("calendar_events");
         boolean hasCal = Files.isDirectory(calendar);
@@ -263,18 +278,30 @@ public final class FeatureBuilder {
     private Built computeFeatures(LakeSql sql, Path silver, java.time.LocalDateTime liveAt) {
         Path specs = silver.resolve("instrument_specs/part-0.parquet");
         String specSql = Files.exists(specs)
-                ? "SELECT symbol, point FROM read_parquet(" + LakeSql.literal(specs) + ") WHERE market = 'fx'"
-                : "SELECT NULL::VARCHAR AS symbol, NULL::DOUBLE AS point WHERE false";
-        sql.execute("""
-                CREATE OR REPLACE TEMP TABLE pairs AS
-                SELECT m.symbol, left(m.symbol, 3) AS base, right(m.symbol, 3) AS quote,
-                       CASE WHEN right(m.symbol, 3) = 'USD' THEN -1 WHEN left(m.symbol, 3) = 'USD' THEN 1 ELSE 0 END
-                           AS usd_sign,
-                       s.point AS spec_point,
-                       coalesce(s.point, CASE WHEN right(m.symbol, 3) = 'JPY' THEN 0.001 ELSE 0.00001 END) AS point
-                  FROM (SELECT DISTINCT symbol FROM m1) m
-                  LEFT JOIN (%s) s ON s.symbol = m.symbol
-                """.formatted(specSql));
+                ? "SELECT symbol, point" + (fx() ? "" : ", currency_profit") + " FROM read_parquet("
+                + LakeSql.literal(specs) + ") WHERE market = '" + market + "'"
+                : "SELECT NULL::VARCHAR AS symbol, NULL::DOUBLE AS point, NULL::VARCHAR AS currency_profit WHERE false";
+        if (fx()) {
+            sql.execute("""
+                    CREATE OR REPLACE TEMP TABLE pairs AS
+                    SELECT m.symbol, left(m.symbol, 3) AS base, right(m.symbol, 3) AS quote,
+                           CASE WHEN right(m.symbol, 3) = 'USD' THEN -1 WHEN left(m.symbol, 3) = 'USD' THEN 1 ELSE 0 END
+                               AS usd_sign,
+                           s.point AS spec_point,
+                           coalesce(s.point, CASE WHEN right(m.symbol, 3) = 'JPY' THEN 0.001 ELSE 0.00001 END) AS point
+                      FROM (SELECT DISTINCT symbol FROM m1) m
+                      LEFT JOIN (%s) s ON s.symbol = m.symbol
+                    """.formatted(specSql));
+        } else {
+            // índice/ação: uma moeda só (a de lucro na corretora); sem fator USD (usd_sign 0); point da corretora
+            sql.execute("""
+                    CREATE OR REPLACE TEMP TABLE pairs AS
+                    SELECT m.symbol, s.currency_profit AS base, NULL::VARCHAR AS quote, 0 AS usd_sign,
+                           s.point AS spec_point, coalesce(s.point, 0.01) AS point
+                      FROM (SELECT DISTINCT symbol FROM m1) m
+                      LEFT JOIN (%s) s ON s.symbol = m.symbol
+                    """.formatted(specSql));
+        }
         List<String> withoutSpec = sql.query("SELECT symbol FROM pairs WHERE spec_point IS NULL ORDER BY symbol",
                 rs -> rs.getString(1));
         sql.execute("CREATE OR REPLACE TEMP TABLE bounds AS SELECT symbol, min(close_time) AS first_close, "

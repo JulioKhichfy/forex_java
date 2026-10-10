@@ -45,7 +45,7 @@ class OutcomesTest {
                     + " (FORMAT PARQUET, PARTITION_BY (horizon))");
 
             LocalDate from = LocalDate.of(2026, 2, 1);
-            Outcomes.prepare(sql, lake, from);
+            Outcomes.prepare(sql, lake, "fx", from);
             Outcomes.create(sql, labels, "o", 15, from, 1.5, 1.5, 0);
             Outcomes.create(sql, labels, "late", 15, from, 1.5, 1.5, 5);
 

@@ -21,7 +21,9 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 - Modelo do Jev fixado por versão (`jev.model`), nunca o alias `jev-latest` em treino/produção.
 - Score do Jev é indexado a partir de 0: magnitude = `score / (níveis - 1)`.
 - **Toda configuração de risco fica em `trading.risk` no `application.yml`.** Nada de números de risco no código.
-- Todas as tabelas de negócio têm a coluna `market` (`fx` | `metals` | `crypto`).
+- Todas as tabelas de negócio têm a coluna `market` (`fx` | `metals` | `crypto` | `indices` | `stocks`).
+  Índices e ações: um instrumento numa moeda só (a de lucro na corretora, `currency_profit`); o calendário entra
+  pela moeda dele, sem fator USD. Gold, modelos, relatórios e cofre separados por mercado (`--market=`).
 - Migrações só via Flyway (`jev-app/src/main/resources/db/migration`), nunca alterar uma migração já aplicada.
 - `jev-core` não depende de Spring nem de banco.
 - Nome de símbolo **canônico** (EURUSD) em todo lugar; o sufixo da corretora (Exness: `m`) só na fronteira
@@ -75,7 +77,8 @@ java -jar jev-app/target/jev-app.jar normalize [--only=candles|calendar|document
 java -jar jev-app/target/jev-app.jar features                    # gold: features + labels (fset do yml)
 java -Xmx8g -jar jev-app/target/jev-app.jar train [--horizon=60]  # walk-forward → reports/walkforward/<run>
 java -Xmx8g -jar jev-app/target/jev-app.jar train-champion       # modelos de produção (A, E, B) → models/market=fx/<versão>
-java -jar jev-app/target/jev-app.jar promote --version=<v> | predict-now [--at=2026-10-09T15:00]
+java -jar jev-app/target/jev-app.jar promote --version=<v> | predict-now [--at=2026-10-09T15:00] | resolve-predictions
+# índices/ações: features --market=indices · train --market=indices [--open-lockbox] · train-champion --market=indices
 cd dashboard && npm install && npx ng build   # dashboard (dev: npx ng serve, com proxy para :8080)
 mvn -q package -Djar.name=jev-app-dev      # jar de desenvolvimento com o servidor rodando (sem clean)
 java -jar jev-app/target/jev-app.jar       # modo servidor
@@ -121,5 +124,8 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             mesmo código (teste de paridade), previsões ao vivo (Flyway V5, agendador nos momentos do treino)
       - [x] 6b dashboard Angular (Hoje, Previsões com placar ao vivo, Modelos com cofre e walk-forward, Saúde)
       - [ ] 6c ordens pelo dashboard (Flyway V6, OrderService com as travas, EA executor) — testar em DEMO
-      - [ ] 6d botão "aplicar treinamento" mensal (champion/challenger) e placar resolvido automaticamente
-      - [ ] 7 índices e ações (mercados novos, candles do MT5, modelos por mercado)
+      - [x] 6d placar resolvido automaticamente (PredictionResolver), botão "aplicar treinamento" (JobService:
+            comandos da CLI em processo separado) com champion × challenger no último mês (challenge.json) e
+            promoção pelo dashboard; perfis de perda escolhidos no dashboard (trading.risk.loss-profiles)
+      - [ ] 7 índices e ações — código pronto (exportador, mercados, features/modelos/ordens/dashboard por
+            mercado); falta o histórico chegar do MT5 e o experimento de cada mercado

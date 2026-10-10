@@ -28,6 +28,7 @@ import java.util.Map;
  * POST /api/trade/flatten          fecha tudo e liga o BLOCK
  * POST /api/trade/block?on=true    liga/desliga entradas novas
  * POST /api/trade/lot?value=0.01   lote do tíquete (até trading.risk.orders.max-lot)
+ * POST /api/trade/loss-profile?name=conservador   perfil de perda em vigor (trading.risk.loss-profiles)
  * </pre>
  */
 @RestController
@@ -60,8 +61,11 @@ public class TradeController {
         out.put("lot", orders.lot());
         out.put("blocked", orders.blocked());
         out.put("flattening", orders.flattening());
-        out.put("symbols", trading.instruments().keySet().stream()
-                .filter(s -> "fx".equals(trading.instruments().get(s).market())).sorted().toList());
+        out.put("loss_profile", orders.lossProfileName());
+        out.put("loss_profiles", risk.lossProfiles());
+        java.util.Map<String, java.util.List<String>> byMarket = orders.symbolsByMarket();
+        out.put("symbols", byMarket.getOrDefault("fx", java.util.List.of()));
+        out.put("symbols_by_market", byMarket);
         Map<String, Object> limits = new LinkedHashMap<>();
         limits.put("global", risk.global());
         limits.put("exits", risk.exits());
@@ -96,6 +100,11 @@ public class TradeController {
     public Map<String, Object> block(@RequestParam boolean on) {
         orders.block(on);
         return Map.of("blocked", on);
+    }
+
+    @PostMapping("/loss-profile")
+    public Map<String, Object> lossProfile(@RequestParam String name) {
+        return Map.of("loss_profile", name, "limits", orders.setLossProfile(name));
     }
 
     @PostMapping("/lot")

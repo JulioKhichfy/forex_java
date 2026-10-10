@@ -23,9 +23,14 @@
 input string   InpFxSymbols     = "EURUSD,GBPUSD,USDJPY,USDCHF,AUDUSD,USDCAD,NZDUSD"; // Forex (nomes canônicos)
 input string   InpMetalSymbols  = "XAUUSD";                 // Metais (só especificações por enquanto)
 input string   InpCryptoSymbols = "BTCUSD";                 // Cripto (só especificações por enquanto)
-input string   InpCandleMarkets = "fx";                     // Mercados com candles exportados (fx,metals,crypto)
+input string   InpIndexSymbols  = "AUS200,DE30,FR40,HK50,JP225,STOXX50,UK100,US30,US500,USTEC,IN50"; // Índices
+input string   InpStockSymbols1 = "AAPL,ABBV,ABT,ADBE,ADP,AMD,AMGN,AMT,AMZN,ATVI,AVGO,BA,BABA,BAC,BIIB,BMY,C,CHTR,CMCSA,CME,COST,CSCO,CSX,CVS,EA,EBAY,EQIX,F,FB,GILD,GOOGL,HD,IBM,INTC,INTU,ISRG,JNJ,JPM,KO,LIN,LLY,LMT,MA,MCD,MDLZ,MMM,MO"; // Ações (1/3)
+input string   InpStockSymbols2 = "MRK,MS,MSFT,NFLX,NKE,NVDA,ORCL,PEP,PFE,PG,PM,PYPL,REGN,SBUX,T,TMO,TMUS,TSLA,UNH,UPS,V,VRTX,VZ,WFC,WMT,XOM,AMC,BB,BBBY,BEKE,BIDU,BILI,BRQS,BYND,CAN,EDU,FTNT,FUTU,IQ,JD,LI,NIO,NTES,PDD,RLX,TAL,TIGR,TME"; // Ações (2/3)
+input string   InpStockSymbols3 = "TSM,VIPS,XPEV,YUMC,ZTO,META,SPCX"; // Ações (3/3)
+input string   InpCandleMarkets = "fx,indices,stocks";      // Mercados com candles exportados (fx,metals,crypto,indices,stocks)
 input string   InpSuffix        = "m";                      // Sufixo da corretora (Exness: m → EURUSDm)
 input datetime InpHistoryFrom   = D'2016.01.01';            // Histórico M1 a partir de
+input datetime InpHistoryFromOther = D'2022.01.01';         // Histórico M1 de índices e ações a partir de
 input int      InpSpecMinutes   = 60;                       // Especificações a cada N minutos
 input int      InpPollMs        = 1000;                     // Verificação de barra nova (ms)
 
@@ -52,7 +57,7 @@ struct JevSym
 JevSym g_syms[];
 
 //+------------------------------------------------------------------+
-void AddSymbols(const string list, const string market, const string &candleMarkets[])
+void AddSymbols(const string list, const string market, const string &candleMarkets[], const datetime historyFrom)
   {
    string names[];
    int n = JevSplitList(list, names);
@@ -74,7 +79,7 @@ void AddSymbols(const string list, const string market, const string &candleMark
       g_syms[k].candles = JevListContains(candleMarkets, market);
       g_syms[k].ready = false;
       g_syms[k].last = (datetime)StringToInteger(JevStateRead("candles_last_" + names[i], "0"));
-      g_syms[k].histFrom = g_syms[k].last > 0 ? g_syms[k].last + 60 : InpHistoryFrom;
+      g_syms[k].histFrom = g_syms[k].last > 0 ? g_syms[k].last + 60 : historyFrom;
       g_syms[k].nextTry = 0;
       g_syms[k].failures = 0;
       g_syms[k].stalls = 0;
@@ -386,9 +391,13 @@ void OnStart()
    JevSplitList(InpCandleMarkets, candleMarkets);
    if(!JevWaitConnected())
       return;
-   AddSymbols(InpFxSymbols, "fx", candleMarkets);
-   AddSymbols(InpMetalSymbols, "metals", candleMarkets);
-   AddSymbols(InpCryptoSymbols, "crypto", candleMarkets);
+   AddSymbols(InpFxSymbols, "fx", candleMarkets, InpHistoryFrom);
+   AddSymbols(InpMetalSymbols, "metals", candleMarkets, InpHistoryFrom);
+   AddSymbols(InpCryptoSymbols, "crypto", candleMarkets, InpHistoryFrom);
+   AddSymbols(InpIndexSymbols, "indices", candleMarkets, InpHistoryFromOther);
+   AddSymbols(InpStockSymbols1, "stocks", candleMarkets, InpHistoryFromOther);
+   AddSymbols(InpStockSymbols2, "stocks", candleMarkets, InpHistoryFromOther);
+   AddSymbols(InpStockSymbols3, "stocks", candleMarkets, InpHistoryFromOther);
    if(ArraySize(g_syms) == 0)
      {
       Print("JevCandleExporter: nenhum símbolo válido; confira as listas e o sufixo");
