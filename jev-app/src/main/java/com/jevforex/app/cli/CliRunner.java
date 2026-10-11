@@ -493,7 +493,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
         String market = opt(args, "market", "fx");
         Timed<FeatureBuilder.Report> t;
         try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
-            t = timed(() -> new FeatureBuilder(lake.root(), cfg, market).run(sql));
+            t = timed(() -> new FeatureBuilder(lake.root(), cfg, market, experimentProps.symbolsOf(market)).run(sql));
         }
         FeatureBuilder.Report r = t.value();
         System.out.printf("%nFeatures %s → %s  (%.1f s)%n", r.fset(), r.featuresOut(), t.seconds());

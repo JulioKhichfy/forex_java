@@ -14,7 +14,15 @@ public record ExperimentProperties(List<Integer> horizons, LocalDate from, Integ
                                    ExperimentConfig.Decision decision, Integer lateMinutes, Double costStress,
                                    Double riskPerTradePct,
                                    Integer threads, Long seed, List<String> models, List<String> markets,
-                                   java.util.Map<String, LocalDate> marketFrom) {
+                                   java.util.Map<String, LocalDate> marketFrom,
+                                   java.util.Map<String, List<String>> marketSymbols) {
+
+    /** Símbolos em uso num mercado (null = todos os que existem no silver). */
+    public List<String> symbolsOf(String market) {
+        if (marketSymbols == null) return null;
+        List<String> s = marketSymbols.get(market);
+        return s == null || s.isEmpty() ? null : s;
+    }
 
     /** Mercados com modelo (treino mensal e previsões ao vivo); o padrão é só fx. */
     public List<String> marketList() {

@@ -131,4 +131,6 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             mercado). Histórico M1 desde 2022 de 113 símbolos (62,5 mi barras) via `tools/mt5_history_backfill.py`
             (pacote MetaTrader5, mesmo contrato do exportador, origin=HISTORY). Walk-forward (cofres fechados):
             índices e ações separam "mexe × parado" (AUC até 0,73/0,76), mas nenhum limiar dá E[R] positivo;
-            custo de 1 spread = 0,47 ATR (índices) e 0,9 ATR (ações). Falta: decisão sobre os cofres e produção
+            custo de 1 spread = 0,47 ATR (índices) e 0,9 ATR (ações).
+            Decisão do operador (11/10): só 7 ações (AAPL, MSFT, NVDA, META, GOOGL, INTC, SPCX; `experiment.market-symbols`;
+            o bronze guarda as demais) e índices; cofres abertos (indices/stocks) e modelos em produção nos 3 mercados

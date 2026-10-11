@@ -39,20 +39,40 @@ public final class FeatureBuilder {
     private final Path lakeRoot;
     private final FeatureConfig cfg;
     private final String market;
+    private final List<String> symbols;
 
     public FeatureBuilder(Path lakeRoot, FeatureConfig cfg) {
         this(lakeRoot, cfg, "fx");
+    }
+
+    public FeatureBuilder(Path lakeRoot, FeatureConfig cfg, String market) {
+        this(lakeRoot, cfg, market, null);
     }
 
     /**
      * @param market fx (pares: moeda base e cotada pelo nome) | indices | stocks (um instrumento numa moeda só: a
      *               moeda de lucro da corretora, currency_profit — o calendário entra pela moeda dele)
      */
-    public FeatureBuilder(Path lakeRoot, FeatureConfig cfg, String market) {
+    /**
+     * @param symbols só estes símbolos do mercado (experiment.market-symbols); null ou vazio = todos do silver
+     */
+    public FeatureBuilder(Path lakeRoot, FeatureConfig cfg, String market, List<String> symbols) {
         if (market == null || !market.matches("[a-z]+")) throw new IllegalArgumentException("mercado inválido: " + market);
+        if (symbols != null) {
+            for (String s : symbols) {
+                if (!s.matches("[A-Za-z0-9._]+")) throw new IllegalArgumentException("símbolo inválido: " + s);
+            }
+        }
         this.lakeRoot = lakeRoot;
         this.cfg = cfg;
         this.market = market;
+        this.symbols = symbols == null || symbols.isEmpty() ? null : List.copyOf(symbols);
+    }
+
+    /** " AND symbol IN (...)" quando há universo restrito. */
+    private String symbolFilter() {
+        return symbols == null ? "" : " AND symbol IN (" + symbols.stream().map(s -> "'" + s + "'")
+                .collect(Collectors.joining(", ")) + ")";
     }
 
     private boolean fx() {
@@ -92,8 +112,8 @@ public final class FeatureBuilder {
                 SELECT symbol, time_utc AS t, time_utc + INTERVAL 1 MINUTE AS close_time,
                        open, high, low, close, spread_points
                   FROM read_parquet('%s/**/*.parquet', hive_partitioning = true)
-                 WHERE market = '%s'
-                """.formatted(LakeSql.slashes(candles), market));
+                 WHERE market = '%s'%s
+                """.formatted(LakeSql.slashes(candles), market, symbolFilter()));
         // ---------------------------------------------------------------- calendário: divulgações e surpresa z
         Path calendar = silver.resolve("calendar_events");
         String calendarSql = Files.isDirectory(calendar)
@@ -201,8 +221,8 @@ public final class FeatureBuilder {
                 CREATE OR REPLACE TEMP TABLE silver_m1 AS
                 SELECT symbol, time_utc, open, high, low, close, spread_points
                   FROM read_parquet('%s/**/*.parquet', hive_partitioning = true)
-                 WHERE market = '%s' AND time_utc >= %s AND time_utc < %s
-                """.formatted(LakeSql.slashes(candles), market, from, atSql));
+                 WHERE market = '%s' AND time_utc >= %s AND time_utc < %s%s
+                """.formatted(LakeSql.slashes(candles), market, from, atSql, symbolFilter()));
         // o bronze que falta é o que chegou DEPOIS do último arquivo que já está no silver (seen_utc): pela data do
         // arquivo, com 10 min de folga (o importador grava logo depois de o exportador ver)
         String seenCol = sql.query("DESCRIBE SELECT * FROM read_parquet('" + LakeSql.slashes(candles)
@@ -222,9 +242,9 @@ public final class FeatureBuilder {
                   FROM (SELECT * FROM silver_m1
                         UNION ALL
                         SELECT symbol, time_utc, open, high, low, close, spread_points FROM live_candles
-                         WHERE market = '%s' AND time_utc >= %s AND time_utc < %s
+                         WHERE market = '%s' AND time_utc >= %s AND time_utc < %s%s
                            AND time_utc > coalesce((SELECT max(time_utc) FROM silver_m1), TIMESTAMP '1970-01-01'))
-                """.formatted(market, from, atSql));
+                """.formatted(market, from, atSql, symbolFilter()));
 
         Path calendar = silver.resolve("calendar_events");
         boolean hasCal = Files.isDirectory(calendar);

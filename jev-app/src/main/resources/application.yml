@@ -108,8 +108,10 @@ experiment:
   risk-per-trade-pct: 0.5         # só para o drawdown simulado do relatório
   threads: 0                      # 0 = núcleos − 1
   models: [A, E, B]               # dashboard: A = preço; E = só eventos; B = eventos + preço (C = + texto do Jev e D = + surpresa de tom seguem disponíveis)
-  markets: [fx]                   # mercados com modelo (treino mensal e previsões ao vivo); inclua indices e stocks
+  markets: [fx, indices, stocks]  # mercados com modelo (treino mensal e previsões ao vivo); inclua indices e stocks
                                   # depois de: features --market=…, train --market=… e o cofre de cada um
+  market-symbols:                 # universo por mercado (vazio = todos do silver); o bronze guarda o resto
+    stocks: [AAPL, MSFT, NVDA, META, GOOGL, INTC, SPCX]
   market-from:                    # início do período por mercado (índices e ações: histórico desde 2022)
     indices: 2022-01-01
     stocks: 2022-01-01

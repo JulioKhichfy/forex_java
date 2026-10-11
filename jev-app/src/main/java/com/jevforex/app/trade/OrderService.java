@@ -50,10 +50,13 @@ public class OrderService {
     private final Mt5Repository mt5;
     private final ObjectProvider<JdbcClient> jdbc;
     private final ObjectMapper mapper;
+    private final com.jevforex.app.config.ExperimentProperties experiment;
 
     public OrderService(TradeRepository repo, PredictionRepository predictions, RiskSettings risk,
                         TradingProperties trading, InstrumentCatalog catalog, Mt5Repository mt5,
-                        ObjectProvider<JdbcClient> jdbc, ObjectMapper mapper) {
+                        ObjectProvider<JdbcClient> jdbc, ObjectMapper mapper,
+                        com.jevforex.app.config.ExperimentProperties experiment) {
+        this.experiment = experiment;
         this.repo = repo;
         this.predictions = predictions;
         this.risk = risk;
@@ -374,7 +377,10 @@ public class OrderService {
                 .add(i.symbol()));
         for (Mt5Parsers.InstrumentSpec s : mt5.latestSpecs()) {
             if ("indices".equals(s.market()) || "stocks".equals(s.market())) {
-                m.computeIfAbsent(s.market(), k -> new java.util.TreeSet<>()).add(s.symbol());
+                List<String> allowed = experiment.symbolsOf(s.market());
+                if (allowed == null || allowed.contains(s.symbol())) {
+                    m.computeIfAbsent(s.market(), k -> new java.util.TreeSet<>()).add(s.symbol());
+                }
             }
         }
         java.util.Map<String, List<String>> out = new java.util.LinkedHashMap<>();

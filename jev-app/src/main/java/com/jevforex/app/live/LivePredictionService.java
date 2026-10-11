@@ -110,7 +110,7 @@ public class LivePredictionService {
                 risk.exits()).decision();
         FeatureBuilder.Live live;
         try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb-live"), silver.duckdbMemory())) {
-            live = new FeatureBuilder(lake.root(), featureProps.toConfig(), market)
+            live = new FeatureBuilder(lake.root(), featureProps.toConfig(), market, experimentProps.symbolsOf(market))
                     .live(sql, at, props.lookbackDays(), silver.calendar().actualLatencySeconds());
         }
         Instant moment = at.toInstant(ZoneOffset.UTC);
