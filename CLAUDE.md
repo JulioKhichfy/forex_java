@@ -128,4 +128,7 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             comandos da CLI em processo separado) com champion × challenger no último mês (challenge.json) e
             promoção pelo dashboard; perfis de perda escolhidos no dashboard (trading.risk.loss-profiles)
       - [ ] 7 índices e ações — código pronto (exportador, mercados, features/modelos/ordens/dashboard por
-            mercado); falta o histórico chegar do MT5 e o experimento de cada mercado
+            mercado). Histórico M1 desde 2022 de 113 símbolos (62,5 mi barras) via `tools/mt5_history_backfill.py`
+            (pacote MetaTrader5, mesmo contrato do exportador, origin=HISTORY). Walk-forward (cofres fechados):
+            índices e ações separam "mexe × parado" (AUC até 0,73/0,76), mas nenhum limiar dá E[R] positivo;
+            custo de 1 spread = 0,47 ATR (índices) e 0,9 ATR (ações). Falta: decisão sobre os cofres e produção

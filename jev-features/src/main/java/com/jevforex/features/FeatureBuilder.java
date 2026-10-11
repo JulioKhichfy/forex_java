@@ -276,6 +276,8 @@ public final class FeatureBuilder {
      * @param liveAt null = momentos históricos (eventos + controle); senão, um momento por par neste instante
      */
     private Built computeFeatures(LakeSql sql, Path silver, java.time.LocalDateTime liveAt) {
+        // a ordem das linhas nas temp tables não importa (tudo é ordenado na gravação): menos memória no DuckDB
+        sql.execute("SET preserve_insertion_order = false");
         Path specs = silver.resolve("instrument_specs/part-0.parquet");
         String specSql = Files.exists(specs)
                 ? "SELECT symbol, point" + (fx() ? "" : ", currency_profit") + " FROM read_parquet("
@@ -428,10 +430,23 @@ public final class FeatureBuilder {
                       FROM u JOIN bounds b USING (symbol)
                      WHERE u.t BETWEEN b.first_close AND b.last_close
                     """.formatted(cfg.eventLagMinutes(), ends[0], ends[1], hours));
+            if (!fx()) {
+                // índices e ações: muitas horas cheias caem com a bolsa fechada; sairiam no filtro de dado velho do
+                // fim — descartar já aqui dá o mesmo resultado com bem menos memória
+                sql.execute("""
+                        CREATE OR REPLACE TEMP TABLE moments AS
+                        SELECT m.* FROM moments m ASOF JOIN m1 a ON a.symbol = m.symbol AND m.t >= a.close_time
+                         WHERE m.t - a.close_time <= to_minutes(%d)
+                        """.formatted(STALE_MINUTES));
+            }
         }
 
         // ---------------------------------------------------------------- fator USD (média nas 7 moedas)
-        sql.execute("""
+        if (!fx()) {
+            // só existe no forex (usd_sign 0 fora dele): tabela vazia, as features ficam nulas → 0 no treino
+            sql.execute("CREATE OR REPLACE TEMP TABLE usd AS SELECT NULL::TIMESTAMP AS t, NULL::DOUBLE AS usd15, "
+                    + "NULL::DOUBLE AS usd60, NULL::BIGINT AS n_pairs WHERE false");
+        } else sql.execute("""
                 CREATE OR REPLACE TEMP TABLE usd AS
                 WITH x AS (SELECT DISTINCT t, t15, t60 FROM moments),
                 r AS (

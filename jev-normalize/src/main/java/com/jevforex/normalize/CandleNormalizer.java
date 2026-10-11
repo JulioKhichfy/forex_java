@@ -115,47 +115,59 @@ public final class CandleNormalizer {
         long rowsRead = sql.scalar("SELECT count(*) FROM raw_candles");
         long withoutMeta = sql.scalar("SELECT count(*) FROM raw_candles r ANTI JOIN candle_meta m ON m.sha = r.sha");
 
-        dedup(sql, "raw_candles", "candle_meta", cutoff, "candles");
-        long rowsWritten = sql.scalar("SELECT count(*) FROM candles");
         long beforeReliable = sql.scalar("SELECT count(DISTINCT (market, symbol, time_utc)) FROM raw_candles "
                 + "WHERE CAST(replace(time_utc, 'Z', '') AS TIMESTAMP) < " + cutoff);
 
+        // um símbolo por vez: com índices e ações são dezenas de milhões de barras, e a deduplicação de tudo junto
+        // não cabe na memória do DuckDB; o layout do silver é o mesmo (market/symbol/year/month)
         Path tmp = out.resolveSibling(TABLE + ".tmp");
         LakeSql.deleteRecursively(tmp);
-        sql.execute("""
-                COPY (SELECT *, year(time_utc) AS year, month(time_utc) AS month
-                        FROM candles ORDER BY market, symbol, time_utc)
-                  TO %s (FORMAT PARQUET, COMPRESSION ZSTD, PARTITION_BY (market, symbol, year, month))
-                """.formatted(LakeSql.literal(tmp)));
+        List<String[]> keys = sql.query("SELECT DISTINCT market, symbol FROM raw_candles ORDER BY 1, 2",
+                rs -> new String[]{rs.getString(1), rs.getString(2)});
+        long rowsWritten = 0;
+        List<SymbolStats> stats = new java.util.ArrayList<>();
+        List<LocalDateTime> opens = new java.util.ArrayList<>();
+        for (String[] k : keys) {
+            if (!k[0].matches("[a-z]+") || !k[1].matches("[A-Za-z0-9._]+")) {
+                throw new IllegalStateException("símbolo inválido no bronze: " + k[0] + "/" + k[1]);
+            }
+            sql.execute("CREATE OR REPLACE TEMP TABLE raw_one AS SELECT * FROM raw_candles WHERE market = '" + k[0]
+                    + "' AND symbol = '" + k[1] + "'");
+            dedup(sql, "raw_one", "candle_meta", cutoff, "candles");
+            long n = sql.scalar("SELECT count(*) FROM candles");
+            if (n == 0) continue;
+            rowsWritten += n;
+            Path dest = tmp.resolve("market=" + k[0]).resolve("symbol=" + k[1]);
+            dest.getParent().toFile().mkdirs();
+            sql.execute("""
+                    COPY (SELECT * EXCLUDE (market, symbol), year(time_utc) AS year, month(time_utc) AS month
+                            FROM candles ORDER BY time_utc)
+                      TO %s (FORMAT PARQUET, COMPRESSION ZSTD, PARTITION_BY (year, month))
+                    """.formatted(LakeSql.literal(dest)));
+            sql.execute("""
+                    CREATE OR REPLACE TEMP TABLE candle_gaps AS
+                    SELECT time_utc, prev, date_diff('minute', prev, time_utc) AS gap
+                      FROM (SELECT time_utc, lag(time_utc) OVER (ORDER BY time_utc) AS prev FROM candles)
+                    """);
+            long read = sql.scalar("SELECT count(*) FROM raw_one WHERE CAST(replace(time_utc, 'Z', '') AS TIMESTAMP) >= "
+                    + cutoff);
+            stats.add(sql.query("""
+                    SELECT count(*), CAST(min(time_utc) AS VARCHAR), CAST(max(time_utc) AS VARCHAR),
+                           count(*) FILTER (WHERE gap > 10 AND gap < 360),
+                           coalesce(max(gap) FILTER (WHERE gap < 360), 0),
+                           CAST(arg_max(prev, gap) FILTER (WHERE gap < 360) AS VARCHAR)
+                      FROM candle_gaps
+                    """, rs -> new SymbolStats(k[0], k[1], rs.getLong(1), read - rs.getLong(1),
+                    Bronze.ts(rs.getString(2)), Bronze.ts(rs.getString(3)), rs.getLong(4), rs.getLong(5),
+                    Bronze.ts(rs.getString(6)))).get(0));
+            if ("fx".equals(k[0])) {
+                // abertura semanal do forex (domingo à noite): checagem de fuso; índices e ações têm outro horário
+                opens.addAll(sql.query("SELECT CAST(time_utc AS VARCHAR) FROM candle_gaps WHERE gap >= 36 * 60",
+                        rs -> Bronze.ts(rs.getString(1))));
+            }
+        }
+        sql.execute("DROP TABLE IF EXISTS raw_one");
         LakeSql.replaceDirectory(tmp, out);
-
-        sql.execute("""
-                CREATE OR REPLACE TEMP TABLE candle_gaps AS
-                SELECT market, symbol, time_utc, prev, date_diff('minute', prev, time_utc) AS gap
-                  FROM (SELECT market, symbol, time_utc,
-                               lag(time_utc) OVER (PARTITION BY market, symbol ORDER BY time_utc) AS prev
-                          FROM candles)
-                """);
-        List<SymbolStats> stats = sql.query("""
-                SELECT g.market, g.symbol, count(*) AS bars,
-                       any_value(d.n_read) - count(*) AS dups,
-                       CAST(min(g.time_utc) AS VARCHAR), CAST(max(g.time_utc) AS VARCHAR),
-                       count(*) FILTER (WHERE g.gap > 10 AND g.gap < 360) AS gaps,
-                       coalesce(max(g.gap) FILTER (WHERE g.gap < 360), 0) AS max_gap,
-                       CAST(arg_max(g.prev, g.gap) FILTER (WHERE g.gap < 360) AS VARCHAR) AS max_gap_after
-                  FROM candle_gaps g
-                  JOIN (SELECT market, symbol, count(*) AS n_read FROM raw_candles
-                         WHERE CAST(replace(time_utc, 'Z', '') AS TIMESTAMP) >= %s GROUP BY ALL) d
-                    ON d.market = g.market AND d.symbol = g.symbol
-                 GROUP BY g.market, g.symbol
-                 ORDER BY g.market, g.symbol
-                """.formatted(cutoff), rs -> new SymbolStats(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getLong(4),
-                Bronze.ts(rs.getString(5)), Bronze.ts(rs.getString(6)), rs.getLong(7), rs.getLong(8),
-                Bronze.ts(rs.getString(9))));
-
-        List<LocalDateTime> opens = sql.query(
-                "SELECT CAST(time_utc AS VARCHAR) FROM candle_gaps WHERE gap >= 36 * 60",
-                rs -> Bronze.ts(rs.getString(1)));
         return new Report(files, rowsRead, rowsWritten, withoutMeta, utcReliableFrom, beforeReliable, stats,
                 WeeklyOpenCheck.evaluate(opens), out);
     }
