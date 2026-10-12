@@ -3,11 +3,13 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, OrderPreview, Prediction, Submit, TradeState } from '../api';
 import { ProbBar } from './prob-bar';
+import { Tip } from './tip';
+import { HELP } from '../help';
 import { MarketState } from '../market';
 
 @Component({
   selector: 'page-operar',
-  imports: [DatePipe, DecimalPipe, FormsModule, ProbBar],
+  imports: [DatePipe, DecimalPipe, FormsModule, ProbBar, Tip],
   template: `
     <h1>Operar</h1>
     @if (state(); as s) {
@@ -26,9 +28,9 @@ import { MarketState } from '../market';
             <table>
               <tr><td>Conta</td><td class="mono">{{ a.account }} · {{ a.server }} <span class="badge"
                 [class.warn]="a.tradeMode === 'REAL'">{{ a.tradeMode }}</span></td></tr>
-              <tr><td>Saldo / patrimônio</td><td class="mono">US$ {{ a.balance | number: '1.2-2' }} /
+              <tr><td>Saldo / patrimônio <tip key="patrimonio" /></td><td class="mono">US$ {{ a.balance | number: '1.2-2' }} /
                 US$ {{ a.equity | number: '1.2-2' }}</td></tr>
-              <tr><td>Margem</td><td class="mono">{{ marginText() }}</td></tr>
+              <tr><td>Margem <tip key="margem" /></td><td class="mono">{{ marginText() }}</td></tr>
               <tr><td>EA</td><td><span class="badge" [class.ok]="eaAge() <= 30" [class.high]="eaAge() > 30">
                 {{ eaAge() <= 30 ? 'conectado' : 'sem heartbeat' }}</span>
                 <span class="muted small"> há {{ eaAge() }} s · {{ eaMode() }}</span></td></tr>
@@ -47,7 +49,7 @@ import { MarketState } from '../market';
               {{ s.flattening ? 'FLATTEN em andamento…' : 'FLATTEN (fechar tudo)' }}</button>
           </div>
           <div class="profile">
-            <span class="small muted">Perfil de perda:</span>
+            <span class="small muted">Perfil de perda <tip key="lossProfile" />:</span>
             @for (p of profileKeys(s); track p) {
               <button [class.primary]="s.loss_profile === p" (click)="setProfile(p)">
                 {{ s.loss_profiles[p].label }} · {{ s.loss_profiles[p].maxDailyLossPct }}% dia /
@@ -68,7 +70,7 @@ import { MarketState } from '../market';
                 @for (sym of marketSymbols(s); track sym) { <option [value]="sym">{{ sym }}</option> }
               </select>
             </label>
-            <label>Lote
+            <label>Lote <tip key="lote" />
               <input type="number" [(ngModel)]="lot" (ngModelChange)="resetPreview()" min="0.01"
                      [max]="s.limits.orders.maxLot" step="0.01" />
             </label>
@@ -93,20 +95,20 @@ import { MarketState } from '../market';
             <div class="preview">
               <table>
                 <tr><td>Entrada (cotação agora)</td><td class="mono">{{ p.refPrice ?? '—' }}</td></tr>
-                <tr><td>Stop / alvo (aprox.)</td><td class="mono">
+                <tr><td>Stop / alvo (aprox.) <tip text="Calculados sobre a cotação de agora; o EA recalcula sobre o preço real da execução, com as mesmas distâncias." /></td><td class="mono">
                   <span class="down">{{ p.slPrice !== null ? (p.slPrice | number: priceFormat()) : '—' }}</span> /
                   <span class="up">{{ p.tpPrice !== null ? (p.tpPrice | number: priceFormat()) : '—' }}</span></td></tr>
-                <tr><td><b>Perda máxima se o stop bater</b></td><td class="mono"><b class="down">
+                <tr><td><b>Perda máxima se o stop bater</b> <tip key="R" /></td><td class="mono"><b class="down">
                   {{ p.riskUsd !== null ? 'US$ ' + (p.riskUsd | number: '1.2-2') : '—' }}</b>
                   {{ p.riskPct !== null ? '(' + (p.riskPct | number: '1.1-1') + '% do saldo)' : '' }}</td></tr>
                 <tr><td>Ganho se o alvo bater</td><td class="mono up">
                   {{ p.rewardUsd !== null ? 'US$ ' + (p.rewardUsd | number: '1.2-2') : '—' }}</td></tr>
-                <tr><td>Saída por tempo</td><td>{{ p.closeAfterMinutes ? p.closeAfterMinutes + ' min' : 'só SL/TP' }}</td></tr>
+                <tr><td>Saída por tempo <tip key="closeAfterMinutes" /></td><td>{{ p.closeAfterMinutes ? p.closeAfterMinutes + ' min' : 'só SL/TP' }}</td></tr>
               </table>
               <table class="checks">
                 @for (c of p.checks; track c.gate) {
                   <tr [class.bad]="!c.ok">
-                    <td>{{ c.ok ? '✓' : '✗' }}</td><td>{{ c.gate }}</td><td class="small">{{ c.value }}</td>
+                    <td>{{ c.ok ? '✓' : '✗' }}</td><td>{{ c.gate }} @if (checkHelp[c.gate]; as h) { <tip [text]="h" /> }</td><td class="small">{{ c.value }}</td>
                     <td class="small muted">{{ c.limit }}</td>
                   </tr>
                 }
@@ -129,7 +131,7 @@ import { MarketState } from '../market';
         <h3>Posições abertas (deste sistema)</h3>
         <div class="table-wrap"><table>
           <tr><th>Ticket</th><th>Par</th><th>Lado</th><th class="right">Lote</th><th class="right">Abertura</th>
-            <th class="right">SL</th><th class="right">TP</th><th class="right">Resultado</th><th>Desde (UTC)</th><th></th></tr>
+            <th class="right">SL <tip text="Stop no servidor da corretora: fecha com perda se o preço chegar lá, mesmo com o computador desligado." /></th><th class="right">TP <tip text="Alvo no servidor da corretora: fecha com lucro se o preço chegar lá." /></th><th class="right">Resultado <tip key="patrimonio" /></th><th>Desde (UTC)</th><th></th></tr>
           @for (p of s.positions; track p.ticket) {
             <tr>
               <td class="mono">{{ p.ticket }}</td>
@@ -154,7 +156,7 @@ import { MarketState } from '../market';
         <h3>Ordens recentes</h3>
         <div class="table-wrap"><table>
           <tr><th>#</th><th>Quando (UTC)</th><th>Ação</th><th>Par</th><th class="right">Lote</th>
-            <th class="right">Risco</th><th>Status</th><th>Detalhe</th></tr>
+            <th class="right">Risco <tip key="R" /></th><th>Status <tip text="PENDING: esperando o EA · SENT: entregue · FILLED: executada · REJECTED: recusada (motivo ao lado) · EXPIRED: o EA não buscou a tempo · SHADOW: só registrada." /></th><th>Detalhe</th></tr>
           @for (o of s.orders; track o.id) {
             <tr>
               <td class="mono">{{ o.id }}</td>
@@ -201,6 +203,26 @@ export class Operar implements OnInit, OnDestroy {
   protected preview = signal<OrderPreview | null>(null);
   protected result = signal<Submit | null>(null);
   protected sending = signal(false);
+  /** O que cada trava confere (nomes como vêm do OrderService). */
+  protected checkHelp: Partial<Record<string, string>> = {
+    'EA conectado': 'O EA precisa ter mandado sinal de vida nos últimos 30 s: sem ele, ninguém executaria a ordem.',
+    'Modo × conta': 'SHADOW só registra. DEMO só envia para conta demo; LIVE só para conta real — nunca o contrário.',
+    'BLOCK / FLATTEN': 'Com BLOCK ligado (ou FLATTEN em andamento) não entra posição nova; fechar continua liberado.',
+    'Cotação': 'A cotação vem do EA a cada 5 s; velha demais = não dá para calcular o risco com segurança.',
+    'ATR (última previsão)': HELP['atrMaxAgeMinutes'] ?? '',
+    'Lote': 'Entre o lote mínimo da corretora e o lote máximo da página Risco, no passo da corretora (0,01).',
+    'Risco da ordem': HELP['maxRiskPerTradePct'] ?? '',
+    'Posições abertas': HELP['maxPositions'] ?? '',
+    'Par livre': 'Só uma posição por símbolo: evita dobrar a aposta no mesmo ativo sem querer.',
+    'Risco aberto total': HELP['maxOpenRiskPct'] ?? '',
+    'Exposição líquida a USD': HELP['maxUsdNetExposurePct'] ?? '',
+    'Perda do dia': HELP['maxDailyLossPct'] ?? '',
+    'Perda da semana': HELP['maxWeeklyLossPct'] ?? '',
+    'Nível de margem': HELP['minMarginLevelPct'] ?? '',
+    'Spread (gate 3)': HELP['maxSpreadRatio'] ?? '',
+    'Fora de blackout (gate 2)': HELP['blackoutBeforeMinutes'] ?? '',
+    'Símbolo': 'O símbolo precisa ter a especificação da corretora (vem do MT5) para o risco ser calculado.',
+  };
   protected symbol = 'EURUSD';
   protected lot = 0.01;
   private lotLoaded = false;

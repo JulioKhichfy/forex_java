@@ -1,5 +1,7 @@
 package com.jevforex.app.live;
 
+import com.jevforex.app.config.RiskSettingsHolder;
+
 import com.jevforex.app.config.FeatureProperties;
 import com.jevforex.app.config.SilverProperties;
 import com.jevforex.core.risk.RiskSettings;
@@ -42,15 +44,15 @@ public class PredictionResolver {
     private final LakeStorage lake;
     private final FeatureProperties featureProps;
     private final SilverProperties silver;
-    private final RiskSettings risk;
+    private final RiskSettingsHolder riskHolder;
 
     public PredictionResolver(PredictionRepository repo, LakeStorage lake, FeatureProperties featureProps,
-                              SilverProperties silver, RiskSettings risk) {
+                              SilverProperties silver, RiskSettingsHolder riskHolder) {
         this.repo = repo;
         this.lake = lake;
         this.featureProps = featureProps;
         this.silver = silver;
-        this.risk = risk;
+        this.riskHolder = riskHolder;
     }
 
     /** Agenda o placar só no modo servidor (a CLI chama resolve() direto: resolve-predictions). */
@@ -130,8 +132,8 @@ public class PredictionResolver {
                 Outcomes.createFrom(sql, """
                         SELECT DISTINCT symbol, moment_utc, atr, moment_utc + to_minutes(%d) AS want_in
                           FROM pred_moments WHERE horizon = %d
-                        """.formatted(cfg.entryDelayMinutes(), h), "outc_" + h, h, risk.exits().stopAtr(),
-                        risk.exits().targetR());
+                        """.formatted(cfg.entryDelayMinutes(), h), "outc_" + h, h, riskHolder.get().exits().stopAtr(),
+                        riskHolder.get().exits().targetR());
                 sql.query("SELECT symbol, CAST(moment_utc AS VARCHAR), r_buy, r_sell, y_buy, y_sell FROM outc_" + h,
                         rs -> outcome.put(key(rs.getString(1), rs.getString(2), h), new double[]{
                                 rs.getDouble(3), rs.getDouble(4), rs.getDouble(5), rs.getDouble(6)}));

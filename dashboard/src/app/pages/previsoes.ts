@@ -2,11 +2,12 @@ import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '
 import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
 import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, Prediction, RunResult, Score } from '../api';
 import { ProbBar } from './prob-bar';
+import { Tip } from './tip';
 import { MarketState } from '../market';
 
 @Component({
   selector: 'page-previsoes',
-  imports: [DatePipe, DecimalPipe, SlicePipe, ProbBar],
+  imports: [DatePipe, DecimalPipe, SlicePipe, ProbBar, Tip],
   template: `
     <div class="head">
       <h1>Previsões ao vivo</h1>
@@ -30,10 +31,10 @@ import { MarketState } from '../market';
       <div class="table-wrap"><table>
         <tr>
           <th rowspan="2">Par</th><th rowspan="2">Momento (UTC)</th>
-          @for (m of models; track m) { <th colspan="2" class="group">{{ names[m] }}</th> }
+          @for (m of models; track m) { <th colspan="2" class="group">{{ names[m] }} <tip [key]="'modelo' + m" /></th> }
         </tr>
         <tr>
-          @for (m of models; track m) { <th>15 min</th><th>60 min</th> }
+          @for (m of models; track m) { <th>15 min <tip key="horizonte" /></th><th>60 min</th> }
         </tr>
         @for (s of symbols(); track s) {
           <tr (click)="select(s)" class="row" [class.sel]="s === selected()">
@@ -63,10 +64,10 @@ import { MarketState } from '../market';
 
     <div class="grid two" style="margin-top:16px">
       <section class="panel">
-        <h3>Placar ao vivo (últimos 90 dias)</h3>
+        <h3>Placar ao vivo (últimos 90 dias) <tip text="O resultado REAL das previsões automáticas, depois do horizonte. É a única evidência nova daqui em diante." /></h3>
         <div class="table-wrap"><table>
-          <tr><th>Modelo</th><th>Horizonte</th><th class="right">Resolvidas</th><th class="right">Acerto da classe</th>
-            <th class="right">Sinais</th><th class="right">E[R]</th><th class="right">Acerto</th></tr>
+          <tr><th>Modelo</th><th>Horizonte</th><th class="right">Resolvidas <tip key="resolvidas" /></th><th class="right">Acerto da classe <tip key="acertoClasse" /></th>
+            <th class="right">Sinais <tip key="gate4" /></th><th class="right">E[R] <tip key="er" /></th><th class="right">Acerto <tip key="acerto" /></th></tr>
           @for (s of score(); track s.model + s.horizonMin) {
             <tr>
               <td>{{ names[s.model] ?? s.model }}</td>
@@ -89,7 +90,7 @@ import { MarketState } from '../market';
       <section class="panel">
         <h3>Histórico {{ selected() ?? '' }} (48 h)</h3>
         <div class="table-wrap"><table>
-          <tr><th>Momento</th><th>Modelo</th><th>h</th><th>Probabilidades</th><th>Sinal</th><th>Resultado</th></tr>
+          <tr><th>Momento</th><th>Modelo</th><th>h <tip key="horizonte" /></th><th>Probabilidades <tip key="probabilidades" /></th><th>Sinal <tip key="gate4" /></th><th>Resultado <tip text="O que aconteceu de fato: ALTA ou QUEDA se andou mais de meio ATR já pagando o spread; senão LATERAL." /></th></tr>
           @for (p of history(); track p.id) {
             <tr>
               <td class="small mono nowrap">{{ p.momentUtc | date: 'dd/MM HH:mm' : 'UTC' }}</td>

@@ -1,12 +1,13 @@
 import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe, KeyValuePipe, SlicePipe } from '@angular/common';
+import { Tip } from './tip';
 import { Api, HorizonSummary, MODEL_NAMES, ModelsInfo, Trades } from '../api';
 import { JobsPanel } from './jobs-panel';
 import { MarketState } from '../market';
 
 @Component({
   selector: 'page-modelos',
-  imports: [DatePipe, DecimalPipe, KeyValuePipe, SlicePipe, JobsPanel],
+  imports: [DatePipe, DecimalPipe, KeyValuePipe, SlicePipe, JobsPanel, Tip],
   template: `
     <h1>Modelos</h1>
     @if (info(); as i) {
@@ -19,7 +20,7 @@ import { MarketState } from '../market';
           <p class="muted">Nenhuma versão em produção. Rode <span class="mono">train-champion</span>.</p>
         }
         <div class="table-wrap"><table>
-          <tr><th>Versão</th><th>Treinada em</th><th>Janela de treino</th><th>Contra a versão em uso</th><th></th></tr>
+          <tr><th>Versão</th><th>Treinada em</th><th>Janela de treino <tip text="Os 24 meses de dados usados no treino desta versão." /></th><th>Contra a versão em uso <tip key="challenger" /></th><th></th></tr>
           @for (v of reversed(i); track v.version) {
             <tr>
               <td class="mono">{{ v.version }} @if (v.version === i.champion?.version) { <span class="badge ok">em uso</span> }</td>
@@ -68,15 +69,15 @@ import { MarketState } from '../market';
 
       @if (i.lockbox_summary; as lb) {
         <section class="panel" style="margin-top:16px">
-          <h3>Cofre — avaliação única e honesta ({{ i.lockbox?.run }})</h3>
+          <h3>Cofre — avaliação única e honesta ({{ i.lockbox?.run }}) <tip key="cofre" /></h3>
           <p class="muted small">Os meses do cofre nunca entraram em treino nem em comparação antes desta avaliação.
             É a melhor estimativa do que esperar ao vivo.</p>
           @for (h of lb; track h.horizon) {
             <div class="summary">
               <h2>{{ h.horizon }} min · {{ h.first_test }} a {{ h.last_test }} · {{ h.rows }} momentos</h2>
               <div class="table-wrap"><table>
-                <tr><th>Modelo</th><th class="right">Log loss (base {{ h.ll_base | number: '1.4-4' }})</th>
-                  <th class="right">AUC alta</th><th>Operações gate 4</th><th>Com limiar 0,45 / 0,15</th></tr>
+                <tr><th>Modelo</th><th class="right">Log loss (base {{ h.ll_base | number: '1.4-4' }}) <tip key="logloss" /></th>
+                  <th class="right">AUC alta <tip key="auc" /></th><th>Operações gate 4 <tip key="gate4" /></th><th>Com limiar 0,45 / 0,15 <tip text="O que aconteceria com um gatilho mais frouxo (P ≥ 45%, margem ≥ 15 pontos): mais operações. Formato: operações · E[R] · PF · acerto." /></th></tr>
                 @for (m of h.models | keyvalue; track m.key) {
                   <tr>
                     <td>{{ names[m.key] ?? m.key }}</td>
@@ -94,13 +95,13 @@ import { MarketState } from '../market';
 
       @if (i.walkforward_summary; as wf) {
         <section class="panel" style="margin-top:16px">
-          <h3>Walk-forward de referência ({{ i.walkforward_run }})</h3>
+          <h3>Walk-forward de referência ({{ i.walkforward_run }}) <tip key="walkforward" /></h3>
           @for (h of wf; track h.horizon) {
             <div class="summary">
               <h2>{{ h.horizon }} min · {{ h.folds }} meses ({{ h.first_test }} a {{ h.last_test }})</h2>
               <div class="table-wrap"><table>
-                <tr><th>Modelo</th><th class="right">Log loss (base {{ h.ll_base | number: '1.4-4' }})</th>
-                  <th class="right">AUC alta</th><th>Operações gate 4</th><th>Com limiar 0,45 / 0,15</th></tr>
+                <tr><th>Modelo</th><th class="right">Log loss (base {{ h.ll_base | number: '1.4-4' }}) <tip key="logloss" /></th>
+                  <th class="right">AUC alta <tip key="auc" /></th><th>Operações gate 4 <tip key="gate4" /></th><th>Com limiar 0,45 / 0,15 <tip text="O que aconteceria com um gatilho mais frouxo (P ≥ 45%, margem ≥ 15 pontos): mais operações. Formato: operações · E[R] · PF · acerto." /></th></tr>
                 @for (m of h.models | keyvalue; track m.key) {
                   <tr>
                     <td>{{ names[m.key] ?? m.key }}</td>

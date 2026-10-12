@@ -25,3 +25,4 @@ logs/
 # MQL5 compilado (o MetaEditor gera ao lado do .mq5)
 *.ex5
 mql5/**/*.log
+config/

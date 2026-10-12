@@ -3,11 +3,12 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Api, CalendarItem, LatestPredictions, MODEL_NAMES, NewsItem } from '../api';
 import { ProbBar } from './prob-bar';
+import { Tip } from './tip';
 import { MarketState } from '../market';
 
 @Component({
   selector: 'page-hoje',
-  imports: [DatePipe, DecimalPipe, RouterLink, ProbBar],
+  imports: [DatePipe, DecimalPipe, RouterLink, ProbBar, Tip],
   template: `
     <div class="notice">
       <b>Apoio à decisão, não sinal garantido.</b> No teste fora da amostra nenhum modelo superou o custo de forma
@@ -17,7 +18,7 @@ import { MarketState } from '../market';
 
     <div class="grid two">
       <section class="panel">
-        <h3>Sinais agora (gate 4)</h3>
+        <h3>Sinais agora (gate 4) <tip key="gate4" /></h3>
         @if (latest(); as l) {
           <p class="muted small">
             Versão {{ l.model_version ?? '—' }} ·
@@ -27,7 +28,7 @@ import { MarketState } from '../market';
             <p class="muted">Nenhum modelo com P ≥ 60% e margem ≥ 35% no último momento de decisão.</p>
           } @else {
             <div class="table-wrap"><table>
-              <tr><th>Par</th><th>Modelo</th><th>Horizonte</th><th>Sinal</th><th>Probabilidades</th></tr>
+              <tr><th>Par</th><th>Modelo</th><th>Horizonte <tip key="horizonte" /></th><th>Sinal</th><th>Probabilidades <tip key="probabilidades" /></th></tr>
               @for (p of signals(); track p.id) {
                 <tr>
                   <td class="mono">{{ p.symbol }}</td>
@@ -42,7 +43,7 @@ import { MarketState } from '../market';
           }
           <h3 style="margin-top:16px">Mais provável por símbolo (Eventos + Preço, 60 min)</h3>
           <div class="table-wrap"><table>
-            <tr><th>Par</th><th>Momento</th><th>Probabilidades (queda · lateral · alta)</th></tr>
+            <tr><th>Símbolo</th><th>Momento <tip key="evento" /></th><th>Probabilidades (queda · lateral · alta) <tip key="probabilidades" /></th></tr>
             @for (p of mainModel(); track p.id) {
               <tr>
                 <td class="mono">{{ p.symbol }}</td>
@@ -61,7 +62,7 @@ import { MarketState } from '../market';
       <section class="panel">
         <h3>Próximos eventos (24 h)</h3>
         <div class="table-wrap"><table>
-          <tr><th>Quando (UTC)</th><th>Moeda</th><th>Evento</th><th class="right">Previsto</th><th class="right">Atual</th></tr>
+          <tr><th>Quando (UTC)</th><th>Moeda</th><th>Evento</th><th class="right">Previsto <tip text="O que o mercado espera (consenso). O preço reage à SURPRESA: a diferença entre o atual e o previsto." /></th><th class="right">Atual <tip text="O valor divulgado. Aparece segundos depois do horário." /></th></tr>
           @for (e of events(); track e.value_id) {
             <tr [class.muted]="isPast(e)">
               <td class="nowrap mono small">{{ e.scheduled_at | date: 'dd/MM HH:mm' : 'UTC' }}</td>
@@ -80,7 +81,7 @@ import { MarketState } from '../market';
     <section class="panel" style="margin-top:16px">
       <h3>Últimas notícias dos bancos centrais</h3>
       <div class="table-wrap"><table>
-        <tr><th>Visto em (UTC)</th><th>Emissor</th><th>Título</th><th>Leitura do Jev</th></tr>
+        <tr><th>Visto em (UTC)</th><th>Emissor</th><th>Título</th><th>Leitura do Jev <tip key="jev" /></th></tr>
         @for (n of news(); track n.id) {
           <tr>
             <td class="nowrap mono small">{{ n.first_seen_at | date: 'dd/MM HH:mm' : 'UTC' }}</td>

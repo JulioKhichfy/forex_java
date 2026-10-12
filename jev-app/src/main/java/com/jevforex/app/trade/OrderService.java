@@ -1,5 +1,7 @@
 package com.jevforex.app.trade;
 
+import com.jevforex.app.config.RiskSettingsHolder;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jevforex.app.config.RiskConfig.InstrumentCatalog;
@@ -39,12 +41,12 @@ public class OrderService {
     public static final String SETTING_LOT = "orders.lot";
     public static final String SETTING_BLOCK = "orders.block";
     public static final String SETTING_FLATTEN = "orders.flatten";
-    public static final String SETTING_LOSS_PROFILE = "risk.loss-profile";
+    public static final String SETTING_LOSS_PROFILE = "riskHolder.get().loss-profile";
     private static final int EA_MAX_SILENCE_SECONDS = 30;
 
     private final TradeRepository repo;
     private final PredictionRepository predictions;
-    private final RiskSettings risk;
+    private final RiskSettingsHolder riskHolder;
     private final TradingProperties trading;
     private final InstrumentCatalog catalog;
     private final Mt5Repository mt5;
@@ -52,14 +54,14 @@ public class OrderService {
     private final ObjectMapper mapper;
     private final com.jevforex.app.config.ExperimentProperties experiment;
 
-    public OrderService(TradeRepository repo, PredictionRepository predictions, RiskSettings risk,
+    public OrderService(TradeRepository repo, PredictionRepository predictions, RiskSettingsHolder riskHolder,
                         TradingProperties trading, InstrumentCatalog catalog, Mt5Repository mt5,
                         ObjectProvider<JdbcClient> jdbc, ObjectMapper mapper,
                         com.jevforex.app.config.ExperimentProperties experiment) {
         this.experiment = experiment;
         this.repo = repo;
         this.predictions = predictions;
-        this.risk = risk;
+        this.riskHolder = riskHolder;
         this.trading = trading;
         this.catalog = catalog;
         this.mt5 = mt5;
@@ -86,21 +88,21 @@ public class OrderService {
 
     /** Lote do tíquete: o escolhido no dashboard ou o padrão de trading.risk.orders. */
     public double lot() {
-        return repo.setting(SETTING_LOT).map(Double::parseDouble).orElse(risk.orders().defaultLot());
+        return repo.setting(SETTING_LOT).map(Double::parseDouble).orElse(riskHolder.get().orders().defaultLot());
     }
 
     /** Nome do perfil de perda em vigor (escolhido no dashboard; padrão = limites de trading.risk.global). */
     public String lossProfileName() {
-        return repo.setting(SETTING_LOSS_PROFILE).filter(risk.lossProfiles()::containsKey)
+        return repo.setting(SETTING_LOSS_PROFILE).filter(riskHolder.get().lossProfiles()::containsKey)
                 .orElse(RiskSettings.DEFAULT_PROFILE);
     }
 
     public RiskSettings.LossProfile lossProfile() {
-        return risk.lossProfile(lossProfileName());
+        return riskHolder.get().lossProfile(lossProfileName());
     }
 
     public RiskSettings.LossProfile setLossProfile(String name) {
-        RiskSettings.LossProfile p = risk.lossProfile(name);   // nome desconhecido = erro
+        RiskSettings.LossProfile p = riskHolder.get().lossProfile(name);   // nome desconhecido = erro
         repo.setSetting(SETTING_LOSS_PROFILE, name);
         return p;
     }
@@ -114,7 +116,7 @@ public class OrderService {
     }
 
     public Preview preview(String symbol, String side, Double requestedLot) {
-        RiskSettings.Orders o = risk.orders();
+        RiskSettings.Orders o = riskHolder.get().orders();
         List<Check> checks = new ArrayList<>();
         Instrument inst = instrument(symbol);
         if (inst == null) {
@@ -173,11 +175,11 @@ public class OrderService {
         boolean stepOk = Math.abs(lot / inst.lotStep() - Math.rint(lot / inst.lotStep())) < 1e-6;
         checks.add(new Check("Lote", lot >= minLot - 1e-9 && lot <= maxLot + 1e-9 && stepOk,
                 fmt(lot, 2), String.format(Locale.ROOT, "%.2f a %.2f, passo %.2f", minLot, maxLot, inst.lotStep())));
-        Double slDist = atr == null ? null : risk.exits().stopAtr() * atr;
-        Double tpDist = slDist == null ? null : risk.exits().targetR() * slDist;
+        Double slDist = atr == null ? null : riskHolder.get().exits().stopAtr() * atr;
+        Double tpDist = slDist == null ? null : riskHolder.get().exits().targetR() * slDist;
         Double riskUsd = slDist == null ? null : inst.lossPerLot(slDist) * lot;
         Double rewardUsd = tpDist == null ? null : inst.lossPerLot(tpDist) * lot;
-        double cap = balance == null ? 0 : risk.global().maxRiskPerTradeMoney(balance);
+        double cap = balance == null ? 0 : riskHolder.get().global().maxRiskPerTradeMoney(balance);
         checks.add(new Check("Risco da ordem", riskUsd != null && balance != null && riskUsd <= cap + 1e-9,
                 riskUsd == null ? "sem stop" : usd(riskUsd) + pct(riskUsd, balance),
                 "≤ " + usd(cap) + " (teto por trade)"));
@@ -185,8 +187,8 @@ public class OrderService {
         // ------------------------------------------------------------ carteira
         List<TradeRepository.Position> positions = repo.positions();
         long open = positions.size() + repo.openOrders("OPEN");
-        RiskSettings.MarketRisk mr = risk.forMarket(inst.market());
-        int maxPos = Math.min(risk.global().maxPositions(), mr.maxPositions());
+        RiskSettings.MarketRisk mr = riskHolder.get().forMarket(inst.market());
+        int maxPos = Math.min(riskHolder.get().global().maxPositions(), mr.maxPositions());
         checks.add(new Check("Posições abertas", open < maxPos, String.valueOf(open), "< " + maxPos));
         boolean samePair = positions.stream().anyMatch(p -> p.symbol().equals(symbol));
         checks.add(new Check("Par livre", !samePair, samePair ? "já há posição em " + symbol : "livre",
@@ -205,12 +207,12 @@ public class OrderService {
             if (pi.market() == Market.FX) usdNet += usdSign(p.symbol(), p.side()) * r;
         }
         double newOpen = openRisk + (riskUsd == null ? 0 : riskUsd);
-        double openCap = balance == null ? 0 : balance * Math.min(risk.global().maxOpenRiskPct(), mr.maxOpenRiskPct()) / 100;
+        double openCap = balance == null ? 0 : balance * Math.min(riskHolder.get().global().maxOpenRiskPct(), mr.maxOpenRiskPct()) / 100;
         checks.add(new Check("Risco aberto total", allWithStop && balance != null && newOpen <= openCap + 1e-9,
                 allWithStop ? usd(newOpen) + pct(newOpen, balance) : "posição sem stop na conta", "≤ " + usd(openCap)));
         int sign = inst.market() == Market.FX ? usdSign(symbol, side) : 0;   // exposição a USD: só no forex
         double usdAfter = Math.abs(usdNet + sign * (riskUsd == null ? 0 : riskUsd) * mr.usdWeight());
-        double usdCap = balance == null ? 0 : balance * risk.global().maxUsdNetExposurePct() / 100;
+        double usdCap = balance == null ? 0 : balance * riskHolder.get().global().maxUsdNetExposurePct() / 100;
         checks.add(new Check("Exposição líquida a USD", balance != null && usdAfter <= usdCap + 1e-9,
                 usd(usdAfter), "≤ " + usd(usdCap)));
 
@@ -269,11 +271,11 @@ public class OrderService {
         boolean shadow = trading.mode() == TradingProperties.Mode.SHADOW;
         Instant now = Instant.now();
         long id = repo.insertOrder(new TradeRepository.Order(null, marketOf(symbol), symbol, "OPEN", side, p.lot(), p.slDistance(),
-                p.tpDistance(), p.refPrice(), p.atr(), p.riskUsd(), risk.orders().deviationPoints(),
+                p.tpDistance(), p.refPrice(), p.atr(), p.riskUsd(), riskHolder.get().orders().deviationPoints(),
                 p.closeAfterMinutes() == null ? null : now.plus(Duration.ofMinutes(p.closeAfterMinutes())), null,
                 p.predictionId(), json(p.checks()), shadow ? "SHADOW" : "PENDING",
                 shadow ? "modo SHADOW: registrada, não enviada ao MT5" : null, null, null,
-                now, now.plusSeconds(risk.orders().validitySeconds()), null, null));
+                now, now.plusSeconds(riskHolder.get().orders().validitySeconds()), null, null));
         return new Submit(id, shadow ? "SHADOW" : "PENDING", p);
     }
 
@@ -283,9 +285,9 @@ public class OrderService {
                 .orElseThrow(() -> new IllegalArgumentException("Posição " + ticket + " não está aberta"));
         Instant now = Instant.now();
         return repo.insertOrder(new TradeRepository.Order(null, marketOf(pos.symbol()), pos.symbol(), "CLOSE", null, pos.volume(), null,
-                null, null, null, null, risk.orders().deviationPoints(), null, ticket, null, "[]",
+                null, null, null, null, riskHolder.get().orders().deviationPoints(), null, ticket, null, "[]",
                 trading.mode() == TradingProperties.Mode.SHADOW ? "SHADOW" : "PENDING", why, null, pos.account(),
-                now, now.plusSeconds(risk.orders().validitySeconds()), null, null));
+                now, now.plusSeconds(riskHolder.get().orders().validitySeconds()), null, null));
     }
 
     /** FLATTEN: cancela o que está pendente, liga o BLOCK e manda o EA fechar tudo deste sistema. */
@@ -301,9 +303,9 @@ public class OrderService {
     }
 
     public double setLot(double lot) {
-        if (!(lot > 0) || lot > risk.orders().maxLot() + 1e-9) {
+        if (!(lot > 0) || lot > riskHolder.get().orders().maxLot() + 1e-9) {
             throw new IllegalArgumentException(String.format(Locale.ROOT,
-                    "Lote %.2f fora do permitido (até %.2f, trading.risk.orders.max-lot)", lot, risk.orders().maxLot()));
+                    "Lote %.2f fora do permitido (até %.2f, trading.risk.orders.max-lot)", lot, riskHolder.get().orders().maxLot()));
         }
         repo.setSetting(SETTING_LOT, String.format(Locale.ROOT, "%.2f", lot));
         return lot;

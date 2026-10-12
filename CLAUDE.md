@@ -21,6 +21,9 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 - Modelo do Jev fixado por versão (`jev.model`), nunca o alias `jev-latest` em treino/produção.
 - Score do Jev é indexado a partir de 0: magnitude = `score / (níveis - 1)`.
 - **Toda configuração de risco fica em `trading.risk` no `application.yml`.** Nada de números de risco no código.
+  A página Risco do dashboard edita esses valores e grava em `config/application.yml` (ao lado do jar, fora do
+  git, lido pelo Spring por cima do yml do jar); vale na hora (`RiskSettingsHolder`) e fica auditado em
+  `risk_change`. Quem decide ordens lê `RiskSettingsHolder.get()`, nunca um `RiskSettings` guardado.
 - Todas as tabelas de negócio têm a coluna `market` (`fx` | `metals` | `crypto` | `indices` | `stocks`).
   Índices e ações: um instrumento numa moeda só (a de lucro na corretora, `currency_profit`); o calendário entra
   pela moeda dele, sem fator USD. Gold, modelos, relatórios e cofre separados por mercado (`--market=`).

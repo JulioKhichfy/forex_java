@@ -1,5 +1,7 @@
 package com.jevforex.app.live;
 
+import com.jevforex.app.config.RiskSettingsHolder;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jevforex.app.config.ExperimentProperties;
@@ -38,20 +40,20 @@ public class LivePredictionService {
     private final FeatureProperties featureProps;
     private final ExperimentProperties experimentProps;
     private final SilverProperties silver;
-    private final RiskSettings risk;
+    private final RiskSettingsHolder riskHolder;
     private final LiveProperties props;
     private final PredictionRepository repo;
     private final ObjectMapper mapper;
     private final Map<String, ModelStore.Loaded> models = new java.util.HashMap<>();   // versão em produção por mercado
 
     public LivePredictionService(LakeStorage lake, FeatureProperties featureProps, ExperimentProperties experimentProps,
-                                 SilverProperties silver, RiskSettings risk, LiveProperties props,
+                                 SilverProperties silver, RiskSettingsHolder riskHolder, LiveProperties props,
                                  PredictionRepository repo, ObjectMapper mapper) {
         this.lake = lake;
         this.featureProps = featureProps;
         this.experimentProps = experimentProps;
         this.silver = silver;
-        this.risk = risk;
+        this.riskHolder = riskHolder;
         this.props = props;
         this.repo = repo;
         this.mapper = mapper;
@@ -107,7 +109,7 @@ public class LivePredictionService {
         if (m == null) return new Run(at, trigger, null, 0, List.of(), null,
                 "Sem modelo em produção. Rode: train-champion --market=" + market);
         ExperimentConfig.Decision gate = experimentProps.toConfig(featureProps.toConfig().fset(),
-                risk.exits()).decision();
+                riskHolder.get().exits()).decision();
         FeatureBuilder.Live live;
         try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb-live"), silver.duckdbMemory())) {
             live = new FeatureBuilder(lake.root(), featureProps.toConfig(), market, experimentProps.symbolsOf(market))

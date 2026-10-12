@@ -1,5 +1,7 @@
 package com.jevforex.app.api;
 
+import com.jevforex.app.config.RiskSettingsHolder;
+
 import com.jevforex.app.config.TradingProperties;
 import com.jevforex.app.trade.OrderService;
 import com.jevforex.app.trade.TradeRepository;
@@ -38,13 +40,13 @@ public class TradeController {
 
     private final OrderService orders;
     private final TradeRepository repo;
-    private final RiskSettings risk;
+    private final RiskSettingsHolder riskHolder;
     private final TradingProperties trading;
 
-    public TradeController(OrderService orders, TradeRepository repo, RiskSettings risk, TradingProperties trading) {
+    public TradeController(OrderService orders, TradeRepository repo, RiskSettingsHolder riskHolder, TradingProperties trading) {
         this.orders = orders;
         this.repo = repo;
-        this.risk = risk;
+        this.riskHolder = riskHolder;
         this.trading = trading;
     }
 
@@ -62,14 +64,14 @@ public class TradeController {
         out.put("blocked", orders.blocked());
         out.put("flattening", orders.flattening());
         out.put("loss_profile", orders.lossProfileName());
-        out.put("loss_profiles", risk.lossProfiles());
+        out.put("loss_profiles", riskHolder.get().lossProfiles());
         java.util.Map<String, java.util.List<String>> byMarket = orders.symbolsByMarket();
         out.put("symbols", byMarket.getOrDefault("fx", java.util.List.of()));
         out.put("symbols_by_market", byMarket);
         Map<String, Object> limits = new LinkedHashMap<>();
-        limits.put("global", risk.global());
-        limits.put("exits", risk.exits());
-        limits.put("orders", risk.orders());
+        limits.put("global", riskHolder.get().global());
+        limits.put("exits", riskHolder.get().exits());
+        limits.put("orders", riskHolder.get().orders());
         out.put("limits", limits);
         return out;
     }
