@@ -97,8 +97,9 @@ public class PredictionResolver {
             String read = "read_parquet('" + LakeSql.slashes(candles) + "/**/*.parquet', hive_partitioning = true)";
             String maxSeen = sql.query("SELECT CAST(max(seen_utc) AS VARCHAR) FROM " + read + " WHERE market = '" + market + "' "
                     + "AND time_utc >= " + from, rs -> rs.getString(1)).get(0);
-            Instant since = maxSeen == null ? Instant.EPOCH
-                    : LocalDateTime.parse(maxSeen.replace(' ', 'T')).minusMinutes(10).toInstant(ZoneOffset.UTC);
+            Instant since = CandleNormalizer.builtAt(lake.root()).map(t -> t.minus(Duration.ofMinutes(5)))
+                    .orElse(maxSeen == null ? Instant.EPOCH
+                            : LocalDateTime.parse(maxSeen.replace(' ', 'T')).minusMinutes(10).toInstant(ZoneOffset.UTC));
             CandleNormalizer.createRecent(sql, lake.root(), since, "recent_candles");
             sql.execute("""
                     CREATE OR REPLACE TEMP TABLE m1o AS

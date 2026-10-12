@@ -102,8 +102,29 @@ public final class CandleNormalizer {
                 """.formatted(raw, meta, cutoff, out));
     }
 
+    /** Marcador no silver: o instante em que o normalize começou a ler o bronze. */
+    static final String BUILT_AT = "_built_at.txt";
+
+    /**
+     * Desde quando o bronze ainda NÃO está no silver de candles: o início do último normalize. Arquivo de carga
+     * histórica tem seen_utc antigo mas é gravado depois — por isso o corte é pela gravação, não pelo seen_utc.
+     *
+     * @return vazio se o silver é de antes do marcador (aí vale o seen_utc, como antes)
+     */
+    public static java.util.Optional<java.time.Instant> builtAt(Path lakeRoot) {
+        Path f = lakeRoot.resolve("silver").resolve(TABLE).resolve(BUILT_AT);
+        try {
+            return java.nio.file.Files.exists(f)
+                    ? java.util.Optional.of(java.time.Instant.parse(java.nio.file.Files.readString(f).trim()))
+                    : java.util.Optional.empty();
+        } catch (java.io.IOException | java.time.format.DateTimeParseException e) {
+            return java.util.Optional.empty();
+        }
+    }
+
     public Report run(LakeSql sql, LocalDate utcReliableFrom) {
         Path out = lakeRoot.resolve("silver").resolve(TABLE);
+        java.time.Instant startedAt = java.time.Instant.now();
         if (!Bronze.hasCsv(lakeRoot, SOURCE)) {
             return new Report(0, 0, 0, 0, utcReliableFrom, 0, List.of(), WeeklyOpenCheck.evaluate(List.of()), out);
         }
@@ -167,6 +188,11 @@ public final class CandleNormalizer {
             }
         }
         sql.execute("DROP TABLE IF EXISTS raw_one");
+        try {
+            java.nio.file.Files.writeString(tmp.resolve(BUILT_AT), startedAt.toString());
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
         LakeSql.replaceDirectory(tmp, out);
         return new Report(files, rowsRead, rowsWritten, withoutMeta, utcReliableFrom, beforeReliable, stats,
                 WeeklyOpenCheck.evaluate(opens), out);

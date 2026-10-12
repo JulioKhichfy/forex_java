@@ -123,7 +123,10 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       - [x] 6a modelo E (só eventos), cofre aberto (A/E/B), ModelStore + train-champion, features ao vivo com o
             mesmo código (teste de paridade), previsões ao vivo (Flyway V5, agendador nos momentos do treino)
       - [x] 6b dashboard Angular (Hoje, Previsões com placar ao vivo, Modelos com cofre e walk-forward, Saúde)
-      - [ ] 6c ordens pelo dashboard (Flyway V6, OrderService com as travas, EA executor) — testar em DEMO
+      - [x] 6c ordens pelo dashboard (Flyway V6, OrderService com as travas, EA executor) — mecânica testada em DEMO
+            em 12/10/2026: 0,01 EURUSD FILLED com SL/TP no servidor (recalculados sobre o preço real), posição no
+            heartbeat, BLOCK recusa entrada e deixa fechar, fechamento FILLED. Modo DEMO/LIVE pela linha de comando
+            (--trading.mode=demo), sem mexer no yml
       - [x] 6d placar resolvido automaticamente (PredictionResolver), botão "aplicar treinamento" (JobService:
             comandos da CLI em processo separado) com champion × challenger no último mês (challenge.json) e
             promoção pelo dashboard; perfis de perda escolhidos no dashboard (trading.risk.loss-profiles)

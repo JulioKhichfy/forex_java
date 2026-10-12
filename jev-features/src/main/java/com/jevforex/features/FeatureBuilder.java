@@ -231,9 +231,13 @@ public final class FeatureBuilder {
         String silverMax = sql.query("SELECT CAST(" + seenCol + " AS VARCHAR) FROM read_parquet('"
                 + LakeSql.slashes(candles) + "/**/*.parquet', hive_partitioning = true) WHERE market = '" + market + "' AND time_utc >= "
                 + from, rs -> rs.getString(1)).get(0);
-        java.time.Instant since = silverMax == null ? java.time.Instant.EPOCH
-                : java.time.LocalDateTime.parse(silverMax.replace(' ', 'T')).minusMinutes(10)
-                .toInstant(java.time.ZoneOffset.UTC);
+        // preferência: o início do último normalize (marcador no silver) — carga histórica tem seen_utc antigo mas
+        // entra no bronze depois, e pelo seen_utc pareceria "nova" para sempre
+        java.time.Instant since = com.jevforex.normalize.CandleNormalizer.builtAt(lakeRoot)
+                .map(t -> t.minus(java.time.Duration.ofMinutes(5)))
+                .orElse(silverMax == null ? java.time.Instant.EPOCH
+                        : java.time.LocalDateTime.parse(silverMax.replace(' ', 'T')).minusMinutes(10)
+                        .toInstant(java.time.ZoneOffset.UTC));
         int candleFiles = com.jevforex.normalize.CandleNormalizer.createRecent(sql, lakeRoot, since, "live_candles");
         sql.execute("""
                 CREATE OR REPLACE TEMP TABLE m1 AS
