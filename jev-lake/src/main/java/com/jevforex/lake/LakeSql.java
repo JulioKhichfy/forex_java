@@ -35,6 +35,9 @@ public final class LakeSql implements AutoCloseable {
     public static LakeSql open(Path tempDir, String memoryLimit) {
         try {
             Class.forName("org.duckdb.DuckDBDriver");
+            // uma subpasta por processo: o DuckDB dá nomes fixos aos arquivos de despejo, e dois processos na mesma
+            // pasta (servidor prevendo + CLI) se atropelam — em 13/10/2026 isso derrubou o servidor (falha nativa)
+            tempDir = tempDir.resolve("pid-" + ProcessHandle.current().pid());
             Files.createDirectories(tempDir);
             LakeSql s = new LakeSql(DriverManager.getConnection("jdbc:duckdb:"));
             s.execute("SET temp_directory = " + literal(tempDir));

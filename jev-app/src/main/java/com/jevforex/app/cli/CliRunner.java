@@ -539,8 +539,9 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     }
 
     private void train(ApplicationArguments args) throws Exception {
-        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(), risk.exits(),
-                opt(args, "market", "fx"));
+        String market = opt(args, "market", "fx");
+        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(),
+                risk.exitsFor(com.jevforex.core.Market.fromCode(market)), market);
         String h = opt(args, "horizon", null);
         if (h != null) cfg = cfg.withHorizons(List.of(Integer.parseInt(h)));
         boolean openLockbox = args.containsOption("open-lockbox");
@@ -599,8 +600,9 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     // ------------------------------------------------------------------ modelos de produção (passo 6a)
 
     private void trainChampion(ApplicationArguments args) throws Exception {
-        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(), risk.exits(),
-                opt(args, "market", "fx"));
+        String market = opt(args, "market", "fx");
+        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(),
+                risk.exitsFor(com.jevforex.core.Market.fromCode(market)), market);
         Path lock = lockFile(cfg.market());
         if (!Files.exists(lock) || !Files.readString(lock).contains("concluído")) {
             // o modelo de produção treina com os meses do cofre: depois disso o cofre não serve mais como teste
@@ -613,7 +615,11 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
         String walkForwardRun = null;
         if (Files.isDirectory(wf)) {
             try (var s = Files.list(wf)) {
-                walkForwardRun = s.map(p -> p.getFileName().toString()).sorted().reduce((a, b) -> b).orElse(null);
+                // o do MESMO mercado: runs do fx não têm sufixo; os dos outros terminam em -<mercado>
+                String m = cfg.market();
+                walkForwardRun = s.map(p -> p.getFileName().toString())
+                        .filter(n -> "fx".equals(m) ? !n.matches(".*-[a-z]+$") : n.endsWith("-" + m))
+                        .sorted().reduce((a, b) -> b).orElse(null);
             }
         }
         System.out.printf("Treinando modelos de produção %s · horizontes %s · últimos %d meses · fset %s%n",

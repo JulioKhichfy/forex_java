@@ -150,3 +150,12 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             alvo na média, stop 1,5 ATR, 8 h; com/sem RSI 30/70 e filtro lateral, 2022–23 × 2024–26, nos 5 mercados —
             resultado: E[R] negativo em todas as 20 combinações (melhor: ouro −0,02, bitcoin+RSI −0,01; stop leva
             52–64%; filtro lateral piora). Decisão: não virou sinal nem botão de ordem
+      - [x] 9b ouro operacional (13/10): regra própria em `live.signal-rules.metals` (B, 15 min, P ≥ 0,45, margem
+            ≥ 0,15, só em evento — na hora cheia o E[R] é ~0) com as saídas em que foi validada, por mercado
+            (`trading.risk.markets.metals`: close-after-minutes 15, stop-atr 1,5, target-r 1,5; ordens, placar e
+            treino usam `RiskSettings.exitsFor(mercado)`). A vantagem depende de entrar rápido (+5 min leva o E[R] a ~0): ouro previsto
+            primeiro (`live.first-markets`), bronze recente lido uma vez por rodada, momentos perdidos recuperados
+            (`live.catch-up-minutes`; o evento das 14:00 se perdia atrás da rodada da hora cheia), normalize
+            automático às 21:30 UTC (`live.normalize-cron`; o bronze tem um arquivo por barra). Dashboard: aviso de
+            sinal novo (destaque, som, notificação), calendário e notícias só em USD no ouro. Risco: 0,01 lote =
+            stop de US$ 10–15; pior queda histórica da regra −3,9 R

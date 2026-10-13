@@ -28,8 +28,9 @@ import java.util.Map;
 
 /**
  * Previsões ao vivo (passo 6a): as features do instante com o MESMO código do treino
- * ({@link FeatureBuilder#live}), os modelos em produção (champion) e o gate 4 do experimento.
- * O resultado é apoio à decisão — quem decide e clica é o operador.
+ * ({@link FeatureBuilder#live}), os modelos em produção (champion) e o gate 4 do experimento — ou a regra do
+ * mercado em {@code live.signal-rules} (ex.: ouro, modelo B a 15 min). O resultado é apoio à decisão — quem
+ * decide e clica é o operador.
  */
 @Service
 public class LivePredictionService {
@@ -87,34 +88,62 @@ public class LivePredictionService {
         return cached;
     }
 
-    /** Prevê em todos os mercados com modelo em produção (experiment.markets). */
+    /**
+     * Prevê em todos os mercados com modelo em produção (experiment.markets), primeiro os de
+     * {@code live.first-markets}. Uma conexão para a rodada inteira: o bronze recente é lido uma vez só.
+     */
     public synchronized Run predict(LocalDateTime at, String trigger) {
         int rows = 0;
         List<String> symbols = new ArrayList<>(), notes = new ArrayList<>(), versions = new ArrayList<>();
         String last = null;
-        for (String market : experimentProps.marketList()) {
-            Run r = predict(market, at, trigger);
+        try (LakeSql sql = openSql()) {
+            for (String market : props.ordered(experimentProps.marketList())) {
+                Run r;
+                try {
+                    r = predict(sql, market, at, trigger);
+                } catch (RuntimeException e) {
+                    // um mercado com problema não derruba os outros (falhar fechado: este fica sem previsão)
+                    log.warn("Previsão {} {} {} falhou: {}", market, trigger, at, e.toString());
+                    notes.add(market + ": falhou (" + e.getMessage() + ")");
+                    continue;
+                }
             rows += r.rows();
             symbols.addAll(r.symbols());
             if (r.modelVersion() != null) versions.add(market + " " + r.modelVersion());
             if (r.note() != null) notes.add(market + ": " + r.note());
             if (r.lastBarUtc() != null && (last == null || r.lastBarUtc().compareTo(last) > 0)) last = r.lastBarUtc();
+            }
         }
         return new Run(at, trigger, versions.isEmpty() ? null : String.join(" · ", versions), rows, symbols, last,
                 rows > 0 ? null : notes.isEmpty() ? "sem previsão" : String.join(" | ", notes));
     }
 
     public synchronized Run predict(String market, LocalDateTime at, String trigger) {
+        try (LakeSql sql = openSql()) {
+            return predict(sql, market, at, trigger);
+        }
+    }
+
+    private LakeSql openSql() {
+        return LakeSql.open(lake.root().resolve("tmp").resolve("duckdb-live"), silver.duckdbMemory());
+    }
+
+    /** Regra de sinal do mercado (live.signal-rules) ou null = gate 4. */
+    public LiveProperties.SignalRule rule(String market) {
+        return props.signalRules().get(market);
+    }
+
+    private Run predict(LakeSql sql, String market, LocalDateTime at, String trigger) {
         ModelStore.Loaded m = champion(market);
         if (m == null) return new Run(at, trigger, null, 0, List.of(), null,
                 "Sem modelo em produção. Rode: train-champion --market=" + market);
         ExperimentConfig.Decision gate = experimentProps.toConfig(featureProps.toConfig().fset(),
                 riskHolder.get().exits()).decision();
-        FeatureBuilder.Live live;
-        try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb-live"), silver.duckdbMemory())) {
-            live = new FeatureBuilder(lake.root(), featureProps.toConfig(), market, experimentProps.symbolsOf(market))
-                    .live(sql, at, props.lookbackFor(market), silver.calendar().actualLatencySeconds());
-        }
+        LiveProperties.SignalRule rule = rule(market);
+        long t0 = System.nanoTime();
+        FeatureBuilder.Live live = new FeatureBuilder(lake.root(), featureProps.toConfig(), market,
+                experimentProps.symbolsOf(market))
+                .live(sql, at, props.lookbackFor(market), silver.calendar().actualLatencySeconds(), true);
         Instant moment = at.toInstant(ZoneOffset.UTC);
         Integer lag = live.lastBarUtc() == null ? null : (int) Duration.between(
                 LocalDateTime.parse(live.lastBarUtc().replace(' ', 'T')).plusMinutes(1).toInstant(ZoneOffset.UTC),
@@ -137,13 +166,13 @@ public class LivePredictionService {
                 for (int i = 0; i < x.length; i++) feats.put(e.features().get(i), x[i]);
                 boolean saved = repo.insert(new PredictionRepository.Prediction(null, market, symbol, moment,
                         (String) row.get("kind"), trigger, e.model(), e.horizon(), m.manifest().version(), p[0], p[1],
-                        p[2], signal(p, gate), number(row.get("atr")), bar == null ? null : bar.close(),
+                        p[2], signal(p, gate, rule, e.model(), e.horizon(), (String) row.get("kind")), number(row.get("atr")), bar == null ? null : bar.close(),
                         bar == null ? null : bar.spreadPoints(), lag, feats.toString(), null, null, null, null, null));
                 if (saved) n++;
             }
         }
-        log.info("Previsões {} {} {}: {} gravadas ({} símbolos, modelos {})", market, trigger, at, n, symbols.size(),
-                m.models().keySet());
+        log.info("Previsões {} {} {}: {} gravadas ({} símbolos, modelos {}, {} s)", market, trigger, at, n,
+                symbols.size(), m.models().keySet(), (System.nanoTime() - t0) / 1_000_000_000);
         return new Run(at, trigger, m.manifest().version(), n, symbols, live.lastBarUtc(), null);
     }
 
@@ -164,9 +193,21 @@ public class LivePredictionService {
 
     /** Gate 4 (cap. 12): P ≥ mínimo e margem sobre a classe oposta. */
     static String signal(double[] p, ExperimentConfig.Decision gate) {
+        return signal(p, gate.minProb(), gate.minMargin());
+    }
+
+    /** A regra do mercado vale para o modelo e o horizonte dela; o resto segue o gate 4. */
+    static String signal(double[] p, ExperimentConfig.Decision gate, LiveProperties.SignalRule rule, String model,
+                         int horizon, String kind) {
+        if (rule == null || !rule.model().equals(model) || rule.horizon() != horizon) return signal(p, gate);
+        if (rule.eventsOnly() && !"EVENT".equals(kind)) return "NO_TRADE";
+        return signal(p, rule.minProb(), rule.minMargin());
+    }
+
+    private static String signal(double[] p, double minProb, double minMargin) {
         double down = p[0], up = p[2];
-        if (up >= gate.minProb() && up - down >= gate.minMargin()) return "BUY";
-        if (down >= gate.minProb() && down - up >= gate.minMargin()) return "SELL";
+        if (up >= minProb && up - down >= minMargin) return "BUY";
+        if (down >= minProb && down - up >= minMargin) return "SELL";
         return "NO_TRADE";
     }
 

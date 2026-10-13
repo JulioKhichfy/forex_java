@@ -136,7 +136,8 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
         <div class="table-wrap"><table>
           <tr><th>Mercado</th><th>Ativo <tip key="marketEnabled" /></th><th>Risco-alvo por operação (%) <tip key="riskPerTradePct" /></th>
             <th>Risco aberto (%) <tip key="marketMaxOpenRiskPct" /></th><th>Posições <tip key="marketMaxPositions" /></th>
-            <th>Peso no USD <tip key="usdWeight" /></th></tr>
+            <th>Peso no USD <tip key="usdWeight" /></th><th>Saída por tempo (min) <tip key="marketCloseAfter" /></th>
+            <th>Stop (ATR) <tip key="marketStopAtr" /></th><th>Alvo (× stop) <tip key="marketTargetR" /></th></tr>
           @for (m of marketKeys(d); track m) {
             <tr [class.changed]="changed('markets', m)">
               <td>{{ marketLabels[m] ?? m }}</td>
@@ -145,6 +146,9 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
               <td><input type="number" [(ngModel)]="d.markets[m].maxOpenRiskPct" step="0.5" min="0" /></td>
               <td><input type="number" [(ngModel)]="d.markets[m].maxPositions" step="1" min="0" /></td>
               <td><input type="number" [(ngModel)]="d.markets[m].usdWeight" step="0.5" min="0" /></td>
+              <td><input type="number" [(ngModel)]="d.markets[m].closeAfterMinutes" step="5" min="0" placeholder="padrão" /></td>
+              <td><input type="number" [(ngModel)]="d.markets[m].stopAtr" step="0.5" min="0" placeholder="padrão" /></td>
+              <td><input type="number" [(ngModel)]="d.markets[m].targetR" step="0.5" min="0" placeholder="padrão" /></td>
             </tr>
           }
         </table></div>

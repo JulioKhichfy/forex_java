@@ -128,12 +128,14 @@ public class PredictionResolver {
             }
             if (rows.isEmpty()) return 0;
             sql.createTableFromRows("pred_moments", cols, rows, lake.root().resolve("tmp"));
+            // o placar mede com as saídas com que o mercado opera (ouro: as da regra validada)
+            com.jevforex.core.risk.RiskSettings.Exits exits = riskHolder.get()
+                    .exitsFor(com.jevforex.core.Market.fromCode(market));
             for (int h : new TreeSet<>(open.stream().map(PredictionRepository.Prediction::horizonMin).toList())) {
                 Outcomes.createFrom(sql, """
                         SELECT DISTINCT symbol, moment_utc, atr, moment_utc + to_minutes(%d) AS want_in
                           FROM pred_moments WHERE horizon = %d
-                        """.formatted(cfg.entryDelayMinutes(), h), "outc_" + h, h, riskHolder.get().exits().stopAtr(),
-                        riskHolder.get().exits().targetR());
+                        """.formatted(cfg.entryDelayMinutes(), h), "outc_" + h, h, exits.stopAtr(), exits.targetR());
                 sql.query("SELECT symbol, CAST(moment_utc AS VARCHAR), r_buy, r_sell, y_buy, y_sell FROM outc_" + h,
                         rs -> outcome.put(key(rs.getString(1), rs.getString(2), h), new double[]{
                                 rs.getDouble(3), rs.getDouble(4), rs.getDouble(5), rs.getDouble(6)}));

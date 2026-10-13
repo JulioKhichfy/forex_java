@@ -26,3 +26,4 @@ logs/
 *.ex5
 mql5/**/*.log
 config/
+hs_err_pid*.log

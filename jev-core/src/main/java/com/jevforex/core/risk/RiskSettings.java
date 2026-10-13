@@ -57,6 +57,12 @@ public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits
         }
     }
 
+    /** Stop e alvo de um mercado: os de trading.risk.markets.&lt;m&gt; se houver, senão os de exits. */
+    public Exits exitsFor(Market market) {
+        MarketRisk r = markets.get(market);
+        return r == null ? exits : r.exits(exits);
+    }
+
     public MarketRisk forMarket(Market market) {
         MarketRisk r = markets.get(market);
         if (r == null) {
@@ -166,19 +172,46 @@ public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits
      * @param maxOpenRiskPct   risco aberto máximo neste mercado
      * @param maxPositions     posições simultâneas neste mercado
      * @param usdWeight        peso na exposição líquida a USD (1.0 = conta integralmente)
+     * @param closeAfterMinutes saída por tempo das ordens deste mercado (null = orders.close-after-minutes;
+     *                          0 = só SL/TP). Ex.: ouro 15, o horizonte da regra validada
+     * @param stopAtr          stop deste mercado em ATR (null = exits.stop-atr)
+     * @param targetR          alvo deste mercado em múltiplos do stop (null = exits.target-r)
      */
     public record MarketRisk(
             boolean enabled,
             double riskPerTradePct,
             double maxOpenRiskPct,
             int maxPositions,
-            double usdWeight) {
+            double usdWeight,
+            Integer closeAfterMinutes,
+            Double stopAtr,
+            Double targetR) {
 
         public MarketRisk {
             requirePct("risk-per-trade-pct", riskPerTradePct);
             requirePct("max-open-risk-pct", maxOpenRiskPct);
             if (maxPositions < 0) throw new IllegalArgumentException("max-positions < 0");
             if (usdWeight < 0) throw new IllegalArgumentException("usd-weight < 0");
+            if (closeAfterMinutes != null && closeAfterMinutes < 0) {
+                throw new IllegalArgumentException("close-after-minutes < 0");
+            }
+            if (stopAtr != null && !(stopAtr > 0)) throw new IllegalArgumentException("stop-atr do mercado deve ser > 0");
+            if (targetR != null && !(targetR > 0)) throw new IllegalArgumentException("target-r do mercado deve ser > 0");
+        }
+
+        public MarketRisk(boolean enabled, double riskPerTradePct, double maxOpenRiskPct, int maxPositions,
+                          double usdWeight) {
+            this(enabled, riskPerTradePct, maxOpenRiskPct, maxPositions, usdWeight, null, null, null);
+        }
+
+        /** Stop e alvo que valem para este mercado (os dele ou os de exits). */
+        public Exits exits(Exits global) {
+            return new Exits(stopAtr != null ? stopAtr : global.stopAtr(), targetR != null ? targetR : global.targetR());
+        }
+
+        /** Saída por tempo que vale para este mercado. */
+        public int closeAfter(Orders orders) {
+            return closeAfterMinutes != null ? closeAfterMinutes : orders.closeAfterMinutes();
         }
     }
 

@@ -127,6 +127,17 @@ live:
   lookback-days-by-market:        # ações negociam ~6,5 h por dia: as mesmas 1.920 barras pedem ~105 dias corridos
     stocks: 130
   cron: "20 * * * * *"            # segundo 20 de cada minuto (UTC): dá tempo da barra do momento chegar do MT5
+  first-markets: [metals]         # previstos antes dos outros: o sinal de 15 min do ouro não espera os demais
+  catch-up-minutes: 10            # momento perdido (rodada anterior calculando) é previsto depois, com o instante original
+  normalize-cron: "0 30 21 * * MON-FRI"   # normalize automático às 21:30 UTC (fora das horas de controle; ~35 min)
+  signal-rules:                   # regra de sinal por mercado; sem regra = gate 4 (experiment.decision)
+    metals:                       # ouro: o único resultado positivo do projeto, no walk-forward E no cofre
+      model: B
+      horizon: 15
+      min-prob: 0.45
+      min-margin: 0.15
+      events-only: true           # na hora cheia o E[R] é ~0; a vantagem está nas divulgações dos EUA
+      note: "Walk-forward 2024-01 a 2026-03: 49 operações em evento, E[R] +0,23 R. Cofre (abr-set/2026, avaliado uma vez): 12 operações, +0,38 R. Cerca de 2 sinais por mês. Entrar até ~2 min depois do sinal: com +5 min o E[R] cai para perto de zero."
 
 # ---------------------------------------------------------------------
 #  Acervo de discursos do BIS (passo 4a) — comando backfill-bis
@@ -300,6 +311,9 @@ trading:
         max-open-risk-pct: 10.0
         max-positions: 1
         usd-weight: 1.0
+        close-after-minutes: 15        # a regra do ouro foi validada com saída em 15 min (live.signal-rules.metals)
+        stop-atr: 1.5                  # …e com stop de 1,5 ATR e alvo de 1,5 × stop: valem para o ouro mesmo que
+        target-r: 1.5                  # trading.risk.exits mude (vazio na página Risco = usa exits)
       indices:                         # índices (passo 7): mesmos limites do fx até haver placar próprio
         enabled: true
         risk-per-trade-pct: 5.0

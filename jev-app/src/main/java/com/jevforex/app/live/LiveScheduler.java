@@ -23,6 +23,11 @@ import java.util.Set;
  * Dispara as previsões ao vivo nos MESMOS momentos de decisão do treino (o placar fica comparável ao
  * experimento): hora cheia nas horas de controle (seg a sex, sem sexta ≥ 19h) e evento com peso + atraso do
  * evento. Roda {@code live.delay-seconds} depois do minuto, para a barra que fecha no momento chegar do MT5.
+ *
+ * <p>Enquanto uma rodada calcula, o Spring pula os disparos seguintes: o momento de um evento às 14:00 (14:02)
+ * se perdia atrás da rodada da hora cheia. Cada disparo confere também os minutos desde o último (até
+ * {@code live.catch-up-minutes}) e prevê o que ficou para trás com o instante original (point-in-time: só barras
+ * anteriores ao momento).</p>
  */
 @Component
 @Profile("!cli")
@@ -34,26 +39,43 @@ public class LiveScheduler {
 
     private final LivePredictionService service;
     private final FeatureProperties featureProps;
+    private final LiveProperties props;
     private final ObjectProvider<JdbcClient> jdbc;
+    private LocalDateTime lastChecked;
 
-    public LiveScheduler(LivePredictionService service, FeatureProperties featureProps, ObjectProvider<JdbcClient> jdbc) {
+    public LiveScheduler(LivePredictionService service, FeatureProperties featureProps, LiveProperties props,
+                         ObjectProvider<JdbcClient> jdbc) {
         this.service = service;
         this.featureProps = featureProps;
+        this.props = props;
         this.jdbc = jdbc;
     }
 
     @Scheduled(cron = "${live.cron:20 * * * * *}", zone = "UTC")
     public void tick() {
-        LocalDateTime t = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MINUTES);
-        String trigger = triggerFor(t);
-        if (trigger == null) return;
-        try {
-            LivePredictionService.Run r = service.predict(t, trigger);
-            if (r.note() != null) log.info("Previsão {} {}: {}", trigger, t, r.note());
-        } catch (RuntimeException e) {
-            // falhar fechado: sem previsão neste momento; o dashboard mostra a última e a idade dela
-            log.warn("Previsão {} {} falhou: {}", trigger, t, e.toString());
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MINUTES);
+        for (LocalDateTime t : minutesToCheck(lastChecked, now, props.catchUpMinutes())) {
+            String trigger = triggerFor(t);
+            if (trigger == null) continue;
+            if (!t.equals(now)) log.info("Momento {} {} ficou para trás (rodada anterior calculando): previsto agora", trigger, t);
+            try {
+                LivePredictionService.Run r = service.predict(t, trigger);
+                if (r.note() != null) log.info("Previsão {} {}: {}", trigger, t, r.note());
+            } catch (RuntimeException e) {
+                // falhar fechado: sem previsão neste momento; o dashboard mostra a última e a idade dela
+                log.warn("Previsão {} {} falhou: {}", trigger, t, e.toString());
+            }
         }
+        lastChecked = now;
+    }
+
+    /** Os minutos depois do último disparo até agora (no máximo {@code catchUp} para trás); o 1º disparo só confere agora. */
+    static List<LocalDateTime> minutesToCheck(LocalDateTime last, LocalDateTime now, int catchUp) {
+        LocalDateTime from = last == null ? now : last.plusMinutes(1);
+        if (from.isBefore(now.minusMinutes(catchUp))) from = now.minusMinutes(catchUp);
+        List<LocalDateTime> out = new java.util.ArrayList<>();
+        for (LocalDateTime t = from; !t.isAfter(now); t = t.plusMinutes(1)) out.add(t);
+        return out;
     }
 
     /** SCHEDULE, EVENT ou null (não é momento de decisão). */

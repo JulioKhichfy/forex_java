@@ -63,6 +63,10 @@ export const HELP: Record<string, string> = {
   riskPerTradePct: 'Risco-ALVO por operação neste mercado (o tamanho ideal). Com banca pequena, o lote mínimo costuma passar disso — aí manda a política de lote mínimo.',
   marketMaxOpenRiskPct: 'Soma do risco das posições abertas SÓ deste mercado, em % do saldo.',
   marketMaxPositions: 'Posições abertas ao mesmo tempo SÓ neste mercado.',
+  marketCloseAfter: 'Fecha a posição deste mercado depois de N minutos, se o stop ou o alvo não vierem antes. Vazio = a saída por tempo das travas de ordem; 0 = só SL/TP. O ouro usa 15: é o horizonte com que a regra dele foi testada.',
+  marketStopAtr: 'Stop deste mercado em múltiplos do ATR (volatilidade média de 15 min). Vazio = o stop da seção Saídas. O ouro usa 1,5: foi com ele que a regra do ouro deu resultado positivo fora da amostra.',
+  marketTargetR: 'Alvo deste mercado em múltiplos do stop. Vazio = o alvo da seção Saídas. O ouro usa 1,5.',
+  regraOuro: 'Regra validada fora da amostra só para o ouro: modelo Eventos + Preço a 15 min, P ≥ 45% e diferença ≥ 15 pontos, apenas no momento de uma divulgação (evento + 2 min). A ordem sai sozinha em 15 min.',
   usdWeight: 'Quanto o risco deste mercado conta na exposição a USD (1 = tudo; 0 = nada, como índices e ações).',
   lossProfile: 'Perfil de perda: troca só os limites de perda do dia e da semana. Escolha o perfil na página Operar.',
 };

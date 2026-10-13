@@ -18,16 +18,33 @@ import { JobsPanel } from './jobs-panel';
       <a routerLink="/modelos">Modelos</a> antes de confiar numa previsão.
     </div>
 
+    @if (fresh(); as f) {
+      <div class="alert" [class.buy]="f.signal === 'BUY'" [class.sell]="f.signal === 'SELL'">
+        <div>
+          <b>SINAL {{ f.signal === 'BUY' ? 'DE COMPRA' : 'DE VENDA' }} · {{ f.symbol }}</b>
+          <span class="small"> {{ names[f.model] ?? f.model }}, {{ f.horizonMin }} min · momento {{ f.momentUtc | date: 'HH:mm' : 'UTC' }} UTC
+            ({{ ageMin(f) }} min atrás) · P(alta) {{ f.pUp * 100 | number: '1.0-0' }}% · P(queda) {{ f.pDown * 100 | number: '1.0-0' }}%</span>
+          <div class="small">Vale enquanto for recente: no histórico, entrar 5 min depois já levava o resultado para perto de zero.
+            A ordem sai sozinha em {{ f.horizonMin }} min se o stop ou o alvo não vierem antes.</div>
+        </div>
+        <button class="primary" (click)="previewOne(f)" [disabled]="busy()">Operar agora</button>
+      </div>
+    }
+
     <div class="grid two">
       <section class="panel">
-        <h3>Sinais agora (gate 4) <tip key="gate4" /></h3>
+        <h3>Sinais agora ({{ ruleText() ? 'regra do mercado' : 'gate 4' }}) <tip [key]="ruleText() ? 'regraOuro' : 'gate4'" /></h3>
         @if (latest(); as l) {
           <p class="muted small">
             Versão {{ l.model_version ?? '—' }} ·
             @if (l.age_minutes !== null) { previsão de {{ l.age_minutes }} min atrás } @else { nenhuma previsão ainda }
           </p>
+          @if (ruleText(); as rt) {
+            <p class="small rule">{{ rt }}
+              @if (l.rule?.note) { <tip [text]="l.rule!.note!" /> }</p>
+          }
           @if (signals().length === 0) {
-            <p class="muted">Nenhum modelo com P ≥ 60% e margem ≥ 35% no último momento de decisão.</p>
+            <p class="muted">{{ ruleText() ? 'Nenhuma previsão passou na regra no último momento de decisão.' : 'Nenhum modelo com P ≥ 60% e margem ≥ 35% no último momento de decisão.' }}</p>
           } @else {
             <div class="table-wrap"><table>
               <tr><th>Par</th><th>Modelo</th><th>Horizonte <tip key="horizonte" /></th><th>Sinal</th><th>Probabilidades <tip key="probabilidades" /></th></tr>
@@ -43,7 +60,7 @@ import { JobsPanel } from './jobs-panel';
               }
             </table></div>
           }
-          <h3 style="margin-top:16px">Mais provável por símbolo (Eventos + Preço, 60 min) <tip key="modeloB" /></h3>
+          <h3 style="margin-top:16px">Mais provável por símbolo ({{ names[mainSpec().model] ?? mainSpec().model }}, {{ mainSpec().horizon }} min) <tip key="modeloB" /></h3>
           <div class="trade-bar">
             <label class="small">Lote por ordem <tip key="lote" />
               <input type="number" min="0.01" step="0.01" [value]="lot()" (input)="setLot($event)" />
@@ -107,7 +124,8 @@ import { JobsPanel } from './jobs-panel';
       </section>
 
       <section class="panel">
-        <h3>Próximos eventos (24 h)</h3>
+        <h3>Próximos eventos (24 h){{ focusCurrency() ? ' · só ' + focusCurrency() : '' }}
+          @if (focusCurrency()) { <tip text="O ouro é cotado em dólar e a regra dele vive das divulgações dos EUA: aqui só aparecem os eventos em USD. Os outros mercados mostram todas as moedas." /> }</h3>
         <div class="table-wrap"><table>
           <tr><th>Quando (UTC)</th><th>Moeda</th><th>Evento</th><th class="right">Previsto <tip text="O que o mercado espera (consenso). O preço reage à SURPRESA: a diferença entre o atual e o previsto." /></th><th class="right">Atual <tip text="O valor divulgado. Aparece segundos depois do horário." /></th></tr>
           @for (e of events(); track e.value_id) {
@@ -126,7 +144,7 @@ import { JobsPanel } from './jobs-panel';
     </div>
 
     <section class="panel" style="margin-top:16px">
-      <h3>Últimas notícias dos bancos centrais</h3>
+      <h3>Últimas notícias dos bancos centrais{{ focusCurrency() ? ' · só ' + focusCurrency() + ' (Fed)' : '' }}</h3>
       <div class="jev-box">
         <span class="small muted">Documentos novos só ganham a leitura do Jev depois de avaliados. Primeiro veja o plano (quantos
           trechos e quanto custa, sem chamar o Jev); depois avalie com teto de US$ 0,10 <tip key="jev" />.</span>
@@ -162,6 +180,12 @@ import { JobsPanel } from './jobs-panel';
     .trade-bar input { width: 80px; font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border);
       background: var(--panel-2); color: var(--text); }
     .jev-box { margin: 4px 0 12px; display: grid; gap: 6px; }
+    .alert { display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+      padding: 12px 14px; margin-bottom: 14px; border-radius: 10px; border: 2px solid var(--warn); background: var(--panel-2); }
+    .alert.buy { border-color: var(--up); }
+    .alert.sell { border-color: var(--down); }
+    .alert b { font-size: 16px; }
+    .rule { margin: 0 0 8px; padding: 6px 10px; border-left: 3px solid var(--warn); background: var(--panel-2); border-radius: 4px; }
     .plan { margin-top: 12px; padding: 12px; border: 1px solid var(--warn); border-radius: 8px; background: var(--panel-2); }
     tr.blocked td { opacity: .6; }
   `,
@@ -174,9 +198,28 @@ export class Hoje implements OnInit, OnDestroy {
   protected events = signal<CalendarItem[]>([]);
   protected news = signal<NewsItem[]>([]);
   protected signals = computed(() => (this.latest()?.predictions ?? []).filter((p) => p.signal !== 'NO_TRADE'));
+  /** O modelo da tabela principal: o da regra do mercado (ouro: B a 15 min) ou Eventos + Preço a 60 min. */
+  protected mainSpec = computed(() => {
+    const r = this.latest()?.rule;
+    return r ? { model: r.model, horizon: r.horizon } : { model: 'B', horizon: 60 };
+  });
   protected mainModel = computed(() =>
-    (this.latest()?.predictions ?? []).filter((p) => p.model === 'B' && p.horizonMin === 60));
+    (this.latest()?.predictions ?? []).filter((p) => p.model === this.mainSpec().model && p.horizonMin === this.mainSpec().horizon));
+  protected ruleText = computed(() => {
+    const r = this.latest()?.rule;
+    if (!r) return null;
+    return `Regra deste mercado: ${MODEL_NAMES[r.model] ?? r.model} a ${r.horizon} min, P ≥ ${Math.round(r.minProb * 100)}% e diferença ≥ ${Math.round(r.minMargin * 100)} pontos`
+      + (r.eventsOnly ? ', só no momento de uma divulgação (evento + 2 min).' : '.');
+  });
+  /** Sinal da regra (ou do gate 4) com no máximo 10 min: é o que vale operar agora. */
+  protected fresh = computed(() => {
+    const spec = this.mainSpec();
+    return this.signals().filter((p) => p.model === spec.model && p.horizonMin === spec.horizon && this.ageMin(p) <= 10)
+      .sort((a, b) => b.momentUtc.localeCompare(a.momentUtc))[0] ?? null;
+  });
   private timer?: ReturnType<typeof setInterval>;
+  private slowTimer?: ReturnType<typeof setInterval>;
+  private alerted = new Set<number>();
 
   // ------------------------------------------------------------------ operar pela previsão
   protected lot = signal(0.01);
@@ -187,8 +230,34 @@ export class Hoje implements OnInit, OnDestroy {
   protected okRisk = computed(() => this.plan().filter((x) => x.preview.ok).reduce((s, x) => s + (x.preview.riskUsd ?? 0), 0));
 
   constructor() {
-    effect(() => { this.marketState.market(); this.plan.set([]); this.results.set({}); this.load(); });
+    effect(() => { this.marketState.market(); this.plan.set([]); this.results.set({}); this.load(); this.loadSlow(); });
+    effect(() => { const f = this.fresh(); if (f) this.notify(f); });
     this.api.tradeState().subscribe({ next: (s) => this.lot.set(s.lot), error: () => {} });
+  }
+
+  protected ageMin(p: Prediction): number {
+    return Math.max(0, Math.floor((Date.now() - new Date(p.momentUtc).getTime()) / 60_000));
+  }
+
+  /** Aviso do navegador e um bipe, uma vez por previsão (o sinal do ouro vale por poucos minutos). */
+  private notify(p: Prediction): void {
+    if (this.alerted.has(p.id)) return;
+    this.alerted.add(p.id);
+    const text = `${p.signal === 'BUY' ? 'COMPRA' : 'VENDA'} ${p.symbol} · ${p.horizonMin} min`;
+    try {
+      if ('Notification' in window) {
+        if (Notification.permission === 'granted') new Notification('Jev Forex: sinal', { body: text });
+        else if (Notification.permission !== 'denied') Notification.requestPermission();
+      }
+    } catch { /* sem aviso do navegador: fica o destaque na página */ }
+    try {
+      const ctx = new AudioContext();
+      const o = ctx.createOscillator();
+      o.frequency.value = 880;
+      o.connect(ctx.destination);
+      o.start();
+      o.stop(ctx.currentTime + 0.25);
+    } catch { /* sem som */ }
   }
 
   protected side(p: Prediction): 'BUY' | 'SELL' {
@@ -199,11 +268,14 @@ export class Hoje implements OnInit, OnDestroy {
     return Math.abs(p.pUp - p.pDown) * 100;
   }
 
-  /** Por que a previsão é fraca (null se passa no gate 4). */
+  /** Por que a previsão é fraca (null se passa no gate 4 ou na regra do mercado). */
   protected weak(p: Prediction): string | null {
     if (p.signal !== 'NO_TRADE') return null;
     if (p.pFlat >= p.pUp && p.pFlat >= p.pDown) return 'LATERAL é o mais provável: o modelo espera pouco movimento';
-    return 'não passa no gate 4 (P ≥ 60% e diferença ≥ 35 pontos)';
+    const r = this.latest()?.rule;
+    if (r && r.eventsOnly && p.kind !== 'EVENT') return 'a regra deste mercado só vale no momento de uma divulgação';
+    return r ? `não passa na regra do mercado (P ≥ ${Math.round(r.minProb * 100)}% e diferença ≥ ${Math.round(r.minMargin * 100)} pontos)`
+      : 'não passa no gate 4 (P ≥ 60% e diferença ≥ 35 pontos)';
   }
 
   protected failed(pv: OrderPreview): string {
@@ -252,11 +324,13 @@ export class Hoje implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.timer = setInterval(() => this.load(), 60_000);
+    this.timer = setInterval(() => this.load(), 20_000);   // previsões: o sinal de 15 min não pode esperar 1 min
+    this.slowTimer = setInterval(() => this.loadSlow(), 60_000);
   }
 
   ngOnDestroy(): void {
     clearInterval(this.timer);
+    clearInterval(this.slowTimer);
   }
 
   protected isPast(e: CalendarItem): boolean {
@@ -265,7 +339,13 @@ export class Hoje implements OnInit, OnDestroy {
 
   private load(): void {
     this.api.latest(this.marketState.market()).subscribe({ next: (l) => this.latest.set(l), error: () => this.latest.set(null) });
-    this.api.upcoming(24).subscribe({ next: (e) => this.events.set(e), error: () => this.events.set([]) });
-    this.api.news(25).subscribe({ next: (n) => this.news.set(n), error: () => this.news.set([]) });
+  }
+
+  /** Ouro e bitcoin são cotados em USD: o calendário e as notícias que importam são os dos EUA. */
+  protected focusCurrency = computed(() => ['metals', 'crypto'].includes(this.marketState.market()) ? 'USD' : null);
+
+  private loadSlow(): void {
+    this.api.upcoming(24, this.focusCurrency()).subscribe({ next: (e) => this.events.set(e), error: () => this.events.set([]) });
+    this.api.news(25, this.focusCurrency()).subscribe({ next: (n) => this.news.set(n), error: () => this.news.set([]) });
   }
 }

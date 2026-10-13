@@ -149,6 +149,12 @@ public class OrderService {
                 "SHADOW registra; DEMO exige conta demo; LIVE exige conta real"));
         checks.add(new Check("BLOCK / FLATTEN", !blocked() && !flattening(),
                 blocked() ? "BLOCK ligado" : flattening() ? "FLATTEN em andamento" : "livre", "desligados"));
+        RiskSettings.MarketRisk mr = marketRisk(inst.market());
+        checks.add(new Check("Mercado habilitado", mr != null && mr.enabled(),
+                mr == null ? "sem trading.risk.markets." + inst.market().code() : mr.enabled() ? "sim" : "desligado",
+                "enabled na página Risco"));
+        if (mr == null) return fail(symbol, side, lot, checks);
+        int closeAfter = mr.closeAfter(o);
 
         // ------------------------------------------------------------ cotação e ATR
         JsonNode quote = null;
@@ -175,8 +181,9 @@ public class OrderService {
         boolean stepOk = Math.abs(lot / inst.lotStep() - Math.rint(lot / inst.lotStep())) < 1e-6;
         checks.add(new Check("Lote", lot >= minLot - 1e-9 && lot <= maxLot + 1e-9 && stepOk,
                 fmt(lot, 2), String.format(Locale.ROOT, "%.2f a %.2f, passo %.2f", minLot, maxLot, inst.lotStep())));
-        Double slDist = atr == null ? null : riskHolder.get().exits().stopAtr() * atr;
-        Double tpDist = slDist == null ? null : riskHolder.get().exits().targetR() * slDist;
+        RiskSettings.Exits exits = mr.exits(riskHolder.get().exits());   // as do mercado (ouro: as da regra validada)
+        Double slDist = atr == null ? null : exits.stopAtr() * atr;
+        Double tpDist = slDist == null ? null : exits.targetR() * slDist;
         Double riskUsd = slDist == null ? null : inst.lossPerLot(slDist) * lot;
         Double rewardUsd = tpDist == null ? null : inst.lossPerLot(tpDist) * lot;
         double cap = balance == null ? 0 : riskHolder.get().global().maxRiskPerTradeMoney(balance);
@@ -187,7 +194,6 @@ public class OrderService {
         // ------------------------------------------------------------ carteira
         List<TradeRepository.Position> positions = repo.positions();
         long open = positions.size() + repo.openOrders("OPEN");
-        RiskSettings.MarketRisk mr = riskHolder.get().forMarket(inst.market());
         int maxPos = Math.min(riskHolder.get().global().maxPositions(), mr.maxPositions());
         checks.add(new Check("Posições abertas", open < maxPos, String.valueOf(open), "< " + maxPos));
         boolean samePair = positions.stream().anyMatch(p -> p.symbol().equals(symbol));
@@ -256,7 +262,7 @@ public class OrderService {
         Double tpPrice = ref == null || tpDist == null ? null : "BUY".equals(side) ? ref + tpDist : ref - tpDist;
         return new Preview(symbol, side, lot, ref, atr, slDist, tpDist, slPrice, tpPrice, riskUsd,
                 riskUsd == null || balance == null ? null : riskUsd / balance * 100, rewardUsd, balance, equity,
-                o.closeAfterMinutes() == 0 ? null : o.closeAfterMinutes(), mode.name(),
+                closeAfter == 0 ? null : closeAfter, mode.name(),
                 pred == null ? null : pred.id(), checks, ok);
     }
 
@@ -362,6 +368,14 @@ public class OrderService {
                 .param("from", Timestamp.from(now.minus(Duration.ofMinutes(o.blackoutAfterMinutes()))))
                 .param("to", Timestamp.from(now.plus(Duration.ofMinutes(o.blackoutBeforeMinutes()))))
                 .query(String.class).list();
+    }
+
+    private RiskSettings.MarketRisk marketRisk(Market market) {
+        try {
+            return riskHolder.get().forMarket(market);
+        } catch (IllegalArgumentException e) {
+            return null;   // sem orçamento para o mercado = sem ordem
+        }
     }
 
     /** Mercado do símbolo (especificação do MT5; senão o do application.yml; senão fx). */

@@ -37,11 +37,22 @@ export interface Prediction {
   rSell: number | null;
 }
 
+/** Regra de sinal validada para um mercado (live.signal-rules); null = gate 4. */
+export interface SignalRule {
+  model: string;
+  horizon: number;
+  minProb: number;
+  minMargin: number;
+  eventsOnly: boolean;
+  note: string | null;
+}
+
 export interface LatestPredictions {
   model_version: string | null;
   trained_until: string | null;
   lockbox_run: string | null;
   age_minutes: number | null;
+  rule: SignalRule | null;
   predictions: Prediction[];
 }
 
@@ -322,12 +333,12 @@ export class Api {
     return this.http.post<RunResult>('/api/predictions/run', {});
   }
 
-  upcoming(hours = 24): Observable<CalendarItem[]> {
-    return this.http.get<CalendarItem[]>(`/api/calendar/upcoming?hours=${hours}`);
+  upcoming(hours = 24, currency: string | null = null): Observable<CalendarItem[]> {
+    return this.http.get<CalendarItem[]>(`/api/calendar/upcoming?hours=${hours}${currency ? '&currency=' + currency : ''}`);
   }
 
-  news(limit = 30): Observable<NewsItem[]> {
-    return this.http.get<NewsItem[]>(`/api/news?limit=${limit}`);
+  news(limit = 30, currency: string | null = null): Observable<NewsItem[]> {
+    return this.http.get<NewsItem[]>(`/api/news?limit=${limit}${currency ? '&currency=' + currency : ''}`);
   }
 
   models(market = 'fx'): Observable<ModelsInfo> {

@@ -194,7 +194,7 @@ public final class FeatureBuilder {
      * de fora — falhar fechado).
      *
      * @param rows          colunas do gold de features (mesmos nomes do treino)
-     * @param candleFiles   arquivos do bronze lidos além do silver
+     * @param candleFiles   arquivos do bronze lidos além do silver (−1 = reaproveitou a leitura de outro mercado)
      * @param lastBarUtc    última barra M1 disponível (qualquer par)
      */
     public record Live(java.time.LocalDateTime at, List<Map<String, Object>> rows, int candleFiles, int calendarFiles,
@@ -212,6 +212,16 @@ public final class FeatureBuilder {
      * @param actualLatencySeconds latência do actual para estados não vistos ao vivo (silver.calendar)
      */
     public Live live(LakeSql sql, java.time.LocalDateTime at, int lookbackDays, int actualLatencySeconds) {
+        return live(sql, at, lookbackDays, actualLatencySeconds, false);
+    }
+
+    /**
+     * @param reuseRecent reaproveita o bronze recente (tabelas live_candles e live_cal) já lido NESTA conexão por
+     *                    outro mercado no mesmo instante. O bronze tem um arquivo por barra de cada símbolo: ler
+     *                    tudo de novo para cada mercado deixava a rodada lenta a ponto de perder o momento do evento.
+     */
+    public Live live(LakeSql sql, java.time.LocalDateTime at, int lookbackDays, int actualLatencySeconds,
+                     boolean reuseRecent) {
         Path silver = lakeRoot.resolve("silver");
         Path candles = silver.resolve("candles_m1");
         if (!Files.isDirectory(candles)) throw new IllegalStateException("Sem silver de candles. Rode antes: normalize");
@@ -238,7 +248,8 @@ public final class FeatureBuilder {
                 .orElse(silverMax == null ? java.time.Instant.EPOCH
                         : java.time.LocalDateTime.parse(silverMax.replace(' ', 'T')).minusMinutes(10)
                         .toInstant(java.time.ZoneOffset.UTC));
-        int candleFiles = com.jevforex.normalize.CandleNormalizer.createRecent(sql, lakeRoot, since, "live_candles");
+        int candleFiles = reuseRecent && tableExists(sql, "live_candles") ? -1
+                : com.jevforex.normalize.CandleNormalizer.createRecent(sql, lakeRoot, since, "live_candles");
         sql.execute("""
                 CREATE OR REPLACE TEMP TABLE m1 AS
                 SELECT symbol, time_utc AS t, time_utc + INTERVAL 1 MINUTE AS close_time,
@@ -262,7 +273,8 @@ public final class FeatureBuilder {
                         .toInstant(java.time.ZoneOffset.UTC);
             }
         }
-        int calFiles = com.jevforex.normalize.CalendarNormalizer.createRecent(sql, lakeRoot, calSince,
+        int calFiles = reuseRecent && tableExists(sql, "live_cal") ? -1
+                : com.jevforex.normalize.CalendarNormalizer.createRecent(sql, lakeRoot, calSince,
                 actualLatencySeconds, "live_cal");
         // silver + estados novos, sem repetir o mesmo estado (point-in-time pelo actual_available_utc, como no lote)
         sql.execute("""
@@ -287,6 +299,10 @@ public final class FeatureBuilder {
                 + "GROUP BY symbol ORDER BY symbol", rs -> bars.put(rs.getString(1),
                 new LastBar(rs.getString(2), rs.getDouble(3), rs.getInt(4))));
         return new Live(at, rows, candleFiles, calFiles, last, bars);
+    }
+
+    private static boolean tableExists(LakeSql sql, String table) {
+        return sql.scalar("SELECT count(*) FROM duckdb_tables() WHERE table_name = '" + table + "'") > 0;
     }
 
     /** Resultado do cálculo das features (temp table feats). */

@@ -30,8 +30,8 @@ import java.util.Map;
  * Dados do dashboard além das previsões (passo 6b). Só leitura.
  *
  * <pre>
- * GET /api/calendar/upcoming?hours=24   eventos com peso (HIGH/MODERATE) das últimas 2 h às próximas N h
- * GET /api/news?limit=30                últimos documentos dos bancos centrais + leitura do Jev (se já avaliados)
+ * GET /api/calendar/upcoming?hours=24[&currency=USD]   eventos com peso (HIGH/MODERATE) das últimas 2 h às próximas N h
+ * GET /api/news?limit=30[&currency=USD]                últimos documentos dos bancos centrais + leitura do Jev (se já avaliados)
  * GET /api/models                       versão em produção, versões, cofre e walk-forward de referência
  * </pre>
  */
@@ -56,7 +56,8 @@ public class DashboardController {
     }
 
     @GetMapping("/calendar/upcoming")
-    public List<Map<String, Object>> upcoming(@RequestParam(defaultValue = "24") int hours) {
+    public List<Map<String, Object>> upcoming(@RequestParam(defaultValue = "24") int hours,
+                                              @RequestParam(required = false) String currency) {
         List<String> important = featureProps.toConfig().importanceWeights().entrySet().stream()
                 .filter(e -> e.getValue() > 0).map(Map.Entry::getKey).toList();
         return jdbc.sql("""
@@ -65,6 +66,7 @@ public class DashboardController {
                           FROM (SELECT DISTINCT ON (mt5_value_id) *
                                   FROM calendar_event
                                  WHERE scheduled_at BETWEEN :from AND :to AND importance IN (:imp)
+                                   AND (CAST(:cur AS text) IS NULL OR currency = :cur)
                                  ORDER BY mt5_value_id, first_seen_at DESC) v
                           LEFT JOIN calendar_event_def d ON d.mt5_event_id = v.mt5_event_id
                          ORDER BY v.scheduled_at, v.currency
@@ -72,6 +74,7 @@ public class DashboardController {
                 .param("from", Timestamp.from(Instant.now().minus(Duration.ofHours(2))))
                 .param("to", Timestamp.from(Instant.now().plus(Duration.ofHours(Math.min(hours, 24 * 14)))))
                 .param("imp", important)
+                .param("cur", blankToNull(currency), java.sql.Types.VARCHAR)
                 .query((rs, i) -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("value_id", rs.getLong("mt5_value_id"));
@@ -88,15 +91,18 @@ public class DashboardController {
     }
 
     @GetMapping("/news")
-    public List<Map<String, Object>> news(@RequestParam(defaultValue = "30") int limit) {
+    public List<Map<String, Object>> news(@RequestParam(defaultValue = "30") int limit,
+                                          @RequestParam(required = false) String currency) {
         List<Map<String, Object>> docs = jdbc.sql("""
                         SELECT id, source, feed_id, issuer, currency, title, url, published_at, first_seen_at
                           FROM raw_document
                          WHERE parent_id IS NULL AND doc_type = 'cb_text'
                            AND coalesce(feed_id, '') NOT LIKE '%-archive'   -- acervo histórico não é notícia
+                           AND (CAST(:cur AS text) IS NULL OR currency = :cur)
                          ORDER BY coalesce(published_at, first_seen_at) DESC, id DESC LIMIT :limit
                         """)
                 .param("limit", Math.min(limit, 200))
+                .param("cur", blankToNull(currency), java.sql.Types.VARCHAR)
                 .query((rs, i) -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", rs.getLong("id"));
@@ -113,6 +119,10 @@ public class DashboardController {
         Map<String, Map<String, Object>> jev = jevReadings();
         for (Map<String, Object> d : docs) d.put("jev", jev.get((String) d.get("url")));
         return docs;
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim().toUpperCase(java.util.Locale.ROOT);
     }
 
     /** Leitura do Jev por URL (gold/currency_signals do conjunto em uso): tom, sinal e relevância. */

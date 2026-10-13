@@ -43,7 +43,7 @@ public record TradingProperties(
     }
 
     public record MarketRiskConfig(boolean enabled, double riskPerTradePct, double maxOpenRiskPct, int maxPositions,
-                                   double usdWeight) {
+                                   double usdWeight, Integer closeAfterMinutes, Double stopAtr, Double targetR) {
     }
 
     public record InstrumentConfig(String market, double tickSize, double tickValuePerLot, double minLot,
@@ -60,7 +60,8 @@ public record TradingProperties(
         Map<Market, RiskSettings.MarketRisk> m = new EnumMap<>(Market.class);
         if (risk.markets() != null) {
             risk.markets().forEach((code, c) -> m.put(Market.fromCode(code), new RiskSettings.MarketRisk(
-                    c.enabled(), c.riskPerTradePct(), c.maxOpenRiskPct(), c.maxPositions(), c.usdWeight())));
+                    c.enabled(), c.riskPerTradePct(), c.maxOpenRiskPct(), c.maxPositions(), c.usdWeight(),
+                    c.closeAfterMinutes(), c.stopAtr(), c.targetR())));
         }
         return new RiskSettings(global, m, risk.exits(), risk.orders(), risk.lossProfiles());
     }

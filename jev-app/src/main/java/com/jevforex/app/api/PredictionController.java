@@ -50,6 +50,7 @@ public class PredictionController {
         out.put("model_version", m == null ? null : m.manifest().version());
         out.put("trained_until", m == null ? null : m.manifest().trainTo());
         out.put("lockbox_run", m == null ? null : m.manifest().lockboxRun());
+        out.put("rule", live.rule(market));   // regra de sinal do mercado (null = gate 4)
         List<PredictionRepository.Prediction> rows = repo.latest(market);
         out.put("age_minutes", rows.stream().map(PredictionRepository.Prediction::momentUtc).max(Instant::compareTo)
                 .map(t -> Duration.between(t, Instant.now()).toMinutes()).orElse(null));
