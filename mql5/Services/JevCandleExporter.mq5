@@ -21,16 +21,17 @@
 #include <Jev/Symbols.mqh>
 
 input string   InpFxSymbols     = "EURUSD,GBPUSD,USDJPY,USDCHF,AUDUSD,USDCAD,NZDUSD"; // Forex (nomes canônicos)
-input string   InpMetalSymbols  = "XAUUSD";                 // Metais (só especificações por enquanto)
-input string   InpCryptoSymbols = "BTCUSD";                 // Cripto (só especificações por enquanto)
+input string   InpMetalSymbols  = "XAUUSD";                 // Metais (ouro)
+input string   InpCryptoSymbols = "BTCUSD";                 // Cripto (bitcoin)
 input string   InpIndexSymbols  = "AUS200,DE30,FR40,HK50,JP225,STOXX50,UK100,US30,US500,USTEC,IN50"; // Índices
 input string   InpStockSymbols1 = "AAPL,MSFT,NVDA,META,GOOGL,INTC,SPCX"; // Ações (o histórico das demais fica no bronze)
 input string   InpStockSymbols2 = "";                       // Ações (mais, se quiser)
 input string   InpStockSymbols3 = "";                       // Ações (mais, se quiser)
 input string   InpCandleMarkets = "fx,indices,stocks";      // Mercados com candles exportados (fx,metals,crypto,indices,stocks)
+input string   InpCandleMarkets2 = "metals,crypto";          // Mais mercados com candles (ouro e bitcoin)
 input string   InpSuffix        = "m";                      // Sufixo da corretora (Exness: m → EURUSDm)
 input datetime InpHistoryFrom   = D'2016.01.01';            // Histórico M1 a partir de
-input datetime InpHistoryFromOther = D'2022.01.01';         // Histórico M1 de índices e ações a partir de
+input datetime InpHistoryFromOther = D'2022.01.01';         // Histórico M1 de índices, ações, ouro e bitcoin a partir de
 input int      InpSpecMinutes   = 60;                       // Especificações a cada N minutos
 input int      InpPollMs        = 1000;                     // Verificação de barra nova (ms)
 
@@ -388,12 +389,12 @@ void ExportLive()
 void OnStart()
   {
    string candleMarkets[];
-   JevSplitList(InpCandleMarkets, candleMarkets);
+   JevSplitList(InpCandleMarkets + "," + InpCandleMarkets2, candleMarkets);
    if(!JevWaitConnected())
       return;
    AddSymbols(InpFxSymbols, "fx", candleMarkets, InpHistoryFrom);
-   AddSymbols(InpMetalSymbols, "metals", candleMarkets, InpHistoryFrom);
-   AddSymbols(InpCryptoSymbols, "crypto", candleMarkets, InpHistoryFrom);
+   AddSymbols(InpMetalSymbols, "metals", candleMarkets, InpHistoryFromOther);
+   AddSymbols(InpCryptoSymbols, "crypto", candleMarkets, InpHistoryFromOther);
    AddSymbols(InpIndexSymbols, "indices", candleMarkets, InpHistoryFromOther);
    AddSymbols(InpStockSymbols1, "stocks", candleMarkets, InpHistoryFromOther);
    AddSymbols(InpStockSymbols2, "stocks", candleMarkets, InpHistoryFromOther);

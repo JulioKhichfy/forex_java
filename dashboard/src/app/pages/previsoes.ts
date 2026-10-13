@@ -4,10 +4,11 @@ import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, Prediction, RunResult
 import { ProbBar } from './prob-bar';
 import { Tip } from './tip';
 import { MarketState } from '../market';
+import { MyTrades } from './my-trades';
 
 @Component({
   selector: 'page-previsoes',
-  imports: [DatePipe, DecimalPipe, SlicePipe, ProbBar, Tip],
+  imports: [DatePipe, DecimalPipe, SlicePipe, ProbBar, Tip, MyTrades],
   template: `
     <div class="head">
       <h1>Previsões ao vivo</h1>
@@ -64,7 +65,8 @@ import { MarketState } from '../market';
 
     <div class="grid two" style="margin-top:16px">
       <section class="panel">
-        <h3>Placar ao vivo (últimos 90 dias) <tip text="O resultado REAL das previsões automáticas, depois do horizonte. É a única evidência nova daqui em diante." /></h3>
+        <my-trades [days]="30" [compact]="true" />
+        <h3 style="margin-top:14px">Placar dos modelos (últimos 90 dias) <tip text="O resultado REAL das previsões automáticas, depois do horizonte. É a única evidência nova daqui em diante." /></h3>
         <div class="table-wrap"><table>
           <tr><th>Modelo</th><th>Horizonte</th><th class="right">Resolvidas <tip key="resolvidas" /></th><th class="right">Acerto da classe <tip key="acertoClasse" /></th>
             <th class="right">Sinais <tip key="gate4" /></th><th class="right">E[R] <tip key="er" /></th><th class="right">Acerto <tip key="acerto" /></th></tr>

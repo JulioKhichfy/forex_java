@@ -26,7 +26,7 @@ import java.util.Map;
 /**
  * Tarefas disparadas pelo dashboard (passo 6d): os MESMOS comandos da CLI, cada um num processo Java separado
  * (memória própria; o servidor segue atendendo). Uma tarefa por vez; log em reports/jobs/&lt;id&gt;.log.
- * Só tarefas desta lista — nada que gaste créditos do Jev ou envie ordens.
+ * Só tarefas desta lista — nenhuma envia ordens; a única que gasta créditos do Jev tem teto e vem depois do plano.
  */
 @Service
 public class JobService {
@@ -52,6 +52,13 @@ public class JobService {
                 List.of(List.of("collect-once"))));
         add(new JobDef("placar", "Atualizar placar", "dá o resultado às previsões com o horizonte vencido",
                 List.of(List.of("resolve-predictions"))));
+        // o Jev custa dinheiro: primeiro o plano (sem chamar), depois a avaliação com teto (regra do CLAUDE.md)
+        add(new JobDef("jev-plano", "Jev: ver plano e custo",
+                "normaliza os documentos novos e mostra quantos trechos faltam avaliar e o custo estimado (não chama o Jev)",
+                List.of(List.of("normalize", "--only=documents"), List.of("jev-score"))));
+        add(new JobDef("jev-avaliar", "Jev: avaliar (até US$ 0,10)",
+                "chama o Jev para os trechos pendentes com teto de US$ 0,10 e atualiza as leituras das notícias",
+                List.of(List.of("jev-score", "--run", "--max-usd=0.10"), List.of("jev-signals"))));
     }
 
     private static void add(JobDef d) {

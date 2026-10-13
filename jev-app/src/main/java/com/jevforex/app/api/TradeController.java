@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -73,6 +74,42 @@ public class TradeController {
         limits.put("exits", riskHolder.get().exits());
         limits.put("orders", riskHolder.get().orders());
         out.put("limits", limits);
+        return out;
+    }
+
+    /**
+     * Placar das SUAS operações (fechadas): cada uma com resultado em US$ e em R (resultado ÷ perda máxima
+     * planejada na entrada), e o resumo do período.
+     */
+    @GetMapping("/performance")
+    public Map<String, Object> performance(@RequestParam(defaultValue = "30") int days) {
+        List<TradeRepository.ClosedTrade> list = repo.closedTrades(java.time.Instant.now()
+                .minus(java.time.Duration.ofDays(Math.min(days, 3650))), 500);
+        double gains = 0, losses = 0, sumR = 0;
+        int wins = 0, withR = 0;
+        for (TradeRepository.ClosedTrade t : list) {
+            if (t.resultUsd() > 0) {
+                wins++;
+                gains += t.resultUsd();
+            } else {
+                losses -= t.resultUsd();
+            }
+            if (t.r() != null) {
+                sumR += t.r();
+                withR++;
+            }
+        }
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("trades", list.size());
+        summary.put("wins", wins);
+        summary.put("result_usd", gains - losses);
+        summary.put("profit_factor", losses == 0 ? null : gains / losses);
+        summary.put("avg_r", withR == 0 ? null : sumR / withR);
+        summary.put("hit_rate", list.isEmpty() ? null : (double) wins / list.size());
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("days", days);
+        out.put("summary", summary);
+        out.put("trades", list);
         return out;
     }
 

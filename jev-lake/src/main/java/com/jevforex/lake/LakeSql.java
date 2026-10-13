@@ -148,15 +148,28 @@ public final class LakeSql implements AutoCloseable {
      * uma pasta pela metade: ou a versão anterior inteira, ou a nova inteira.
      */
     public static void replaceDirectory(Path built, Path target) {
-        try {
-            Path old = target.resolveSibling(target.getFileName() + ".old");
-            deleteRecursively(old);
-            if (Files.exists(target)) Files.move(target, old);
-            Files.move(built, target);
-            deleteRecursively(old);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Não consegui substituir " + target, e);
+        // no Windows a pasta não troca de nome se alguém (o servidor prevendo ao vivo) estiver lendo um arquivo
+        // dela naquele instante: tenta de novo por até ~30 s antes de desistir
+        IOException last = null;
+        for (int attempt = 0; attempt < 10; attempt++) {
+            try {
+                Path old = target.resolveSibling(target.getFileName() + ".old");
+                deleteRecursively(old);
+                if (Files.exists(target)) Files.move(target, old);
+                Files.move(built, target);
+                deleteRecursively(old);
+                return;
+            } catch (IOException | UncheckedIOException e) {
+                last = e instanceof IOException io ? io : ((UncheckedIOException) e).getCause();
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
         }
+        throw new UncheckedIOException("Não consegui substituir " + target + " (arquivo em uso?)", last);
     }
 
     public static void deleteRecursively(Path dir) {

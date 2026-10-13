@@ -140,3 +140,7 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             custo de 1 spread = 0,47 ATR (índices) e 0,9 ATR (ações).
             Decisão do operador (11/10): só 7 ações (AAPL, MSFT, NVDA, META, GOOGL, INTC, SPCX; `experiment.market-symbols`;
             o bronze guarda as demais) e índices; cofres abertos (indices/stocks) e modelos em produção nos 3 mercados
+      - [ ] 8 ouro (XAUUSD, metals) e bitcoin (BTCUSD, crypto): histórico M1 desde 2022, features e walk-forward;
+            placar das operações do operador (EA 2.1 reporta fechamentos, inclusive SL/TP no servidor → ea_deal, V8);
+            notícias sem o acervo histórico e com avaliação do Jev pelo dashboard (plano → avaliar com teto US$ 0,10);
+            janela ao vivo por mercado (ações: 130 dias — o regime pede 1.920 barras M15)

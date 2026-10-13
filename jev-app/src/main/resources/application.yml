@@ -108,20 +108,24 @@ experiment:
   risk-per-trade-pct: 0.5         # só para o drawdown simulado do relatório
   threads: 0                      # 0 = núcleos − 1
   models: [A, E, B]               # dashboard: A = preço; E = só eventos; B = eventos + preço (C = + texto do Jev e D = + surpresa de tom seguem disponíveis)
-  markets: [fx, indices, stocks]  # mercados com modelo (treino mensal e previsões ao vivo); inclua indices e stocks
+  markets: [fx, indices, stocks, metals, crypto]  # mercados com modelo (treino mensal e previsões ao vivo); inclua indices e stocks
                                   # depois de: features --market=…, train --market=… e o cofre de cada um
   market-symbols:                 # universo por mercado (vazio = todos do silver); o bronze guarda o resto
     stocks: [AAPL, MSFT, NVDA, META, GOOGL, INTC, SPCX]
-  market-from:                    # início do período por mercado (índices e ações: histórico desde 2022)
+  market-from:                    # início do período por mercado (índices, ações, ouro e bitcoin: histórico desde 2022)
     indices: 2022-01-01
     stocks: 2022-01-01
+    metals: 2022-01-01
+    crypto: 2022-01-01
 
 # ---------------------------------------------------------------------
 #  Previsões ao vivo (passo 6a): modelos em produção (train-champion), mesmos momentos do treino
 # ---------------------------------------------------------------------
 live:
   enabled: true                   # modo servidor: prevê na hora cheia e em evento + 2 min (seg a sex)
-  lookback-days: 40               # M1 lido para as features (regime e spread típico pedem ~28 dias)
+  lookback-days: 40               # M1 lido para as features (regime: 1.920 barras M15 ≈ 20 dias num mercado de 24 h)
+  lookback-days-by-market:        # ações negociam ~6,5 h por dia: as mesmas 1.920 barras pedem ~105 dias corridos
+    stocks: 130
   cron: "20 * * * * *"            # segundo 20 de cada minuto (UTC): dá tempo da barra do momento chegar do MT5
 
 # ---------------------------------------------------------------------

@@ -6,10 +6,11 @@ import { catchError, concatMap, forkJoin, from, map, of } from 'rxjs';
 import { ProbBar } from './prob-bar';
 import { Tip } from './tip';
 import { MarketState } from '../market';
+import { JobsPanel } from './jobs-panel';
 
 @Component({
   selector: 'page-hoje',
-  imports: [DatePipe, DecimalPipe, RouterLink, ProbBar, Tip],
+  imports: [DatePipe, DecimalPipe, RouterLink, ProbBar, Tip, JobsPanel],
   template: `
     <div class="notice">
       <b>Apoio à decisão, não sinal garantido.</b> No teste fora da amostra nenhum modelo superou o custo de forma
@@ -126,6 +127,11 @@ import { MarketState } from '../market';
 
     <section class="panel" style="margin-top:16px">
       <h3>Últimas notícias dos bancos centrais</h3>
+      <div class="jev-box">
+        <span class="small muted">Documentos novos só ganham a leitura do Jev depois de avaliados. Primeiro veja o plano (quantos
+          trechos e quanto custa, sem chamar o Jev); depois avalie com teto de US$ 0,10 <tip key="jev" />.</span>
+        <jobs-panel [names]="['jev-plano', 'jev-avaliar']" />
+      </div>
       <div class="table-wrap"><table>
         <tr><th>Visto em (UTC)</th><th>Emissor</th><th>Título</th><th>Leitura do Jev <tip key="jev" /></th></tr>
         @for (n of news(); track n.id) {
@@ -155,6 +161,7 @@ import { MarketState } from '../market';
     .trade-bar label { display: flex; align-items: center; gap: 6px; }
     .trade-bar input { width: 80px; font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border);
       background: var(--panel-2); color: var(--text); }
+    .jev-box { margin: 4px 0 12px; display: grid; gap: 6px; }
     .plan { margin-top: 12px; padding: 12px; border: 1px solid var(--warn); border-radius: 8px; background: var(--panel-2); }
     tr.blocked td { opacity: .6; }
   `,

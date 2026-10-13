@@ -93,6 +93,7 @@ public class DashboardController {
                         SELECT id, source, feed_id, issuer, currency, title, url, published_at, first_seen_at
                           FROM raw_document
                          WHERE parent_id IS NULL AND doc_type = 'cb_text'
+                           AND coalesce(feed_id, '') NOT LIKE '%-archive'   -- acervo histórico não é notícia
                          ORDER BY coalesce(published_at, first_seen_at) DESC, id DESC LIMIT :limit
                         """)
                 .param("limit", Math.min(limit, 200))

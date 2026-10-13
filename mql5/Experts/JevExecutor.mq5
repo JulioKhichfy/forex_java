@@ -39,10 +39,11 @@ input string InpSymbols          = "EURUSD,GBPUSD,USDJPY,USDCHF,AUDUSD,USDCAD,NZ
 input string InpSymbols2         = "AAPL,MSFT,NVDA,META,GOOGL,INTC,SPCX"; // Cotações: ações em uso
 input string InpSymbols3         = "";                         // Cotações: mais ações, se quiser
 input string InpSymbols4         = "";                         // Cotações: mais ações, se quiser
+input string InpSymbols5         = "XAUUSD,BTCUSD";            // Cotações: ouro e bitcoin
 input int    InpPollSeconds      = 1;                       // Busca de ordens (s)
 input int    InpHeartbeatSeconds = 5;                       // Heartbeat (s)
 
-#define EA_VERSION "JevExecutor/2.0"
+#define EA_VERSION "JevExecutor/2.1"
 #define MAX_SEEN   500
 
 CTrade   g_trade;
@@ -104,7 +105,7 @@ int OnInit()
       Print("JevExecutor: não consegui criar o timer");
       return INIT_FAILED;
      }
-   JevSplitList(InpSymbols + "," + InpSymbols2 + "," + InpSymbols3 + "," + InpSymbols4, g_symbols);
+   JevSplitList(InpSymbols + "," + InpSymbols2 + "," + InpSymbols3 + "," + InpSymbols4 + "," + InpSymbols5, g_symbols);
    g_trade.SetExpertMagicNumber(InpMagic);
    g_trade.SetAsyncMode(false);
    PrintFormat("JevExecutor %s iniciado: conta %I64d em %s (%s), API %s, %s, teto %.2f lote.", EA_VERSION,
@@ -446,6 +447,47 @@ string PositionsJson(int &count)
    return "[" + out + "]";
   }
 
+//+------------------------------------------------------------------+
+//| Fechamentos dos últimos 7 dias deste EA (magic): inclui os que o  |
+//| SERVIDOR fez (SL/TP), que o sistema não vê pela fila de ordens.   |
+//+------------------------------------------------------------------+
+string DealsJson()
+  {
+   datetime to = TimeTradeServer() + 60, from = to - 7 * 86400;
+   if(!HistorySelect(from, to))
+      return "[]";
+   string out = "";
+   int count = 0;
+   for(int i = HistoryDealsTotal() - 1; i >= 0 && count < 100; i--)
+     {
+      ulong d = HistoryDealGetTicket(i);
+      if(d == 0 || HistoryDealGetInteger(d, DEAL_MAGIC) != InpMagic)
+         continue;
+      long entry = HistoryDealGetInteger(d, DEAL_ENTRY);
+      if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY)
+         continue;
+      string broker = HistoryDealGetString(d, DEAL_SYMBOL);
+      int digits = (int)SymbolInfoInteger(broker, SYMBOL_DIGITS);
+      long reason = HistoryDealGetInteger(d, DEAL_REASON);
+      string why = reason == DEAL_REASON_SL ? "SL" : reason == DEAL_REASON_TP ? "TP"
+                   : reason == DEAL_REASON_EXPERT ? "EA" : reason == DEAL_REASON_SO ? "STOP_OUT" : "MANUAL";
+      if(out != "")
+         out += ",";
+      out += StringFormat("{\"deal\":%I64u,\"position\":%I64d,\"symbol\":\"%s\",\"type\":\"%s\",\"volume\":%s,"
+                          "\"price\":%s,\"profit\":%s,\"swap\":%s,\"commission\":%s,\"reason\":\"%s\",\"time\":\"%s\"}",
+                          d, HistoryDealGetInteger(d, DEAL_POSITION_ID), Canonical(broker),
+                          HistoryDealGetInteger(d, DEAL_TYPE) == DEAL_TYPE_BUY ? "BUY" : "SELL",
+                          DoubleToString(HistoryDealGetDouble(d, DEAL_VOLUME), 2),
+                          DoubleToString(HistoryDealGetDouble(d, DEAL_PRICE), digits),
+                          DoubleToString(HistoryDealGetDouble(d, DEAL_PROFIT), 2),
+                          DoubleToString(HistoryDealGetDouble(d, DEAL_SWAP), 2),
+                          DoubleToString(HistoryDealGetDouble(d, DEAL_COMMISSION), 2), why,
+                          JevIsoUtc((datetime)(HistoryDealGetInteger(d, DEAL_TIME) - JevServerOffsetSeconds())));
+      count++;
+     }
+   return "[" + out + "]";
+  }
+
 void SendHeartbeat()
   {
    int mine = 0;
@@ -456,7 +498,7 @@ void SendHeartbeat()
                     "\"margin\":%s,\"margin_free\":%s,\"margin_level\":%s,"
                     "\"leverage\":%I64d,\"positions\":%d,\"algo_enabled\":%s,\"connected\":%s,"
                     "\"terminal_build\":%d,\"suffix\":\"%s\",\"magic\":%I64d,\"cmd\":\"%s\",\"max_lot\":%s,"
-                    "\"time\":\"%s\",\"quotes\":%s,\"open\":%s}",
+                    "\"time\":\"%s\",\"quotes\":%s,\"open\":%s,\"deals\":%s}",
                     AccountInfoInteger(ACCOUNT_LOGIN),
                     JevJsonEscape(AccountInfoString(ACCOUNT_SERVER)),
                     JevJsonEscape(AccountInfoString(ACCOUNT_COMPANY)),
@@ -473,7 +515,7 @@ void SendHeartbeat()
                     TerminalInfoInteger(TERMINAL_CONNECTED) ? "true" : "false",
                     (int)TerminalInfoInteger(TERMINAL_BUILD),
                     JevJsonEscape(InpSuffix), InpMagic, g_cmd, DoubleToString(InpMaxLot, 2),
-                    JevIsoUtc(TimeGMT()), QuotesJson(), open);
+                    JevIsoUtc(TimeGMT()), QuotesJson(), open, DealsJson());
    string reply;
    int code = JevHttpPostJson(InpApi + "/api/ea/heartbeat", json, reply);
    if(code != 200)

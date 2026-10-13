@@ -6,10 +6,11 @@ import { ProbBar } from './prob-bar';
 import { Tip } from './tip';
 import { HELP } from '../help';
 import { MarketState } from '../market';
+import { MyTrades } from './my-trades';
 
 @Component({
   selector: 'page-operar',
-  imports: [DatePipe, DecimalPipe, FormsModule, ProbBar, Tip],
+  imports: [DatePipe, DecimalPipe, FormsModule, ProbBar, Tip, MyTrades],
   template: `
     <h1>Operar</h1>
     @if (state(); as s) {
@@ -150,6 +151,10 @@ import { MarketState } from '../market';
             <tr><td colspan="10" class="muted">Nenhuma posição aberta.</td></tr>
           }
         </table></div>
+      </section>
+
+      <section class="panel" style="margin-top:16px">
+        <my-trades [days]="30" />
       </section>
 
       <section class="panel" style="margin-top:16px">

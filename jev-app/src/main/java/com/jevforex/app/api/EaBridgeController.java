@@ -145,6 +145,19 @@ public class EaBridgeController {
                         p.hasNonNull("magic") ? p.path("magic").asLong() : null, instant(p, "time"), at));
             }
             trades.replacePositions(account, positions);
+            if (body.has("deals")) {
+                List<TradeRepository.Deal> deals = new ArrayList<>();
+                for (JsonNode d : body.path("deals")) {
+                    String symbol = d.path("symbol").asText();
+                    Instant closed = instant(d, "time");
+                    if (closed == null) continue;
+                    deals.add(new TradeRepository.Deal(d.path("deal").asLong(), d.path("position").asLong(), account,
+                            orders.marketOf(symbol), symbol, d.path("type").asText(), d.path("volume").asDouble(),
+                            d.path("price").asDouble(), d.path("profit").asDouble(), d.path("swap").asDouble(),
+                            d.path("commission").asDouble(), d.path("reason").asText(), closed));
+                }
+                trades.upsertDeals(deals);
+            }
             if (positions.isEmpty() && orders.flattening()) {
                 trades.setSetting(OrderService.SETTING_FLATTEN, "false");   // tudo fechado; o BLOCK continua ligado
                 log.info("FLATTEN concluído: nenhuma posição aberta. BLOCK continua ligado até você desligar.");

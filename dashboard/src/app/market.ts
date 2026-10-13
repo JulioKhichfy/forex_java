@@ -4,6 +4,8 @@ export const MARKETS: { code: string; label: string }[] = [
   { code: 'fx', label: 'Forex' },
   { code: 'indices', label: 'Índices' },
   { code: 'stocks', label: 'Ações' },
+  { code: 'metals', label: 'Ouro' },
+  { code: 'crypto', label: 'Bitcoin' },
 ];
 
 /** Mercado escolhido no topo do dashboard (lembrado no navegador). */

@@ -22,7 +22,7 @@ import MetaTrader5 as mt5
 
 INDICES = "AUS200,DE30,FR40,HK50,JP225,STOXX50,UK100,US30,US500,USTEC,IN50"
 STOCKS = "AAPL,MSFT,NVDA,META,GOOGL,INTC,SPCX"   # ações em uso (experiment.market-symbols); o histórico das outras 95 já está no bronze
-LISTS = {"indices": INDICES, "stocks": STOCKS}
+LISTS = {"indices": INDICES, "stocks": STOCKS, "metals": "XAUUSD", "crypto": "BTCUSD"}
 EXPORTER = "JevHistoryPy/1.0"
 CANDLE_HEADER = ("market;symbol;broker_symbol;time_server;time_utc;open;high;low;close;tick_volume;spread_points;"
                  "real_volume")

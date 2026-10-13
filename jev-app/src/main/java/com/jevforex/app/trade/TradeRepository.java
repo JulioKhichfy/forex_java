@@ -174,6 +174,68 @@ public class TradeRepository {
                 instant(rs, "open_time"), instant(rs, "reported_at"))).list();
     }
 
+    // ------------------------------------------------------------------ fechamentos (placar das operações)
+
+    public record Deal(long dealTicket, long positionTicket, long account, String market, String symbol, String side,
+                       double volume, double price, double profit, double swap, double commission, String reason,
+                       Instant closedAt) {
+    }
+
+    /** Grava os fechamentos reportados (repetidos são ignorados: o EA manda os últimos 7 dias a cada heartbeat). */
+    public void upsertDeals(List<Deal> deals) {
+        for (Deal d : deals) {
+            jdbc().sql("""
+                            INSERT INTO ea_deal (deal_ticket, position_ticket, account, market, symbol, side, volume, price,
+                                                 profit, swap, commission, reason, closed_at)
+                            VALUES (:deal, :pos, :account, :market, :symbol, :side, :volume, :price, :profit, :swap,
+                                    :commission, :reason, :closed)
+                            ON CONFLICT (deal_ticket) DO NOTHING
+                            """)
+                    .param("deal", d.dealTicket()).param("pos", d.positionTicket()).param("account", d.account())
+                    .param("market", d.market()).param("symbol", d.symbol()).param("side", d.side())
+                    .param("volume", d.volume()).param("price", d.price()).param("profit", d.profit())
+                    .param("swap", d.swap()).param("commission", d.commission()).param("reason", d.reason())
+                    .param("closed", ts(d.closedAt()), Types.TIMESTAMP)
+                    .update();
+        }
+    }
+
+    /**
+     * Uma operação fechada: a ordem de entrada (lado, risco planejado) e o(s) fechamento(s) da posição.
+     *
+     * @param resultUsd lucro líquido (lucro + swap + comissão)
+     * @param r         resultado ÷ risco planejado na entrada (perda máxima no stop); null sem a ordem de entrada
+     */
+    public record ClosedTrade(long positionTicket, String market, String symbol, String side, double volume,
+                              Double entryPrice, Double exitPrice, Instant openedAt, Instant closedAt, String reason,
+                              double resultUsd, Double riskUsd, Double r) {
+    }
+
+    public List<ClosedTrade> closedTrades(Instant from, int limit) {
+        return jdbc().sql("""
+                        WITH d AS (
+                            SELECT position_ticket, min(market) AS market, min(symbol) AS symbol,
+                                   sum(volume) AS volume, max(closed_at) AS closed_at,
+                                   (array_agg(price ORDER BY closed_at DESC))[1] AS exit_price,
+                                   (array_agg(reason ORDER BY closed_at DESC))[1] AS reason,
+                                   sum(profit + swap + commission) AS result
+                              FROM ea_deal WHERE closed_at >= :from GROUP BY position_ticket)
+                        SELECT d.*, o.side, o.fill_price, o.created_at AS opened_at, o.risk_usd
+                          FROM d LEFT JOIN order_request o ON o.ticket = d.position_ticket AND o.action = 'OPEN'
+                         ORDER BY d.closed_at DESC LIMIT :limit
+                        """)
+                .param("from", ts(from), Types.TIMESTAMP).param("limit", limit)
+                .query((rs, i) -> {
+                    Double risk = (Double) rs.getObject("risk_usd");
+                    double result = rs.getDouble("result");
+                    String side = rs.getString("side");
+                    return new ClosedTrade(rs.getLong("position_ticket"), rs.getString("market"), rs.getString("symbol"),
+                            side, rs.getDouble("volume"), (Double) rs.getObject("fill_price"),
+                            (Double) rs.getObject("exit_price"), instant(rs, "opened_at"), instant(rs, "closed_at"),
+                            rs.getString("reason"), result, risk, risk == null || risk <= 0 ? null : result / risk);
+                }).list();
+    }
+
     // ------------------------------------------------------------------ ajustes do dashboard
 
     public Optional<String> setting(String key) {

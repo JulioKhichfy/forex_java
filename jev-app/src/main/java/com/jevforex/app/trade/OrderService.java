@@ -372,13 +372,13 @@ public class OrderService {
         return i == null ? "fx" : i.market().code();
     }
 
-    /** Símbolos operáveis por mercado: forex do application.yml; índices e ações das especificações do MT5. */
+    /** Símbolos operáveis por mercado: forex do application.yml; os demais das especificações do MT5. */
     public java.util.Map<String, List<String>> symbolsByMarket() {
         java.util.Map<String, java.util.TreeSet<String>> m = new java.util.TreeMap<>();
         catalog.bySymbol().values().forEach(i -> m.computeIfAbsent(i.market().code(), k -> new java.util.TreeSet<>())
                 .add(i.symbol()));
         for (Mt5Parsers.InstrumentSpec s : mt5.latestSpecs()) {
-            if ("indices".equals(s.market()) || "stocks".equals(s.market())) {
+            if (!"fx".equals(s.market())) {   // índices, ações, ouro e bitcoin vêm das especificações do MT5
                 List<String> allowed = experiment.symbolsOf(s.market());
                 if (allowed == null || allowed.contains(s.symbol())) {
                     m.computeIfAbsent(s.market(), k -> new java.util.TreeSet<>()).add(s.symbol());
