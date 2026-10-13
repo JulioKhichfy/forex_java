@@ -22,7 +22,7 @@
 //| Expert Advisors → "Permitir WebRequest…" → http://127.0.0.1:8080  |
 //+------------------------------------------------------------------+
 #property copyright   "Jev Forex"
-#property version     "2.00"
+#property version     "2.10"
 #property description "Jev Forex — executor das ordens aprovadas no dashboard, com SL/TP no servidor."
 
 #include <Trade/Trade.mqh>
