@@ -2,6 +2,7 @@ import { Component, OnDestroy, OnInit, inject, input, signal } from '@angular/co
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Tip } from './tip';
+import { Brt } from '../brt';
 
 interface ClosedTrade {
   positionTicket: number;
@@ -32,7 +33,7 @@ const REASONS: Record<string, string> = {
 /** Placar das operações do operador: o que de fato aconteceu com o dinheiro (inclui SL/TP feitos pela corretora). */
 @Component({
   selector: 'my-trades',
-  imports: [DatePipe, DecimalPipe, Tip],
+  imports: [DatePipe, DecimalPipe, Tip, Brt],
   template: `
     <h3>Suas operações ({{ days() }} dias) <tip text="O resultado REAL das ordens que você enviou, inclusive as que a corretora fechou sozinha no stop ou no alvo. Diferente do placar dos modelos, que mede as previsões." /></h3>
     @if (perf(); as p) {
@@ -51,7 +52,7 @@ const REASONS: Record<string, string> = {
             <th class="right">Resultado</th><th class="right">R <tip key="R" /></th></tr>
           @for (t of p.trades; track t.positionTicket) {
             <tr>
-              <td class="small mono nowrap">{{ t.closedAt | date: 'dd/MM HH:mm' : 'UTC' }}</td>
+              <td class="small mono nowrap" [brt]="t.closedAt">{{ t.closedAt | date: 'dd/MM HH:mm' : 'UTC' }}</td>
               <td class="mono">{{ t.symbol }}</td>
               <td>@if (t.side) { <span class="badge" [class.buy]="t.side === 'BUY'" [class.sell]="t.side === 'SELL'">{{ t.side === 'BUY' ? 'COMPRA' : 'VENDA' }}</span> }</td>
               <td class="right mono">{{ t.volume }}</td>

@@ -5,12 +5,13 @@ import { Api, CalendarItem, LatestPredictions, MODEL_NAMES, NewsItem, OrderPrevi
 import { catchError, concatMap, forkJoin, from, map, of } from 'rxjs';
 import { ProbBar } from './prob-bar';
 import { Tip } from './tip';
+import { Brt } from '../brt';
 import { MarketState } from '../market';
 import { JobsPanel } from './jobs-panel';
 
 @Component({
   selector: 'page-hoje',
-  imports: [DatePipe, DecimalPipe, RouterLink, ProbBar, Tip, JobsPanel],
+  imports: [DatePipe, DecimalPipe, RouterLink, ProbBar, Tip, JobsPanel, Brt],
   template: `
     <div class="notice">
       <b>Apoio à decisão, não sinal garantido.</b> No teste fora da amostra nenhum modelo superou o custo de forma
@@ -22,7 +23,7 @@ import { JobsPanel } from './jobs-panel';
       <div class="alert" [class.buy]="f.signal === 'BUY'" [class.sell]="f.signal === 'SELL'">
         <div>
           <b>SINAL {{ f.signal === 'BUY' ? 'DE COMPRA' : 'DE VENDA' }} · {{ f.symbol }}</b>
-          <span class="small"> {{ names[f.model] ?? f.model }}, {{ f.horizonMin }} min · momento {{ f.momentUtc | date: 'HH:mm' : 'UTC' }} UTC
+          <span class="small"> {{ names[f.model] ?? f.model }}, {{ f.horizonMin }} min · momento <span [brt]="f.momentUtc">{{ f.momentUtc | date: 'HH:mm' : 'UTC' }} UTC</span>
             ({{ ageMin(f) }} min atrás) · P(alta) {{ f.pUp * 100 | number: '1.0-0' }}% · P(queda) {{ f.pDown * 100 | number: '1.0-0' }}%</span>
           <div class="small">Vale enquanto for recente: no histórico, entrar 5 min depois já levava o resultado para perto de zero.
             A ordem sai sozinha em {{ f.horizonMin }} min se o stop ou o alvo não vierem antes.</div>
@@ -76,7 +77,7 @@ import { JobsPanel } from './jobs-panel';
             @for (p of mainModel(); track p.id) {
               <tr>
                 <td class="mono">{{ p.symbol }}</td>
-                <td class="small muted nowrap">{{ p.momentUtc | date: 'dd/MM HH:mm' : 'UTC' }} {{ p.kind === 'EVENT' ? '· evento' : '' }}</td>
+                <td class="small muted nowrap"><span [brt]="p.momentUtc">{{ p.momentUtc | date: 'dd/MM HH:mm' : 'UTC' }}</span> {{ p.kind === 'EVENT' ? '· evento' : '' }}</td>
                 <td><prob-bar [down]="p.pDown" [flat]="p.pFlat" [up]="p.pUp" /></td>
                 <td class="nowrap">
                   <span class="badge" [class.buy]="side(p) === 'BUY'" [class.sell]="side(p) === 'SELL'">{{ side(p) === 'BUY' ? 'COMPRA' : 'VENDA' }}</span>
@@ -130,7 +131,7 @@ import { JobsPanel } from './jobs-panel';
           <tr><th>Quando (UTC)</th><th>Moeda</th><th>Evento</th><th class="right">Previsto <tip text="O que o mercado espera (consenso). O preço reage à SURPRESA: a diferença entre o atual e o previsto." /></th><th class="right">Atual <tip text="O valor divulgado. Aparece segundos depois do horário." /></th></tr>
           @for (e of events(); track e.value_id) {
             <tr [class.muted]="isPast(e)">
-              <td class="nowrap mono small">{{ e.scheduled_at | date: 'dd/MM HH:mm' : 'UTC' }}</td>
+              <td class="nowrap mono small" [brt]="e.scheduled_at">{{ e.scheduled_at | date: 'dd/MM HH:mm' : 'UTC' }}</td>
               <td><span class="badge" [class.high]="e.importance === 'HIGH'">{{ e.currency }}</span></td>
               <td>{{ e.name }}</td>
               <td class="right mono">{{ e.forecast ?? '—' }}</td>
@@ -154,7 +155,7 @@ import { JobsPanel } from './jobs-panel';
         <tr><th>Visto em (UTC)</th><th>Emissor</th><th>Título</th><th>Leitura do Jev <tip key="jev" /></th></tr>
         @for (n of news(); track n.id) {
           <tr>
-            <td class="nowrap mono small">{{ n.first_seen_at | date: 'dd/MM HH:mm' : 'UTC' }}</td>
+            <td class="nowrap mono small" [brt]="n.first_seen_at">{{ n.first_seen_at | date: 'dd/MM HH:mm' : 'UTC' }}</td>
             <td class="nowrap">{{ n.issuer }} <span class="muted small">{{ n.currency }}</span></td>
             <td><a [href]="n.url" target="_blank" rel="noopener">{{ n.title }}</a></td>
             <td class="nowrap">

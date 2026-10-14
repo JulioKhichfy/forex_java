@@ -1,3 +1,4 @@
+import { Brt } from './brt';
 import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
@@ -6,7 +7,7 @@ import { MARKETS, MarketState } from './market';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, SlicePipe],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, SlicePipe, Brt],
   templateUrl: './app.html',
   styleUrl: './app.scss',
 })

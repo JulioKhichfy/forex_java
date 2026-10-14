@@ -115,7 +115,26 @@ public class OrderService {
         return repo.setting(SETTING_FLATTEN).map(Boolean::parseBoolean).orElse(false);
     }
 
+    /**
+     * Ordem da Roleta (pedido do operador, 14/10/2026): as travas de RISCO deixam de bloquear e ficam registradas como
+     * "ignorada na roleta". Continuam valendo as técnicas (EA conectado, modo × conta, BLOCK/FLATTEN, cotação, ATR,
+     * lote) e o disjuntor de perda do dia e da semana. A saída por tempo é o horizonte escolhido na roleta.
+     *
+     * @param predictionId a previsão que originou a ordem (auditoria)
+     */
+    public record Roulette(int closeAfterMinutes, long predictionId) {
+    }
+
+    /** Travas que a Roleta registra mas não deixa bloquear (o operador escolheu manter só a perda do dia/semana). */
+    static final java.util.Set<String> ROULETTE_WAIVED = java.util.Set.of("Mercado habilitado", "Risco da ordem",
+            "Posições abertas", "Par livre", "Risco aberto total", "Exposição líquida a USD", "Nível de margem",
+            "Spread (gate 3)", "Fora de blackout (gate 2)");
+
     public Preview preview(String symbol, String side, Double requestedLot) {
+        return preview(symbol, side, requestedLot, null);
+    }
+
+    public Preview preview(String symbol, String side, Double requestedLot, Roulette roulette) {
         RiskSettings.Orders o = riskHolder.get().orders();
         List<Check> checks = new ArrayList<>();
         Instrument inst = instrument(symbol);
@@ -154,7 +173,7 @@ public class OrderService {
                 mr == null ? "sem trading.risk.markets." + inst.market().code() : mr.enabled() ? "sim" : "desligado",
                 "enabled na página Risco"));
         if (mr == null) return fail(symbol, side, lot, checks);
-        int closeAfter = mr.closeAfter(o);
+        int closeAfter = roulette != null ? roulette.closeAfterMinutes() : mr.closeAfter(o);
 
         // ------------------------------------------------------------ cotação e ATR
         JsonNode quote = null;
@@ -257,13 +276,17 @@ public class OrderService {
                 "sem evento alto de " + o.blackoutBeforeMinutes() + " min antes a " + o.blackoutAfterMinutes()
                         + " min depois"));
 
+        if (roulette != null) {
+            checks.replaceAll(c -> c.ok() || !ROULETTE_WAIVED.contains(c.gate()) ? c
+                    : new Check(c.gate(), true, c.value() + " · ignorada na roleta", c.limit()));
+        }
         boolean ok = checks.stream().allMatch(Check::ok);
         Double slPrice = ref == null || slDist == null ? null : "BUY".equals(side) ? ref - slDist : ref + slDist;
         Double tpPrice = ref == null || tpDist == null ? null : "BUY".equals(side) ? ref + tpDist : ref - tpDist;
         return new Preview(symbol, side, lot, ref, atr, slDist, tpDist, slPrice, tpPrice, riskUsd,
                 riskUsd == null || balance == null ? null : riskUsd / balance * 100, rewardUsd, balance, equity,
                 closeAfter == 0 ? null : closeAfter, mode.name(),
-                pred == null ? null : pred.id(), checks, ok);
+                roulette != null ? Long.valueOf(roulette.predictionId()) : pred == null ? null : pred.id(), checks, ok);
     }
 
     /** O resultado de um envio: a ordem gravada ou as travas que impediram. */
@@ -272,7 +295,11 @@ public class OrderService {
 
     /** Confere de novo AGORA (o tíquete pode ter ficado aberto) e grava a ordem para o EA buscar. */
     public synchronized Submit submit(String symbol, String side, Double lot) {
-        Preview p = preview(symbol, side, lot);
+        return submit(symbol, side, lot, null);
+    }
+
+    public synchronized Submit submit(String symbol, String side, Double lot, Roulette roulette) {
+        Preview p = preview(symbol, side, lot, roulette);
         if (!p.ok()) return new Submit(null, "RECUSADA", p);
         boolean shadow = trading.mode() == TradingProperties.Mode.SHADOW;
         Instant now = Instant.now();

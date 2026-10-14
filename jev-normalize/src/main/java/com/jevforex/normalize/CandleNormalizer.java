@@ -60,17 +60,44 @@ public final class CandleNormalizer {
         List<Path> csv = Bronze.recentCsv(lakeRoot, SOURCE, since);
         List<Path> meta = Bronze.metaOf(csv);
         if (csv.isEmpty() || meta.isEmpty()) {
-            sql.execute("CREATE OR REPLACE TEMP TABLE " + table + " AS SELECT NULL::VARCHAR AS market, "
-                    + "NULL::VARCHAR AS symbol, NULL::VARCHAR AS broker_symbol, NULL::TIMESTAMP AS time_utc, "
-                    + "NULL::DOUBLE AS open, NULL::DOUBLE AS high, NULL::DOUBLE AS low, NULL::DOUBLE AS close, "
-                    + "NULL::BIGINT AS tick_volume, NULL::INTEGER AS spread_points, NULL::BIGINT AS real_volume, "
-                    + "NULL::VARCHAR AS origin, NULL::TIMESTAMP AS seen_utc WHERE false");
+            createEmpty(sql, table);
             return 0;
         }
         Bronze.createMetaTable(sql, Bronze.list(meta), table + "_meta");
         readRaw(sql, Bronze.list(csv), table + "_raw");
         dedup(sql, table + "_raw", table + "_meta", "TIMESTAMP '1970-01-01'", table);
         return csv.size();
+    }
+
+    /** CSVs do bronze de candles gravados a partir de {@code since} (pela data do arquivo). */
+    public static List<Path> recentFiles(Path lakeRoot, java.time.Instant since) {
+        return Bronze.recentCsv(lakeRoot, SOURCE, since);
+    }
+
+    /**
+     * Leitura incremental (radar): cria a temp table {@code table} (formato do silver) com estes arquivos do bronze.
+     * Só entram os que já têm o .meta.json ao lado — o que ainda está sendo gravado fica para a próxima leitura.
+     *
+     * @return os arquivos que entraram
+     */
+    public static List<Path> createFrom(LakeSql sql, List<Path> csv, String table) {
+        List<Path> ready = csv.stream().filter(f -> !Bronze.metaOf(List.of(f)).isEmpty()).toList();
+        if (ready.isEmpty()) {
+            createEmpty(sql, table);
+            return List.of();
+        }
+        Bronze.createMetaTable(sql, Bronze.list(Bronze.metaOf(ready)), table + "_meta");
+        readRaw(sql, Bronze.list(ready), table + "_raw");
+        dedup(sql, table + "_raw", table + "_meta", "TIMESTAMP '1970-01-01'", table);
+        return ready;
+    }
+
+    private static void createEmpty(LakeSql sql, String table) {
+        sql.execute("CREATE OR REPLACE TEMP TABLE " + table + " AS SELECT NULL::VARCHAR AS market, "
+                + "NULL::VARCHAR AS symbol, NULL::VARCHAR AS broker_symbol, NULL::TIMESTAMP AS time_utc, "
+                + "NULL::DOUBLE AS open, NULL::DOUBLE AS high, NULL::DOUBLE AS low, NULL::DOUBLE AS close, "
+                + "NULL::BIGINT AS tick_volume, NULL::INTEGER AS spread_points, NULL::BIGINT AS real_volume, "
+                + "NULL::VARCHAR AS origin, NULL::TIMESTAMP AS seen_utc WHERE false");
     }
 
     private static void readRaw(LakeSql sql, String files, String table) {

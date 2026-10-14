@@ -44,14 +44,12 @@ final class Bronze {
     static java.util.List<Path> recentCsv(Path lakeRoot, String source, java.time.Instant since) {
         Path d = dir(lakeRoot, source);
         if (!Files.isDirectory(d)) return java.util.List.of();
-        try (Stream<Path> s = Files.walk(d, 2)) {
-            return s.filter(p -> p.getFileName().toString().endsWith(".csv")).filter(p -> {
-                try {
-                    return !Files.getLastModifiedTime(p).toInstant().isBefore(since);
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            }).sorted().toList();
+        // Files.find recebe a data junto com a listagem da pasta (no Windows, sem abrir arquivo por arquivo): com dezenas
+        // de milhares de arquivos no bronze, a diferença é de segundos por leitura
+        try (Stream<Path> s = Files.find(d, 2, (p, attrs) -> attrs.isRegularFile()
+                && p.getFileName().toString().endsWith(".csv")
+                && !attrs.lastModifiedTime().toInstant().isBefore(since))) {
+            return s.sorted().toList();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

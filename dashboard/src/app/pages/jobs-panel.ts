@@ -1,3 +1,4 @@
+import { Brt } from '../brt';
 import { Component, ElementRef, OnDestroy, OnInit, inject, input, output, signal, viewChild } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { Api, JobDef, JobStatus } from '../api';
@@ -5,7 +6,7 @@ import { Api, JobDef, JobStatus } from '../api';
 /** Botões de tarefas (mesmos comandos da CLI, num processo separado) e o log da execução atual. */
 @Component({
   selector: 'jobs-panel',
-  imports: [DatePipe],
+  imports: [DatePipe, Brt],
   template: `
     <div class="buttons">
       @for (j of defs(); track j.name) {
@@ -20,8 +21,8 @@ import { Api, JobDef, JobStatus } from '../api';
         @if (s.running) { <span class="badge warn">rodando: {{ s.step }}</span> }
         @else if (s.exitCode === 0) { <span class="badge ok">concluída</span> }
         @else { <span class="badge high">falhou (código {{ s.exitCode }})</span> }
-        <span class="muted"> · início {{ s.startedAt | date: 'dd/MM HH:mm:ss' }}
-          @if (s.finishedAt) { · fim {{ s.finishedAt | date: 'HH:mm:ss' }} }</span>
+        <span class="muted"> · início <span [brt]="s.startedAt">{{ s.startedAt | date: 'dd/MM HH:mm:ss' : 'UTC' }} UTC</span>
+          @if (s.finishedAt) { · fim <span [brt]="s.finishedAt">{{ s.finishedAt | date: 'HH:mm:ss' : 'UTC' }} UTC</span> }</span>
       </p>
       <pre #log class="log mono small">{{ s.tail.join('\\n') }}</pre>
     }

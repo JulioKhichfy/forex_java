@@ -23,10 +23,12 @@ public final class Commands {
     public static final String PROMOTE = "promote";
     public static final String PREDICT_NOW = "predict-now";
     public static final String RESOLVE_PREDICTIONS = "resolve-predictions";
+    public static final String RETRAIN_STUDY = "retrain-study";
+    public static final String SCAN = "scan";
 
     private static final Set<String> ALL = Set.of(HELP, PING, RISK, ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS,
             NORMALIZE, FEATURES, TRAIN, BACKFILL_BIS, BACKFILL_ARCHIVES, JEV_SCORE, JEV_SIGNALS, TRAIN_CHAMPION, PROMOTE,
-            PREDICT_NOW, RESOLVE_PREDICTIONS);
+            PREDICT_NOW, RESOLVE_PREDICTIONS, RETRAIN_STUDY, SCAN);
     private static final Set<String> NEED_DB = Set.of(ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS, BACKFILL_ARCHIVES,
             JEV_SCORE, JEV_SIGNALS, PREDICT_NOW, RESOLVE_PREDICTIONS);
 
@@ -71,12 +73,16 @@ public final class Commands {
                   train [--horizon=60]          experimento A × B com walk-forward, embargo e cofre; grava
                                                 reports\\walkforward\\<run>\\report.html (rode features antes)
                   train --open-lockbox          ABRE O COFRE (uma única vez): avalia os modelos nos meses reservados
+                  retrain-study --market=metals [--horizon=15] [--model=B] [--from=2024-01-01]
+                                [--each-from=2026-07-01]  re-treinar mais vezes melhora? mensal × semanal × diário
+                                (desde --from) e × a cada resultado (desde --each-from); sem gravar modelo
                   train-champion                treina os modelos de produção (A, E, B) com os últimos 24 meses;
                                                 a primeira versão entra em produção, as seguintes esperam promote
                   promote --version=<versão>    coloca uma versão de models/market=fx em produção
                   predict-now [--at=2026-10-09T15:00]
                                                 previsão ao vivo agora (ou num instante UTC) e grava no Postgres
                   resolve-predictions           placar: dá o resultado às previsões com o horizonte vencido
+                  scan [--market=fx|all]        radar: RSI, Bollinger, volume, movimentos e alertas por símbolo agora
                   ask --qset=cb-text-v1 <fonte> [opções]
                        fontes:  --text="..." | --file=caminho.txt | --latest | --doc=<id>
                        opções:  --issuer="Federal Reserve" --currency=USD --previous="resumo anterior"

@@ -3,6 +3,7 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { Tip } from './tip';
+import { Brt } from '../brt';
 
 interface Field {
   key: string;
@@ -45,7 +46,7 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
 
 @Component({
   selector: 'page-risco',
-  imports: [DatePipe, DecimalPipe, FormsModule, Tip],
+  imports: [DatePipe, DecimalPipe, FormsModule, Tip, Brt],
   template: `
     <h1>Risco</h1>
     <div class="notice">
@@ -171,10 +172,10 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
       <section class="panel" style="margin-top:16px">
         <h3>Histórico de alterações</h3>
         <div class="table-wrap"><table>
-          <tr><th>Quando</th><th>Origem</th><th>Motivo</th><th>O que mudou</th></tr>
+          <tr><th>Quando (UTC)</th><th>Origem</th><th>Motivo</th><th>O que mudou</th></tr>
           @for (h of history(); track h.id) {
             <tr>
-              <td class="small mono nowrap">{{ h.changedAt | date: 'dd/MM/yyyy HH:mm' }}</td>
+              <td class="small mono nowrap" [brt]="h.changedAt">{{ h.changedAt | date: 'dd/MM/yyyy HH:mm' : 'UTC' }}</td>
               <td class="small">{{ h.source }}</td>
               <td class="small">{{ h.note }}</td>
               <td class="small">@for (c of h.changes; track c.path) { <span class="mono">{{ c.path }}: {{ c.from }} → {{ c.to }}</span><br /> }</td>

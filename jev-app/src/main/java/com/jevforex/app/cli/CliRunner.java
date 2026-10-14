@@ -108,6 +108,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private int exitCode = 0;
     private final LivePredictionService livePredictions;
     private final PredictionResolver predictionResolver;
+    private final com.jevforex.app.live.ScannerService scanner;
 
     public CliRunner(JevClient jev, QuestionSetRegistry questionSets, JevCallRepository jevCalls,
                      RawDocumentRepository documents, FeedCollector collector, LakeStorage lake,
@@ -116,7 +117,9 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                      Mt5StatusService mt5Status, SilverProperties silver, FeatureProperties featureProps,
                      ExperimentProperties experimentProps, BisSpeechCollector bisCollector, BisProperties bisProps,
                      ArchiveCollector archiveCollector, JevScorer jevScorer, JevSignalExporter jevSignalExporter,
-                     LivePredictionService livePredictions, PredictionResolver predictionResolver) {
+                     LivePredictionService livePredictions, PredictionResolver predictionResolver,
+                     com.jevforex.app.live.ScannerService scanner) {
+        this.scanner = scanner;
         this.livePredictions = livePredictions;
         this.predictionResolver = predictionResolver;
         this.archiveCollector = archiveCollector;
@@ -163,8 +166,10 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.JEV_SCORE -> jevScore(args);
                 case Commands.JEV_SIGNALS -> jevSignals(args);
                 case Commands.TRAIN_CHAMPION -> trainChampion(args);
+                case Commands.RETRAIN_STUDY -> retrainStudy(args);
                 case Commands.PROMOTE -> promote(args);
                 case Commands.PREDICT_NOW -> predictNow(args);
+                case Commands.SCAN -> scan(args);
                 case Commands.RESOLVE_PREDICTIONS -> System.out.println("Placar: " + predictionResolver.resolve()
                         + " previsões resolvidas");
                 default -> System.out.println(Commands.usage());
@@ -599,6 +604,34 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
 
     // ------------------------------------------------------------------ modelos de produção (passo 6a)
 
+    /** Estudo do re-treino frequente (pedido "re-treino ao vivo"): só mede, não grava modelo. */
+    private void retrainStudy(ApplicationArguments args) {
+        String market = opt(args, "market", "fx");
+        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(),
+                risk.exitsFor(com.jevforex.core.Market.fromCode(market)), market);
+        int h = Integer.parseInt(opt(args, "horizon", "15"));
+        String model = opt(args, "model", "B");
+        java.time.LocalDate from = java.time.LocalDate.parse(opt(args, "from", "2024-01-01"));
+        java.time.LocalDate eachFrom = java.time.LocalDate.parse(opt(args, "each-from", "2026-07-01"));
+        int threads = cfg.threads() > 0 ? cfg.threads() : Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
+        try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
+            com.jevforex.ml.Dataset d = com.jevforex.ml.Dataset.load(sql, lake.root(), market, cfg.fset(), h, cfg.from(),
+                    cfg.exits());
+            System.out.printf("%nRe-treino frequente · %s · modelo %s · %d min · stop %.1f ATR, alvo %.1f R · regra 0,45/0,15%n",
+                    market, model, h, cfg.exits().stopAtr(), cfg.exits().targetR());
+            System.out.printf("Período longo desde %s (mensal × semanal × diário):%n", from);
+            com.jevforex.ml.RetrainStudy.run(d, cfg, model, from, List.of(
+                    new com.jevforex.ml.RetrainStudy.Step("mensal (30 d)", 30 * 86_400L),
+                    new com.jevforex.ml.RetrainStudy.Step("semanal", 7 * 86_400L),
+                    new com.jevforex.ml.RetrainStudy.Step("diário", 86_400L)), 0.45, 0.15, threads, System.out::println);
+            System.out.printf("Período curto desde %s (inclui a cada resultado = limite do re-treino por minuto):%n", eachFrom);
+            com.jevforex.ml.RetrainStudy.run(d, cfg, model, eachFrom, List.of(
+                    new com.jevforex.ml.RetrainStudy.Step("mensal (30 d)", 30 * 86_400L),
+                    new com.jevforex.ml.RetrainStudy.Step("diário", 86_400L),
+                    new com.jevforex.ml.RetrainStudy.Step("a cada resultado", 0)), 0.45, 0.15, threads, System.out::println);
+        }
+    }
+
     private void trainChampion(ApplicationArguments args) throws Exception {
         String market = opt(args, "market", "fx");
         ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(),
@@ -652,6 +685,52 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
         ModelStore.Champion c = new ModelStore(lake.root(), opt(args, "market", "fx"))
                 .promote(version, opt(args, "note", "promovida pela CLI"));
         System.out.println("Em produção: " + c.version() + " (" + c.promotedAt() + ")");
+    }
+
+    private void scan(ApplicationArguments args) {
+        String market = opt(args, "market", "fx");
+        if (args.containsOption("json")) {   // o mesmo JSON de GET /api/scanner
+            try {
+                System.out.println(mapper.writeValueAsString(scanner.scan(market)));
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                throw new IllegalStateException(e);
+            }
+            return;
+        }
+        for (String m : "all".equals(market) ? experimentProps.marketList() : List.of(market)) scan(m);
+    }
+
+    private void scan(String market) {
+        var s = scanner.scan(market);
+        System.out.printf("%nRadar %s · %d símbolos · última barra %s · %d ms (bronze recente: %d arquivos)%n",
+                s.market(), s.symbols().size(), s.lastBarUtc(), s.tookMs(), s.recentFiles());
+        for (var r : s.symbols()) {
+            StringBuilder line = new StringBuilder(String.format(Locale.ROOT, "%n%-8s %-10s", r.symbol(),
+                    r.price() == null ? "—" : String.format(Locale.ROOT, "%.5g", r.price())));
+            for (var m : r.moves()) {
+                line.append(String.format(Locale.ROOT, "  %s %s%s", m.window(),
+                        m.pct() == null ? "—" : String.format(Locale.ROOT, "%+.2f%%", m.pct()),
+                        m.atrs() == null ? "" : String.format(Locale.ROOT, " (%+.1f ATR)", m.atrs())));
+            }
+            System.out.println(line);
+            StringBuilder ind = new StringBuilder("         ");
+            for (var t : r.tfs()) {
+                ind.append(String.format(Locale.ROOT, " %s RSI %s %%B %s vol %s |", t.tf(),
+                        t.rsi() == null ? "—" : String.format(Locale.ROOT, "%.0f", t.rsi()),
+                        t.pctB() == null ? "—" : String.format(Locale.ROOT, "%.2f", t.pctB()),
+                        t.volRatio() == null ? "—" : String.format(Locale.ROOT, "%.1fx", t.volRatio())));
+            }
+            System.out.println(ind);
+            for (var a : r.alerts()) {
+                System.out.printf("          [%d] %-8s %-4s %s (%s)%n", a.severity(), a.kind(), a.tf(), a.text(), a.at());
+            }
+        }
+        s.strength().forEach((w, m) -> {
+            StringBuilder line = new StringBuilder(String.format("%nForça das moedas %-4s", w));
+            m.forEach((c, v) -> line.append(String.format(Locale.ROOT, "  %s %+.2f%%", c, v)));
+            System.out.print(line);
+        });
+        System.out.println();
     }
 
     private void predictNow(ApplicationArguments args) {

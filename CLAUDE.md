@@ -40,6 +40,9 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
   `trading.mode` DEMO ou LIVE e o modo batendo com a conta (LIVE só em conta real). Stop/alvo vão como
   DISTÂNCIA; o EA aplica sobre o preço da execução. O EA só mexe em posições com o magic dele e nunca reenvia.
   Testar a mecânica em DEMO antes de apontar para a conta real (a troca é decisão do usuário).
+- **Roleta** (`RouletteService`, decisão do operador em 14/10/2026): ordens automáticas por mercado que IGNORAM as
+  travas de risco por ordem (`OrderService.ROULETTE_WAIVED`); valem as técnicas, o BLOCK e a perda do dia/semana
+  (que para todas). Não estender essa exceção a outras ordens sem o operador pedir.
 - Features: mudou o significado de alguma feature ou do label → nova versão `features.fset` (v2), nunca
   reescrever a v1. O mesmo código calcula features no treino e ao vivo (não reimplementar "só para produção").
   Todo cálculo novo precisa respeitar point-in-time e ganhar teste no `FeatureBuilderTest`.
@@ -61,11 +64,11 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-typesafe | JevClient, QuestionSet/Registry, JevResponse, CbTextSignal |
 | jev-lake | LakeStorage em disco local (bronze/silver/gold), LakeSql (DuckDB embarcado) |
 | jev-normalize | bronze → silver em Parquet: Candle/Calendar/DocumentNormalizer, WeeklyOpenCheck, DocumentText (HTML/PDF), Chunker (sem Spring) |
-| jev-features | silver → gold: FeatureBuilder (momentos de decisão, features A/B, labels 15/60 min), FeatureConfig (sem Spring) |
+| jev-features | silver → gold: FeatureBuilder (momentos de decisão, features A/B, labels 15/60 min), FeatureConfig; `scan/`: radar (ScanLoader incremental, Scanner: RSI, Bollinger, volume, ATR, alertas) (sem Spring) |
 | jev-ml | walk-forward: Dataset, Outcomes (stop/alvo/tempo no M1), Gbm (Smile), Metrics, ExperimentRunner (modo cofre), ReportWriter, ModelStore (versões em produção) (sem Spring) |
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5 |
-| jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/ea/*` |
-| dashboard | Angular 20 (Hoje, Previsões, Operar, Modelos, Saúde); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/ |
+| jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
+| dashboard | Angular 20 (Hoje, Radar, Previsões, Operar, Roleta russa, Risco, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
 | mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor (executor com 3 chaves), `install.ps1` |
 
 ## Comandos
@@ -81,8 +84,10 @@ java -jar jev-app/target/jev-app.jar features                    # gold: feature
 java -Xmx8g -jar jev-app/target/jev-app.jar train [--horizon=60]  # walk-forward → reports/walkforward/<run>
 java -Xmx8g -jar jev-app/target/jev-app.jar train-champion       # modelos de produção (A, E, B) → models/market=fx/<versão>
 java -jar jev-app/target/jev-app.jar promote --version=<v> | predict-now [--at=2026-10-09T15:00] | resolve-predictions
+java -jar jev-app/target/jev-app.jar scan [--market=fx|all] [--json]   # radar no terminal (o mesmo de /api/scanner)
 # índices/ações: features --market=indices · train --market=indices [--open-lockbox] · train-champion --market=indices
 cd dashboard && npm install && npx ng build   # dashboard (dev: npx ng serve, com proxy para :8080)
+node tools/capturar-ajuda.mjs                 # capturas da aba Ajuda (servidor no ar; ficam fora do git: repo público)
 mvn -q package -Djar.name=jev-app-dev      # jar de desenvolvimento com o servidor rodando (sem clean)
 java -jar jev-app/target/jev-app.jar       # modo servidor
 powershell -ExecutionPolicy Bypass -File mql5\install.ps1   # copia e compila os MQL5 no terminal da Exness
@@ -159,3 +164,16 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             automático às 21:30 UTC (`live.normalize-cron`; o bronze tem um arquivo por barra). Dashboard: aviso de
             sinal novo (destaque, som, notificação), calendário e notícias só em USD no ouro. Risco: 0,01 lote =
             stop de US$ 10–15; pior queda histórica da regra −3,9 R
+      - [x] 9c página Radar (pedido do operador, 14/10): movimentos atípicos por símbolo em M5/M15/H1/H4/D1 — RSI 14
+            (Wilder), Bollinger 20,2 (fora das bandas e compressão), volume de ticks × mesmo horário em 20 dias,
+            movimento em ATR, barra grande, sequência, cruzamento MME 20/50, rompimento de ontem/20 dias, amplitude ×
+            média, gap, spread × típico, força das moedas (forex), próximos eventos com contagem e notícias por moeda.
+            Só descritivo (nenhum alerta validado como sinal). `ScanLoader` mantém a conexão e lê do bronze só os
+            arquivos novos (6,5 mil arquivos/dia: 1ª leitura ~6 s, depois < 1 s); cache de 30 s por mercado.
+            `Bronze.recentCsv` passou a usar `Files.find` (lista o bronze ~2 s mais rápido, também nas previsões)
+      - [x] 9d Roleta russa (pedido do operador, 14/10): botão por mercado que, a cada previsão nova (modelo e horizonte
+            15/60 escolhidos), envia uma ordem por símbolo no lado mais provável, pulando LATERAL, lote mínimo (ou o
+            escolhido), saída por tempo no horizonte; liga até "Parar roleta russa" (estado em app_setting, Flyway V9
+            roulette_entry). DEMO e LIVE (LIVE pede digitar LIVE). Antes de construir, o placar ao vivo mostrava E[R] da
+            regra negativo no forex (−0,15/−0,27) e nas ações, ~+0,05 nos índices a 60 min pulando LATERAL; a página
+            mostra esse simulado e o resultado real ao lado de cada botão

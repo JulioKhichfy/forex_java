@@ -264,8 +264,132 @@ export interface Challenge {
   reason: string;
 }
 
+/** Radar (GET /api/scanner): descrição do que o preço está fazendo; nada aqui é sinal validado. */
+export interface ScanAlert {
+  kind: string;
+  tf: string;
+  severity: number;
+  dir: 'up' | 'down' | null;
+  text: string;
+  value: number;
+  at: string | null;
+}
+
+export interface ScanTf {
+  tf: string;
+  barUtc: string | null;
+  close: number | null;
+  rsi: number | null;
+  rsiNow: number | null;
+  pctB: number | null;
+  upper: number | null;
+  mid: number | null;
+  lower: number | null;
+  bandwidth: number | null;
+  squeeze: boolean;
+  atr: number | null;
+  volRatio: number | null;
+  streak: number;
+  trend: 'up' | 'down' | null;
+}
+
+export interface ScanMove {
+  window: string;
+  pct: number | null;
+  atrs: number | null;
+}
+
+export interface ScanSymbol {
+  symbol: string;
+  currencies: string[];
+  lastBarUtc: string | null;
+  price: number | null;
+  spreadNow: number | null;
+  spreadRatio: number | null;
+  moves: ScanMove[];
+  tfs: ScanTf[];
+  day: { open: number | null; high: number | null; low: number | null; prevHigh: number | null; prevLow: number | null;
+    high20: number | null; low20: number | null; adr: number | null; rangeAdr: number | null };
+  alerts: ScanAlert[];
+}
+
+export interface ScanSnapshot {
+  market: string;
+  generatedAt: string;
+  tookMs: number;
+  recentFiles: number;
+  lastBarUtc: string | null;
+  symbols: ScanSymbol[];
+  strength: Record<string, Record<string, number>>;
+}
+
+/** Roleta (GET /api/roulette). */
+export interface RouletteConfig {
+  on: boolean;
+  horizon: number;
+  model: string;
+  lot: number | null;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  stopReason: string | null;
+}
+
+export interface RouletteEntry {
+  id: number;
+  market: string;
+  symbol: string;
+  model: string;
+  horizon_min: number;
+  side: 'BUY' | 'SELL' | null;
+  p_side: number | null;
+  status: 'SENDING' | 'SENT' | 'SKIPPED' | 'REFUSED';
+  message: string | null;
+  created_at: string;
+  moment_utc: string;
+  order_id: number | null;
+  order_status: string | null;
+  order_message: string | null;
+  fill_price: number | null;
+  ticket: number | null;
+  risk_usd: number | null;
+  close_after_utc: string | null;
+}
+
+export interface RouletteState {
+  mode: string;
+  blocked: boolean;
+  loss_profile: { label: string; maxDailyLossPct: number; maxWeeklyLossPct: number };
+  markets: Record<string, RouletteConfig>;
+  max_lot: number;
+  entry_max_age_minutes: number;
+  counts: { market: string; sent: number; skipped: number; refused: number }[];
+  closed: { market: string; trades: number; result_usd: number | null; wins: number; avg_r: number | null;
+    gains: number | null; losses: number | null }[];
+  open: { market: string; positions: number; risk_usd: number | null; profit_usd: number | null }[];
+  simulated: { market: string; model: string; horizon_min: number; n: number; avg_r: number; sum_r: number;
+    hit_rate: number; since: string }[];
+  entries: RouletteEntry[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class Api {
+  roulette(days = 30): Observable<RouletteState> {
+    return this.http.get<RouletteState>(`/api/roulette?days=${days}`);
+  }
+
+  rouletteStart(market: string, horizon: number, model: string, lot: number | null): Observable<RouletteConfig> {
+    return this.http.post<RouletteConfig>(`/api/roulette/start?market=${market}&horizon=${horizon}&model=${model}`
+      + (lot ? `&lot=${lot}` : ''), {});
+  }
+
+  rouletteStop(market: string | null = null): Observable<unknown> {
+    return this.http.post(`/api/roulette/stop${market ? '?market=' + market : ''}`, {});
+  }
+
+  scanner(market = 'fx'): Observable<ScanSnapshot> {
+    return this.http.get<ScanSnapshot>(`/api/scanner?market=${market}`);
+  }
+
   jobs(): Observable<{ available: JobDef[]; current: JobStatus | null }> {
     return this.http.get<{ available: JobDef[]; current: JobStatus | null }>('/api/ops/jobs');
   }

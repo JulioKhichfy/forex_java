@@ -1,20 +1,21 @@
 import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe, KeyValuePipe, SlicePipe } from '@angular/common';
 import { Tip } from './tip';
+import { Brt } from '../brt';
 import { Api, HorizonSummary, MODEL_NAMES, ModelsInfo, Trades } from '../api';
 import { JobsPanel } from './jobs-panel';
 import { MarketState } from '../market';
 
 @Component({
   selector: 'page-modelos',
-  imports: [DatePipe, DecimalPipe, KeyValuePipe, SlicePipe, JobsPanel, Tip],
+  imports: [DatePipe, DecimalPipe, KeyValuePipe, SlicePipe, JobsPanel, Tip, Brt],
   template: `
     <h1>Modelos</h1>
     @if (info(); as i) {
       <section class="panel">
         <h3>Em produção</h3>
         @if (i.champion; as c) {
-          <p>Versão <b class="mono">{{ c.version }}</b> desde {{ c.promotedAt | date: 'dd/MM/yyyy HH:mm' : 'UTC' }} UTC
+          <p>Versão <b class="mono">{{ c.version }}</b> desde <span [brt]="c.promotedAt">{{ c.promotedAt | date: 'dd/MM/yyyy HH:mm' : 'UTC' }} UTC</span>
             <span class="muted">· {{ c.note }}</span></p>
         } @else {
           <p class="muted">Nenhuma versão em produção. Rode <span class="mono">train-champion</span>.</p>
@@ -24,7 +25,7 @@ import { MarketState } from '../market';
           @for (v of reversed(i); track v.version) {
             <tr>
               <td class="mono">{{ v.version }} @if (v.version === i.champion?.version) { <span class="badge ok">em uso</span> }</td>
-              <td class="small">{{ v.trained_at | date: 'dd/MM/yyyy HH:mm' : 'UTC' }}</td>
+              <td class="small" [brt]="v.trained_at">{{ v.trained_at | date: 'dd/MM/yyyy HH:mm' : 'UTC' }}</td>
               <td class="small">{{ v.train_from | slice: 0 : 10 }} a {{ v.train_to | slice: 0 : 10 }}</td>
               <td class="small">
                 @if (v.challenge; as c) {

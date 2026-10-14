@@ -4,13 +4,14 @@ import { FormsModule } from '@angular/forms';
 import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, OrderPreview, Prediction, Submit, TradeState } from '../api';
 import { ProbBar } from './prob-bar';
 import { Tip } from './tip';
+import { Brt } from '../brt';
 import { HELP } from '../help';
 import { MarketState } from '../market';
 import { MyTrades } from './my-trades';
 
 @Component({
   selector: 'page-operar',
-  imports: [DatePipe, DecimalPipe, FormsModule, ProbBar, Tip, MyTrades],
+  imports: [DatePipe, DecimalPipe, FormsModule, ProbBar, Tip, MyTrades, Brt],
   template: `
     <h1>Operar</h1>
     @if (state(); as s) {
@@ -144,7 +145,7 @@ import { MyTrades } from './my-trades';
               <td class="right mono">{{ p.tp }}</td>
               <td class="right mono" [class.up]="(p.profit ?? 0) > 0" [class.down]="(p.profit ?? 0) < 0">
                 US$ {{ p.profit | number: '1.2-2' }}</td>
-              <td class="small mono">{{ p.openTime | date: 'dd/MM HH:mm' : 'UTC' }}</td>
+              <td class="small mono" [brt]="p.openTime">{{ p.openTime | date: 'dd/MM HH:mm' : 'UTC' }}</td>
               <td><button (click)="close(p.ticket)">Fechar</button></td>
             </tr>
           } @empty {
@@ -165,7 +166,7 @@ import { MyTrades } from './my-trades';
           @for (o of s.orders; track o.id) {
             <tr>
               <td class="mono">{{ o.id }}</td>
-              <td class="small mono">{{ o.createdAt | date: 'dd/MM HH:mm:ss' : 'UTC' }}</td>
+              <td class="small mono" [brt]="o.createdAt">{{ o.createdAt | date: 'dd/MM HH:mm:ss' : 'UTC' }}</td>
               <td>{{ o.action === 'OPEN' ? (o.side === 'BUY' ? 'compra' : 'venda') : 'fechar #' + o.ticket }}</td>
               <td class="mono">{{ o.symbol }}</td>
               <td class="right mono">{{ o.volume }}</td>

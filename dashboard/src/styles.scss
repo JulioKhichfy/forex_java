@@ -112,5 +112,8 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   margin-bottom: 16px;
 }
 
+/* data/hora em UTC com o horário de Brasília ao passar o mouse (diretiva [brt]) */
+.brt { cursor: help; text-decoration: underline dotted; text-decoration-color: var(--muted, #8a94a6); text-underline-offset: 3px; }
+
 .up { color: var(--up); }
 .down { color: var(--down); }

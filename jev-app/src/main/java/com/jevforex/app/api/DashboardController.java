@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jevforex.app.config.FeatureProperties;
 import com.jevforex.app.config.SilverProperties;
+import com.jevforex.app.live.ScannerService;
 import com.jevforex.lake.LakeSql;
 import com.jevforex.lake.LakeStorage;
 import com.jevforex.ml.ModelStore;
@@ -33,6 +34,7 @@ import java.util.Map;
  * GET /api/calendar/upcoming?hours=24[&currency=USD]   eventos com peso (HIGH/MODERATE) das últimas 2 h às próximas N h
  * GET /api/news?limit=30[&currency=USD]                últimos documentos dos bancos centrais + leitura do Jev (se já avaliados)
  * GET /api/models                       versão em produção, versões, cofre e walk-forward de referência
+ * GET /api/scanner?market=fx            radar: RSI, Bollinger, volume, movimentos e rompimentos por símbolo
  * </pre>
  */
 @RestController
@@ -45,9 +47,11 @@ public class DashboardController {
     private final FeatureProperties featureProps;
     private final SilverProperties silver;
     private final ObjectMapper mapper;
+    private final ScannerService scanner;
 
     public DashboardController(JdbcClient jdbc, LakeStorage lake, FeatureProperties featureProps,
-                               SilverProperties silver, ObjectMapper mapper) {
+                               SilverProperties silver, ObjectMapper mapper, ScannerService scanner) {
+        this.scanner = scanner;
         this.jdbc = jdbc;
         this.lake = lake;
         this.featureProps = featureProps;
@@ -88,6 +92,11 @@ public class DashboardController {
                     m.put("previous", rs.getObject("previous"));
                     return m;
                 }).list();
+    }
+
+    @GetMapping("/scanner")
+    public ScannerService.Snapshot scanner(@RequestParam(defaultValue = "fx") String market) {
+        return scanner.scan(market);
     }
 
     @GetMapping("/news")

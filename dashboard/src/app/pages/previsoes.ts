@@ -1,14 +1,16 @@
 import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, Prediction, RunResult, Score } from '../api';
 import { ProbBar } from './prob-bar';
 import { Tip } from './tip';
+import { Brt } from '../brt';
 import { MarketState } from '../market';
 import { MyTrades } from './my-trades';
 
 @Component({
   selector: 'page-previsoes',
-  imports: [DatePipe, DecimalPipe, SlicePipe, ProbBar, Tip, MyTrades],
+  imports: [DatePipe, DecimalPipe, SlicePipe, FormsModule, ProbBar, Tip, MyTrades, Brt],
   template: `
     <div class="head">
       <h1>Previsões ao vivo</h1>
@@ -17,7 +19,7 @@ import { MyTrades } from './my-trades';
     @if (run(); as r) {
       <p class="small" [class.muted]="!r.note">
         @if (r.note) { <span class="badge warn">{{ r.note }}</span> }
-        @else { {{ r.rows }} previsões às {{ r.at | date: 'HH:mm' : 'UTC' }} UTC para {{ r.symbols.length }} pares. }
+        @else { {{ r.rows }} previsões às <span [brt]="r.at">{{ r.at | date: 'HH:mm' : 'UTC' }} UTC</span> para {{ r.symbols.length }} pares. }
       </p>
     }
     @if (latest(); as l) {
@@ -40,7 +42,7 @@ import { MyTrades } from './my-trades';
         @for (s of symbols(); track s) {
           <tr (click)="select(s)" class="row" [class.sel]="s === selected()">
             <td class="mono">{{ s }}</td>
-            <td class="small muted nowrap">{{ moment(s) | date: 'dd/MM HH:mm' : 'UTC' }}</td>
+            <td class="small muted nowrap" [brt]="moment(s)">{{ moment(s) | date: 'dd/MM HH:mm' : 'UTC' }}</td>
             @for (m of models; track m) {
               @for (h of horizons; track h) {
                 <td>
@@ -86,24 +88,36 @@ import { MyTrades } from './my-trades';
           }
         </table></div>
         <p class="muted small">"Acerto da classe": a classe mais provável bateu com o que aconteceu. E[R]: média por
-          operação com stop 1,5 ATR e alvo 1,5 × stop, já com o spread. Previsões manuais ficam fora.</p>
+          operação com o stop e o alvo do mercado (página Risco) e saída no fim do horizonte, já com o spread. Previsões manuais ficam fora.</p>
       </section>
 
       <section class="panel">
         <h3>Histórico {{ selected() ?? '' }} (48 h)</h3>
+        <div class="hist-bar">
+          <label class="small"><input type="checkbox" [ngModel]="withFlat()" (ngModelChange)="withFlat.set($event)" />
+            considerar LATERAL <tip text="Desmarcado: compara só a direção (ALTA se P(alta) > P(queda), senão QUEDA) com o que aconteceu, e ignora os momentos em que o preço ficou LATERAL. Marcado: compara a classe mais provável das três (inclusive LATERAL) com o resultado, em todos os momentos resolvidos." /></label>
+          @if (tally(); as t) {
+            <span class="small">😊 <b class="up">{{ t.hits }}</b> acerto(s) · 😞 <b class="down">{{ t.misses }}</b> erro(s)
+              @if (t.hits + t.misses) { · {{ 100 * t.hits / (t.hits + t.misses) | number: '1.0-0' }}% }
+              @if (!withFlat() && t.flat) { <span class="muted"> · {{ t.flat }} LATERAL fora da conta</span> }
+              @if (t.pending) { <span class="muted"> · {{ t.pending }} aguardando</span> }</span>
+          }
+        </div>
         <div class="table-wrap"><table>
-          <tr><th>Momento</th><th>Modelo</th><th>h <tip key="horizonte" /></th><th>Probabilidades <tip key="probabilidades" /></th><th>Sinal <tip key="gate4" /></th><th>Resultado <tip text="O que aconteceu de fato: ALTA ou QUEDA se andou mais de meio ATR já pagando o spread; senão LATERAL." /></th></tr>
+          <tr><th>Momento</th><th>Modelo</th><th>h <tip key="horizonte" /></th><th>Probabilidades <tip key="probabilidades" /></th><th>Sinal <tip key="gate4" /></th><th>Resultado <tip text="O que aconteceu de fato: ALTA ou QUEDA se andou mais de meio ATR já pagando o spread; senão LATERAL." /></th>
+            <th>Acertou? <tip text="😊 a previsão bateu com o que aconteceu; 😞 errou. Sem a opção LATERAL, vale a direção mais provável entre alta e queda, e os momentos LATERAL ficam sem marca." /></th></tr>
           @for (p of history(); track p.id) {
             <tr>
-              <td class="small mono nowrap">{{ p.momentUtc | date: 'dd/MM HH:mm' : 'UTC' }}</td>
+              <td class="small mono nowrap" [brt]="p.momentUtc">{{ p.momentUtc | date: 'dd/MM HH:mm' : 'UTC' }}</td>
               <td class="small">{{ names[p.model] ?? p.model }}</td>
               <td class="small">{{ p.horizonMin }}</td>
               <td><prob-bar [down]="p.pDown" [flat]="p.pFlat" [up]="p.pUp" /></td>
               <td class="small">{{ p.signal === 'NO_TRADE' ? '—' : p.signal === 'BUY' ? 'COMPRA' : 'VENDA' }}</td>
               <td class="small">{{ p.label ?? 'aguardando' }}</td>
+              <td class="emoji" [title]="'previsto: ' + (guess(p) ?? '—')">{{ verdict(p) === true ? '😊' : verdict(p) === false ? '😞' : '' }}</td>
             </tr>
           } @empty {
-            <tr><td colspan="6" class="muted">{{ selected() ? 'Sem histórico.' : 'Selecione um par na tabela.' }}</td></tr>
+            <tr><td colspan="7" class="muted">{{ selected() ? 'Sem histórico.' : 'Selecione um par na tabela.' }}</td></tr>
           }
         </table></div>
       </section>
@@ -116,6 +130,9 @@ import { MyTrades } from './my-trades';
     .row:hover td { background: var(--panel-2); }
     .row.sel td { background: var(--panel-2); }
     .badge { margin-top: 2px; }
+    .hist-bar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 4px 0 8px; }
+    .hist-bar label { display: flex; align-items: center; gap: 6px; }
+    td.emoji { font-size: 18px; text-align: center; }
   `,
 })
 export class Previsoes implements OnInit, OnDestroy {
@@ -138,6 +155,21 @@ export class Previsoes implements OnInit, OnDestroy {
   });
   private timer?: ReturnType<typeof setInterval>;
 
+  /** Histórico: conta LATERAL como classe (marcado) ou só a direção alta × queda (desmarcado). */
+  protected withFlat = signal(false);
+  protected tally = computed(() => {
+    const t = { hits: 0, misses: 0, flat: 0, pending: 0 };
+    this.withFlat();
+    for (const p of this.history()) {
+      if (!p.label) { t.pending++; continue; }
+      const v = this.verdict(p);
+      if (v === true) t.hits++;
+      else if (v === false) t.misses++;
+      else t.flat++;
+    }
+    return this.history().length ? t : null;
+  });
+
   constructor() {
     effect(() => { this.marketState.market(); this.selected.set(null); this.history.set([]); this.load(); });
   }
@@ -152,6 +184,23 @@ export class Previsoes implements OnInit, OnDestroy {
 
   protected cell(symbol: string, model: string, h: number): Prediction | undefined {
     return this.byKey().get(`${symbol}|${model}|${h}`);
+  }
+
+  /** O que a previsão apostou: a classe mais provável (com LATERAL) ou a direção mais provável (sem). */
+  protected guess(p: Prediction): string | null {
+    if (this.withFlat()) {
+      const max = Math.max(p.pDown, p.pFlat, p.pUp);
+      return max === p.pUp ? 'ALTA' : max === p.pDown ? 'QUEDA' : 'LATERAL';
+    }
+    return p.pUp > p.pDown ? 'ALTA' : p.pDown > p.pUp ? 'QUEDA' : null;
+  }
+
+  /** true = acertou, false = errou, null = fora da conta (aguardando, ou LATERAL sem a opção marcada). */
+  protected verdict(p: Prediction): boolean | null {
+    if (!p.label) return null;
+    if (!this.withFlat() && p.label === 'LATERAL') return null;
+    const g = this.guess(p);
+    return g === null ? null : g === p.label;
   }
 
   protected moment(symbol: string): string | undefined {

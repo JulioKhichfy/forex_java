@@ -27,3 +27,6 @@ logs/
 mql5/**/*.log
 config/
 hs_err_pid*.log
+
+# imagens da aba Ajuda: mostram a conta (saldo, ordens) e o repositório é público — gere com tools/capturar-ajuda.mjs
+dashboard/public/ajuda/
