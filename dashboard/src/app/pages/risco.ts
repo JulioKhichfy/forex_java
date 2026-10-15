@@ -54,7 +54,7 @@ const EXIT_FIELDS: Field[] = [
   { key: 'targetR', label: 'Alvo (× stop)', kind: 'num', step: 0.25 },
 ];
 
-const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: 'Índices', STOCKS: 'Ações', METALS: 'Metais', CRYPTO: 'Cripto' };
+const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: 'Índices', STOCKS: 'Ações', METALS: 'Metais', CRYPTO: 'Cripto', ENERGY: 'Energia' };
 
 @Component({
   selector: 'page-risco',
@@ -146,24 +146,6 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
           </table>
         </section>
 
-        <section class="panel">
-          <h3>3.5 · Perfis de perda <tip key="lossProfile" /></h3>
-          <table>
-            <tr><th>Perfil</th><th>No dia (%) <tip key="maxDailyLossPct" /></th><th>Na semana (%) <tip key="maxWeeklyLossPct" /></th></tr>
-            @for (p of profileKeys(d); track p) {
-              <tr [class.changed]="changed('lossProfiles', p)">
-                <td>{{ d.lossProfiles[p].label }}</td>
-                @if (p === 'padrao') {
-                  <td class="mono muted">{{ d.global.maxDailyLossPct }} <tip text="O perfil Padrão usa os limites da seção 1." /></td>
-                  <td class="mono muted">{{ d.global.maxWeeklyLossPct }}</td>
-                } @else {
-                  <td><input type="number" [(ngModel)]="d.lossProfiles[p].maxDailyLossPct" step="1" min="0" /></td>
-                  <td><input type="number" [(ngModel)]="d.lossProfiles[p].maxWeeklyLossPct" step="1" min="0" /></td>
-                }
-              </tr>
-            }
-          </table>
-        </section>
       </div>
 
       <section class="panel" style="margin-top:16px">
@@ -272,9 +254,6 @@ export class Risco implements OnInit {
     return JSON.stringify(this.saved()?.[section]?.[key]) !== JSON.stringify(this.draft()?.[section]?.[key]);
   }
 
-  protected profileKeys(d: any): string[] {
-    return Object.keys(d.lossProfiles ?? {});
-  }
 
   protected marketKeys(d: any): string[] {
     return Object.keys(d.markets ?? {}).sort((a, b) => (a === 'FX' ? -1 : b === 'FX' ? 1 : a.localeCompare(b)));

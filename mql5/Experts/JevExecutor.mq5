@@ -9,6 +9,7 @@
 //|  - fecha posições pedidas (botão, saída por tempo) e obedece      |
 //|    BLOCK (sem entradas novas) e FLATTEN (fecha tudo deste EA)     |
 //|  - move o stop de posições abertas (trailing: MODIFY, v2.2)       |
+//|  - move stop E alvo (prorrogação com lucro: MODIFY com alvo, 2.4) |
 //|  - reporta cada execução (POST /api/ea/execution) e envia         |
 //|    heartbeat com saldo, margem, cotações e posições               |
 //|                                                                  |
@@ -23,7 +24,7 @@
 //| Expert Advisors → "Permitir WebRequest…" → http://127.0.0.1:8080  |
 //+------------------------------------------------------------------+
 #property copyright   "Jev Forex"
-#property version     "2.20"
+#property version     "2.40"
 #property description "Jev Forex — executor das ordens aprovadas no dashboard, com SL/TP no servidor."
 
 #include <Trade/Trade.mqh>
@@ -41,10 +42,11 @@ input string InpSymbols2         = "AAPL,MSFT,NVDA,META,GOOGL,INTC,SPCX"; // Cot
 input string InpSymbols3         = "";                         // Cotações: mais ações, se quiser
 input string InpSymbols4         = "";                         // Cotações: mais ações, se quiser
 input string InpSymbols5         = "XAUUSD,BTCUSD";            // Cotações: ouro e bitcoin
+input string InpSymbols6         = "UKOIL,USOIL,XNGUSD";       // Cotações: energia (petróleo e gás)
 input int    InpPollSeconds      = 1;                       // Busca de ordens (s)
 input int    InpHeartbeatSeconds = 5;                       // Heartbeat (s)
 
-#define EA_VERSION "JevExecutor/2.2"
+#define EA_VERSION "JevExecutor/2.4"
 #define MAX_SEEN   500
 
 CTrade   g_trade;
@@ -106,7 +108,8 @@ int OnInit()
       Print("JevExecutor: não consegui criar o timer");
       return INIT_FAILED;
      }
-   JevSplitList(InpSymbols + "," + InpSymbols2 + "," + InpSymbols3 + "," + InpSymbols4 + "," + InpSymbols5, g_symbols);
+   JevSplitList(InpSymbols + "," + InpSymbols2 + "," + InpSymbols3 + "," + InpSymbols4 + "," + InpSymbols5 + ","
+                + InpSymbols6, g_symbols);
    g_trade.SetExpertMagicNumber(InpMagic);
    g_trade.SetAsyncMode(false);
    PrintFormat("JevExecutor %s iniciado: conta %I64d em %s (%s), API %s, %s, teto %.2f lote.", EA_VERSION,
@@ -221,8 +224,8 @@ void PollSignals()
                if(k == 5 && f[0] == "CLOSE")
                   ExecuteClose(f);
                else
-                  if(k == 5 && f[0] == "MODIFY")
-                     ExecuteModify(f);
+                  if((k == 5 || k == 6) && f[0] == "MODIFY")
+                     ExecuteModify(f, k);
                else
                   PrintFormat("JevExecutor: linha ignorada (formato desconhecido): %s", line);
      }
@@ -372,10 +375,12 @@ void ExecuteClose(const string &f[])
 
 //+------------------------------------------------------------------+
 //| MODIFY;id;ticket;stop;expira — move o stop (trailing); o alvo fica. |
+//| MODIFY;id;ticket;stop;expira;alvo — stop E alvo (prorrogação com    |
+//| lucro, 2.4): o stop pode ficar igual, nunca pior.                   |
 //| Só a favor e longe do preço o bastante; proteger não é bloqueado    |
 //| por BLOCK (como fechar).                                            |
 //+------------------------------------------------------------------+
-void ExecuteModify(const string &f[])
+void ExecuteModify(const string &f[], const int k)
   {
    string id = f[1];
    if(AlreadySeen(id))
@@ -383,6 +388,8 @@ void ExecuteModify(const string &f[])
    ulong ticket = (ulong)StringToInteger(f[2]);
    double sl = StringToDouble(f[3]);
    datetime expires = ParseIsoUtc(f[4]);
+   bool withTarget = k == 6;
+   double newTp = withTarget ? StringToDouble(f[5]) : 0;
    string reason = ExecuteBlockedReason();
    if(reason == "" && expires <= TimeGMT())
       reason = "pedido vencido (" + f[4] + ")";
@@ -401,22 +408,33 @@ void ExecuteModify(const string &f[])
       sl = NormalizeDouble(sl, digits);
       double point = SymbolInfoDouble(broker, SYMBOL_POINT);
       double gap = SymbolInfoInteger(broker, SYMBOL_TRADE_STOPS_LEVEL) * point;
+      double bid = SymbolInfoDouble(broker, SYMBOL_BID), ask = SymbolInfoDouble(broker, SYMBOL_ASK);
+      if(withTarget)
+         newTp = NormalizeDouble(newTp, digits);
       if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
         {
-         if(current > 0 && sl <= current)
+         if(current > 0 && (withTarget ? sl < current : sl <= current))
             reason = "o stop novo não melhora o atual";
          else
-            if(sl >= SymbolInfoDouble(broker, SYMBOL_BID) - gap)
+            if(sl >= bid - gap)
                reason = "stop novo colado no preço (mínimo da corretora)";
+            else
+               if(withTarget && newTp <= bid + gap)
+                  reason = "alvo novo colado no preço (mínimo da corretora)";
         }
       else
         {
-         if(current > 0 && sl >= current)
+         if(current > 0 && (withTarget ? sl > current : sl >= current))
             reason = "o stop novo não melhora o atual";
          else
-            if(sl <= SymbolInfoDouble(broker, SYMBOL_ASK) + gap)
+            if(sl <= ask + gap)
                reason = "stop novo colado no preço (mínimo da corretora)";
+            else
+               if(withTarget && newTp >= ask - gap)
+                  reason = "alvo novo colado no preço (mínimo da corretora)";
         }
+      if(withTarget)
+         tp = newTp;
      }
    if(reason != "")
      {
@@ -426,8 +444,9 @@ void ExecuteModify(const string &f[])
      }
    if(g_trade.PositionModify(ticket, sl, tp) && g_trade.ResultRetcode() == TRADE_RETCODE_DONE)
      {
-      PrintFormat("JevExecutor: stop de %I64u movido para %s (ordem %s)", ticket, DoubleToString(sl, digits), id);
-      ReportExecution(id, "FILLED", ticket, sl, "stop " + DoubleToString(sl, digits));
+      string what = "stop " + DoubleToString(sl, digits) + (withTarget ? ", alvo " + DoubleToString(tp, digits) : "");
+      PrintFormat("JevExecutor: posição %I64u: %s (ordem %s)", ticket, what, id);
+      ReportExecution(id, "FILLED", ticket, sl, what);
      }
    else
      {

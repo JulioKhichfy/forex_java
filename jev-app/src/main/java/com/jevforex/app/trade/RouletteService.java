@@ -294,7 +294,10 @@ public class RouletteService {
         // resultado real: o que o EA reportou ao fechar as posições abertas pela roleta
         out.put("closed", db.sql("""
                         WITH d AS (SELECT position_ticket, sum(profit + swap + commission) AS result
-                                     FROM ea_deal GROUP BY position_ticket)
+                                     FROM ea_deal
+                                    WHERE account = (SELECT account FROM heartbeat WHERE component = 'ea'
+                                                      ORDER BY reported_at DESC NULLS LAST, id DESC LIMIT 1)
+                                    GROUP BY position_ticket)
                         SELECT e.market, e.strategy, count(*) AS trades, sum(d.result) AS result_usd,
                                count(*) FILTER (WHERE d.result > 0) AS wins,
                                avg(d.result / nullif(o.risk_usd, 0)) AS avg_r,
@@ -309,6 +312,8 @@ public class RouletteService {
                                sum(p.profit) AS profit_usd
                           FROM roulette_entry e JOIN order_request o ON o.id = e.order_id
                           JOIN ea_position p ON p.ticket = o.ticket
+                         WHERE p.account = (SELECT account FROM heartbeat WHERE component = 'ea'
+                                             ORDER BY reported_at DESC NULLS LAST, id DESC LIMIT 1)
                          GROUP BY e.market, e.strategy
                         """).query().listOfRows());
         // a mesma regra aplicada às previsões já resolvidas (stop/alvo/tempo com spread, como no placar)

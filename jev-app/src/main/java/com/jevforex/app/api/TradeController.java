@@ -1,9 +1,10 @@
 package com.jevforex.app.api;
 
+import com.jevforex.app.config.RiskEditor;
 import com.jevforex.app.config.RiskSettingsHolder;
-
 import com.jevforex.app.config.TradingProperties;
 import com.jevforex.app.trade.OrderService;
+import com.jevforex.app.trade.PositionDetails;
 import com.jevforex.app.trade.TradeRepository;
 import com.jevforex.core.risk.RiskSettings;
 import org.springframework.context.annotation.Profile;
@@ -31,7 +32,7 @@ import java.util.Map;
  * POST /api/trade/flatten          fecha tudo e liga o BLOCK
  * POST /api/trade/block?on=true    liga/desliga entradas novas
  * POST /api/trade/lot?value=0.01   lote do tíquete (até trading.risk.orders.max-lot)
- * POST /api/trade/loss-profile?name=conservador   perfil de perda em vigor (trading.risk.loss-profiles)
+ * POST /api/trade/time-lock?on=true   prorrogação com lucro na saída por tempo (trading.risk.money.time-lock-enabled)
  * </pre>
  */
 @RestController
@@ -43,8 +44,13 @@ public class TradeController {
     private final TradeRepository repo;
     private final RiskSettingsHolder riskHolder;
     private final TradingProperties trading;
+    private final PositionDetails details;
+    private final RiskEditor editor;
 
-    public TradeController(OrderService orders, TradeRepository repo, RiskSettingsHolder riskHolder, TradingProperties trading) {
+    public TradeController(OrderService orders, TradeRepository repo, RiskSettingsHolder riskHolder, TradingProperties trading,
+                           PositionDetails details, RiskEditor editor) {
+        this.details = details;
+        this.editor = editor;
         this.orders = orders;
         this.repo = repo;
         this.riskHolder = riskHolder;
@@ -60,12 +66,13 @@ public class TradeController {
         out.put("mode", trading.mode());
         out.put("account", repo.latestAccount().orElse(null));
         out.put("positions", repo.positions());
+        out.put("details", details.forOpenPositions());
+        out.put("money", riskHolder.get().money());
         out.put("orders", repo.recentOrders(30));
         out.put("lot", orders.lot());
         out.put("blocked", orders.blocked());
         out.put("flattening", orders.flattening());
-        out.put("loss_profile", orders.lossProfileName());
-        out.put("loss_profiles", riskHolder.get().lossProfiles());
+        out.put("loss_limits", orders.lossProfile());   // perda do dia/semana: os de global (perfil de risco)
         java.util.Map<String, java.util.List<String>> byMarket = orders.symbolsByMarket();
         out.put("symbols", byMarket.getOrDefault("fx", java.util.List.of()));
         out.put("symbols_by_market", byMarket);
@@ -141,9 +148,10 @@ public class TradeController {
         return Map.of("blocked", on);
     }
 
-    @PostMapping("/loss-profile")
-    public Map<String, Object> lossProfile(@RequestParam String name) {
-        return Map.of("loss_profile", name, "limits", orders.setLossProfile(name));
+
+    @PostMapping("/time-lock")
+    public Map<String, Object> timeLock(@RequestParam boolean on) {
+        return Map.of("money", editor.setTimeLock(on, "dashboard (Operar)").money());
     }
 
     @PostMapping("/lot")

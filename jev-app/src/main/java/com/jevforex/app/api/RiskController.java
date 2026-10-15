@@ -97,7 +97,7 @@ public class RiskController {
             m.put("exits", p.get("exits"));
             boolean active;
             try {
-                active = editor.matches(p) && RiskSettings.DEFAULT_PROFILE.equals(orders.lossProfileName());
+                active = editor.matches(p);
             } catch (RuntimeException e) {
                 active = false;
                 m.put("error", e.getMessage());   // perfil inválido no yml: aparece, mas não aplica
@@ -113,7 +113,6 @@ public class RiskController {
         Map<String, Object> p = presets.presets().get(name);
         if (p == null) throw new IllegalArgumentException("Perfil desconhecido: " + name + " " + presets.presets().keySet());
         RiskSettings r = editor.update(editor.withPreset(p), "perfil " + name, "perfil pronto: " + p.getOrDefault("label", name));
-        orders.setLossProfile(RiskSettings.DEFAULT_PROFILE);   // os limites de perda do perfil (global) passam a valer
         return Map.of("settings", r, "preset", name);
     }
 

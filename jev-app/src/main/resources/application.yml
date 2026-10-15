@@ -108,7 +108,7 @@ experiment:
   risk-per-trade-pct: 0.5         # só para o drawdown simulado do relatório
   threads: 0                      # 0 = núcleos − 1
   models: [A, E, B]               # dashboard: A = preço; E = só eventos; B = eventos + preço (C = + texto do Jev e D = + surpresa de tom seguem disponíveis)
-  markets: [fx, indices, stocks, metals, crypto]  # mercados com modelo (treino mensal e previsões ao vivo); inclua indices e stocks
+  markets: [fx, indices, stocks, metals, crypto, energy]  # mercados com modelo (treino mensal e previsões ao vivo); inclua indices e stocks
                                   # depois de: features --market=…, train --market=… e o cofre de cada um
   market-symbols:                 # universo por mercado (vazio = todos do silver); o bronze guarda o resto
     stocks: [AAPL, MSFT, NVDA, META, GOOGL, INTC, SPCX]
@@ -117,6 +117,7 @@ experiment:
     stocks: 2022-01-01
     metals: 2022-01-01
     crypto: 2022-01-01
+    energy: 2022-01-01             # UKOIL, USOIL, XNGUSD (passo 11): cofre aberto em 15/10/2026 por decisão do operador
 
 # ---------------------------------------------------------------------
 #  Previsões ao vivo (passo 6a): modelos em produção (train-champion), mesmos momentos do treino
@@ -308,11 +309,6 @@ trading:
       stop-atr: 1.5                   # stop = 1,5 × ATR(14) M15 (= 1 R)
       target-r: 1.5                   # alvo = 1,5 × stop; sem stop nem alvo, sai no fim do horizonte
 
-    # ===== PERFIS DE PERDA: escolha no dashboard (Operar) =====
-    # "padrao" = os limites de global acima (20% no dia, 35% na semana). Os outros ficam aqui; o dashboard só
-    # escolhe qual vale (a escolha fica no Postgres, em app_setting).
-    loss-profiles:
-      conservador: { label: Conservador, max-daily-loss-pct: 6.0, max-weekly-loss-pct: 12.0 }
 
     # ===== ORDENS (passo 6c): travas de cada ordem enviada ao MT5 =====
     # O dashboard só escolhe o lote (entre o lote mínimo e max-lot). Todo o resto é decidido aqui.
@@ -338,6 +334,16 @@ trading:
       trail-start-usd: 2.0            # com este lucro, o stop vai para o zero a zero…
       trail-distance-usd: 2.0         # …e depois segue o preço deixando isto do lucro para trás
       trail-step-usd: 0.5             # só move de novo quando trava pelo menos isto a mais
+      # Prorrogação com lucro (botão na página Operar, 15/10): na saída por tempo, posição com lucro recebe stop e
+      # alvo perto do preço em vez de fechar a mercado (precisa do EA 2.4). Dinâmica: a cada nova máxima de lucro o
+      # stop sobe (garante a % da máxima), o alvo vai à frente e a janela renova; sem nova máxima, ou no teto, fecha.
+      time-lock-enabled: false
+      time-lock-min-profit-usd: 0.30  # abaixo deste lucro fecha como sempre
+      time-lock-keep-pct: 50.0        # o stop garante esta % do MAIOR lucro visto na prorrogação
+      time-lock-extra-pct: 50.0       # o alvo fica além do preço a esta % do maior lucro
+      time-lock-minutes: 10           # sem nova máxima por este tempo → fecha a mercado
+      time-lock-max-minutes: 60       # teto da prorrogação (desde o fim do tempo original)
+      time-lock-step-pct: 10.0        # nova máxima conta quando passa a anterior em pelo menos esta %
 
     # ===== ORÇAMENTO POR MERCADO =====
     markets:
@@ -374,6 +380,12 @@ trading:
         max-open-risk-pct: 10.0
         max-positions: 1
         usd-weight: 0.5
+      energy:                          # UKOIL, USOIL, XNGUSD (passo 11): desligado até haver modelo validado
+        enabled: false
+        risk-per-trade-pct: 5.0
+        max-open-risk-pct: 10.0
+        max-positions: 1
+        usd-weight: 0.0                # exposição a USD só conta no forex
 
   # ---------------------------------------------------------------------
   #  Instrumentos — valores APROXIMADOS para conta em USD e contratos padrão.
@@ -396,8 +408,8 @@ trading:
 #  Perfis prontos de risco (página Risco: um clique aplica e fica no histórico)
 # ---------------------------------------------------------------------
 # Cada perfil substitui global, exits e os mercados listados (inteiros) e os campos de orders listados. Não mexe no
-# stop/alvo em US$ (trading.risk.money, que prevalece quando ligado) nem nos perfis de perda extras; volta ao perfil
-# de perda Padrão (o de global). Saídas iguais em todos: stop 1,5 ATR e alvo 1,5 R, as do walk-forward e do cofre;
+# stop/alvo em US$ (trading.risk.money, que prevalece quando ligado). A perda do dia e da semana que trava as entradas
+# é a de global do perfil. Saídas iguais em todos: stop 1,5 ATR e alvo 1,5 R, as do walk-forward e do cofre;
 # o ouro mantém 15 min, o horizonte da regra validada dele.
 risk:
   presets:
@@ -411,6 +423,7 @@ risk:
         fx: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 1.0 }
         metals: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
         crypto: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 0.5 }
+        energy: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 0.0 }
         indices: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 0.0 }
         stocks: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 0.0 }
     conservador:
@@ -423,6 +436,7 @@ risk:
         fx: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 2, usd-weight: 1.0 }
         metals: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
         crypto: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 0.5 }
+        energy: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 0.0 }
         indices: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 0.0 }
         stocks: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 0.0 }
     moderado:
@@ -435,6 +449,7 @@ risk:
         fx: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 3, usd-weight: 1.0 }
         metals: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 1, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
         crypto: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 1, usd-weight: 0.5 }
+        energy: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 1, usd-weight: 0.0 }
         indices: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 2, usd-weight: 0.0 }
         stocks: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 2, usd-weight: 0.0 }
     arrojado:
@@ -447,6 +462,7 @@ risk:
         fx: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 5, usd-weight: 1.0 }
         metals: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 2, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
         crypto: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 2, usd-weight: 0.5 }
+        energy: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 2, usd-weight: 0.0 }
         indices: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 3, usd-weight: 0.0 }
         stocks: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 3, usd-weight: 0.0 }
     ultra-arrojado:
@@ -459,5 +475,6 @@ risk:
         fx: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 7, usd-weight: 1.0 }
         metals: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 2, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
         crypto: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 2, usd-weight: 0.5 }
+        energy: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 2, usd-weight: 0.0 }
         indices: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 4, usd-weight: 0.0 }
         stocks: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 4, usd-weight: 0.0 }

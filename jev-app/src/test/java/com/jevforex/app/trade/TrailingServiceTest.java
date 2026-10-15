@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class TrailingServiceTest {
 
     /** Trailing: começa com US$ 2 de lucro, deixa US$ 2 para trás, anda de US$ 0,50 em US$ 0,50. */
-    private static final RiskSettings.MoneyExits M = new RiskSettings.MoneyExits(false, 5.0, 10.0, true, 2.0, 2.0, 0.5);
+    private static final RiskSettings.MoneyExits M = new RiskSettings.MoneyExits(false, 5.0, 10.0, true, 2.0, 2.0, 0.5, null, null, null, null, null, null, null);
     /** EURUSD 0,01 lote: US$ 1.000 por 1,0 de preço (US$ 0,10 por pip). */
     private static final double PER_PRICE = 1000;
     private static final double TICK = 0.00001;
@@ -23,9 +23,9 @@ class TrailingServiceTest {
         assertNull(M.lockedProfit(1.99), "antes de US$ 2 não mexe");
         assertEquals(0.0, M.lockedProfit(2.0), 1e-12, "com US$ 2: zero a zero");
         assertEquals(3.0, M.lockedProfit(5.0), 1e-12, "com US$ 5: trava US$ 3");
-        var curto = new RiskSettings.MoneyExits(false, 5.0, 10.0, true, 2.0, 1.0, 0.5);
+        var curto = new RiskSettings.MoneyExits(false, 5.0, 10.0, true, 2.0, 1.0, 0.5, null, null, null, null, null, null, null);
         assertEquals(1.0, curto.lockedProfit(2.0), 1e-12, "distância menor que o início: já trava lucro");
-        assertThrows(IllegalArgumentException.class, () -> new RiskSettings.MoneyExits(true, 0.0, 10.0, false, null, null, null));
+        assertThrows(IllegalArgumentException.class, () -> new RiskSettings.MoneyExits(true, 0.0, 10.0, false, null, null, null, null, null, null, null, null, null, null));
         assertFalse(RiskSettings.MoneyExits.OFF.enabled());
     }
 

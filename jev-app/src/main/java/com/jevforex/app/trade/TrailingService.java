@@ -120,19 +120,24 @@ public class TrailingService {
 
     /** O EA reporta "JevExecutor/2.2" no heartbeat; MODIFY existe a partir da 2.2. */
     boolean eaSupportsModify(String detailJson) {
+        return eaAtLeast(detailJson, 2, 2);
+    }
+
+    /** Versão do EA conectado ≥ major.minor (sem versão no heartbeat = não). */
+    boolean eaAtLeast(String detailJson, int wantMajor, int wantMinor) {
         try {
             String v = mapper.readTree(detailJson == null ? "{}" : detailJson).path("ea_version").asText("");
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("/(\\d+)\\.(\\d+)").matcher(v);
             if (!m.find()) return false;
             int major = Integer.parseInt(m.group(1)), minor = Integer.parseInt(m.group(2));
-            return major > 2 || (major == 2 && minor >= 2);
+            return major > wantMajor || (major == wantMajor && minor >= wantMinor);
         } catch (Exception e) {
             return false;
         }
     }
 
     /** symbol → {bid, ask} do último heartbeat do EA. */
-    private Map<String, double[]> quotes(String detailJson) {
+    Map<String, double[]> quotes(String detailJson) {
         Map<String, double[]> out = new HashMap<>();
         try {
             JsonNode d = mapper.readTree(detailJson == null ? "{}" : detailJson);

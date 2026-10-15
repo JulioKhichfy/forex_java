@@ -193,7 +193,7 @@ export interface Position {
 export interface Order {
   id: number;
   symbol: string;
-  action: 'OPEN' | 'CLOSE';
+  action: 'OPEN' | 'CLOSE' | 'MODIFY';
   side: string | null;
   volume: number | null;
   riskUsd: number | null;
@@ -205,17 +205,64 @@ export interface Order {
   closeAfterUtc: string | null;
 }
 
+/** De onde veio a posição e como ela está protegida (GET /api/trade/state → details[ticket]). */
+export interface PositionDetail {
+  ticket: number;
+  origin: 'roleta' | 'manual' | 'externa';
+  strategy: 'trend' | 'pullback' | null;
+  model: string | null;
+  horizonMin: number | null;
+  pSide: number | null;
+  pctB: number | null;
+  openedAt: string | null;
+  closeAfterUtc: string | null;
+  timeLockUntil: string | null;
+  timeLockStatus: string | null;
+  timeLockMessage: string | null;
+  stopMode: 'ATR' | 'USD' | null;
+  stopAtr: number | null;
+  targetR: number | null;
+  riskUsdPlanned: number | null;
+  slUsd: number | null;
+  tpUsd: number | null;
+  trailMoves: number;
+  trailLast: string | null;
+  timeLockStartedAt: string | null;
+  timeLockPeakUsd: number | null;
+  timeLockPeakAt: string | null;
+  timeLockMoves: number | null;
+}
+
+/** trading.risk.money: stop/alvo em US$, trailing e prorrogação com lucro. */
+export interface MoneyExits {
+  enabled: boolean;
+  stopUsd: number;
+  takeUsd: number;
+  trailEnabled: boolean;
+  trailStartUsd: number;
+  trailDistanceUsd: number;
+  trailStepUsd: number;
+  timeLockEnabled: boolean;
+  timeLockMinProfitUsd: number;
+  timeLockKeepPct: number;
+  timeLockExtraPct: number;
+  timeLockMinutes: number;
+  timeLockMaxMinutes: number;
+  timeLockStepPct: number;
+}
+
 export interface TradeState {
   mode: string;
   account: { account: number; server: string; tradeMode: string; equity: number | null; balance: number | null;
     reportedAt: string | null; detailJson: string | null } | null;
   positions: Position[];
+  details?: Record<string, PositionDetail>;
+  money?: MoneyExits;
   orders: Order[];
   lot: number;
   blocked: boolean;
   flattening: boolean;
-  loss_profile: string;
-  loss_profiles: Record<string, { label: string; maxDailyLossPct: number; maxWeeklyLossPct: number }>;
+  loss_limits?: { label: string; maxDailyLossPct: number; maxWeeklyLossPct: number };
   symbols: string[];
   symbols_by_market: Record<string, string[]>;
   limits: {
@@ -467,8 +514,9 @@ export class Api {
     return this.http.post(`/api/trade/block?on=${on}`, {});
   }
 
-  setLossProfile(name: string): Observable<unknown> {
-    return this.http.post(`/api/trade/loss-profile?name=${encodeURIComponent(name)}`, {});
+
+  setTimeLock(on: boolean): Observable<{ money: MoneyExits }> {
+    return this.http.post<{ money: MoneyExits }>(`/api/trade/time-lock?on=${on}`, {});
   }
 
   setLot(value: number): Observable<{ lot: number }> {

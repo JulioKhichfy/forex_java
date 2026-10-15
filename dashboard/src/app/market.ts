@@ -6,6 +6,7 @@ export const MARKETS: { code: string; label: string }[] = [
   { code: 'stocks', label: 'Ações' },
   { code: 'metals', label: 'Ouro' },
   { code: 'crypto', label: 'Bitcoin' },
+  { code: 'energy', label: 'Energia' },
 ];
 
 /** Mercado escolhido no topo do dashboard (lembrado no navegador). */

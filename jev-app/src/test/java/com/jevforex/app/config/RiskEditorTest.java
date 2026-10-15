@@ -27,8 +27,8 @@ class RiskEditorTest {
         var idx = new RiskSettings.MarketRisk(true, 4.0, 8.0, 1, 0.0);
         return new RiskSettings(global, Map.of(Market.FX, fx, Market.INDICES, idx), new RiskSettings.Exits(1.5, 2.0),
                 new RiskSettings.Orders(0.01, 0.03, 60, 20, 30, 30, 90, 10, 2, 2.0, 300),
-                Map.of("conservador", new RiskSettings.LossProfile("Conservador", 6, 12)),
-                new RiskSettings.MoneyExits(true, 3.0, 6.0, true, 2.0, 1.5, 0.25));
+                Map.of(),
+                new RiskSettings.MoneyExits(true, 3.0, 6.0, true, 2.0, 1.5, 0.25, true, 0.5, 60.0, 40.0, 10, 45, 20.0));
     }
 
     @Test
@@ -51,7 +51,8 @@ class RiskEditorTest {
         String text = Files.readString(file);
         assertTrue(text.contains("max-risk-per-trade-pct"), text);
         assertTrue(text.contains("trail-distance-usd: 1.5"), "stop em US$ e trailing gravados em kebab-case");
-        assertTrue(!text.contains("padrao"), "o perfil padrão vem de global e não é gravado à parte");
+        assertTrue(text.contains("time-lock-keep-pct: 60.0"), "prorrogação com lucro gravada");
+        assertTrue(!text.contains("loss-profiles"), "perda do dia/semana só em global (perfis de perda à parte saíram)");
     }
 
     @Test

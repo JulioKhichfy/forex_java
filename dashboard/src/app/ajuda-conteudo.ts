@@ -77,7 +77,7 @@ export const SECOES: Secao[] = [
           colunas: ['Elemento', 'O que faz'],
           linhas: [
             { termo: 'Hoje · Radar · Previsões · Operar · Roleta russa · Risco · Modelos · Saúde · Ajuda', texto: 'As páginas. Cada uma tem uma seção nesta ajuda.' },
-            { termo: 'Forex · Índices · Ações · Ouro · Bitcoin', texto: 'O mercado que as páginas Hoje, Radar, Previsões, Operar e Modelos mostram. A escolha fica guardada no navegador. Forex = 7 pares principais; Índices = US30, US500, USTEC, DE30, UK100, JP225 e outros; Ações = AAPL, MSFT, NVDA, META, GOOGL, INTC, SPCX; Ouro = XAUUSD; Bitcoin = BTCUSD.' },
+            { termo: 'Forex · Índices · Ações · Ouro · Bitcoin · Energia', texto: 'O mercado que as páginas Hoje, Radar, Previsões, Operar e Modelos mostram. A escolha fica guardada no navegador. Forex = 7 pares principais; Índices = US30, US500, USTEC, DE30, UK100, JP225 e outros; Ações = AAPL, MSFT, NVDA, META, GOOGL, INTC, SPCX; Ouro = XAUUSD; Bitcoin = BTCUSD; Energia = UKOIL (Brent), USOIL (WTI) e XNGUSD (gás natural).' },
             { termo: 'modo SHADOW / DEMO / LIVE', texto: '<b>SHADOW</b>: as ordens são conferidas e registradas, mas não vão para o MT5. <b>DEMO</b>: vão só para conta demo. <b>LIVE</b>: conta real (selo em laranja). O modo é escolhido ao subir o servidor (<code>--trading.mode=demo</code>).' },
             { termo: 'Relógio (UTC)', texto: 'Hora do servidor em UTC; com o mouse, Brasília. Se aparecer “API fora do ar”, o servidor (java -jar jev-app.jar) não está respondendo.' },
           ],
@@ -395,7 +395,7 @@ export const SECOES: Secao[] = [
             { termo: 'Sistema', texto: 'O modo do servidor (SHADOW, DEMO, LIVE).' },
             { termo: 'BLOCK', texto: 'Liga/desliga o bloqueio de entradas novas. Fechar posições continua liberado.' },
             { termo: 'FLATTEN (fechar tudo)', texto: 'Cancela o que está pendente, liga o BLOCK e manda o EA fechar TODAS as posições deste sistema. Use em emergência.' },
-            { termo: 'Perfil de perda', texto: 'Escolhe qual par de limites de perda vale: Padrão (os da seção 1 da página Risco) ou outro perfil (ex.: Conservador). Muda só os limites de perda do dia e da semana.' },
+            { termo: 'Trava de perda', texto: 'Com a perda do dia (desde 00:00 UTC) ou da semana (desde segunda) acima destes limites, nenhuma entrada nova, nem da roleta. Os valores vêm do perfil de risco aplicado na página Risco (seção 1); não há mais escolha à parte nesta página.' },
             { termo: 'Linha “Limites”', texto: 'Resumo do que está em vigor: teto por operação, posições, stop/alvo globais e lote máximo.' },
           ],
         },
@@ -438,7 +438,7 @@ export const SECOES: Secao[] = [
             { termo: 'Par livre', texto: 'Só uma posição por símbolo.' },
             { termo: 'Risco aberto total', texto: 'O risco de todas as posições abertas + esta cabe no limite (todas precisam ter stop).' },
             { termo: 'Exposição líquida a USD', texto: 'No forex, a soma do risco na direção do dólar cabe no limite.' },
-            { termo: 'Perda do dia / da semana', texto: 'A queda do patrimônio desde 00:00 UTC (dia) e desde segunda 00:00 UTC (semana) está abaixo do perfil de perda em vigor.' },
+            { termo: 'Perda do dia / da semana', texto: 'A queda do patrimônio desde 00:00 UTC (dia) e desde segunda 00:00 UTC (semana) está abaixo dos limites de perda do perfil de risco (página Risco, seção 1).' },
             { termo: 'Nível de margem', texto: 'Acima do mínimo (folga antes do stop-out da corretora).' },
             { termo: 'Spread (gate 3)', texto: 'O spread agora é no máximo N vezes o típico daquele horário.' },
             { termo: 'Fora de blackout (gate 2)', texto: 'Nenhum evento de importância ALTA da moeda entre N minutos antes e N minutos depois de agora.' },
@@ -447,16 +447,21 @@ export const SECOES: Secao[] = [
       },
       {
         titulo: 'Posições abertas (deste sistema)',
-        html: 'Só as posições abertas pelo EA deste sistema (o EA não mexe em posições abertas à mão ou por outros robôs).',
+        html: `Só as posições abertas pelo EA deste sistema na conta conectada agora (o EA não mexe em posições abertas à mão
+          ou por outros robôs). Acima da tabela: o botão <b>“Prorrogar com lucro na saída por tempo”</b> e como estão o
+          trailing e o stop em US$. Embaixo de cada posição, uma linha com o stop de entrada (em ATR ou em US$), a perda
+          planejada, quantas vezes o trailing moveu o stop e se a posição foi prorrogada.`,
         tabela: {
           colunas: ['Coluna', 'Significado'],
           linhas: [
             { termo: 'Ticket', texto: 'Número da posição no MT5.' },
             { termo: 'Par / Lado / Lote', texto: 'O que está aberto.' },
             { termo: 'Abertura', texto: 'Preço de entrada.' },
-            { termo: 'SL', texto: 'Stop no servidor da corretora: fecha com perda se o preço chegar lá, mesmo com o seu computador desligado.' },
-            { termo: 'TP', texto: 'Alvo no servidor da corretora: fecha com lucro.' },
+            { termo: 'SL', texto: 'Stop no servidor da corretora: fecha com perda se o preço chegar lá, mesmo com o seu computador desligado. Embaixo, quanto dá em US$ se bater: negativo = perda; positivo = lucro já garantido (trailing ou prorrogação).' },
+            { termo: 'TP', texto: 'Alvo no servidor da corretora: fecha com lucro. Embaixo, quanto dá em US$.' },
             { termo: 'Resultado', texto: 'Lucro ou prejuízo flutuante, em US$.' },
+            { termo: 'Origem', texto: 'Roleta · tendência (lado mais provável), Roleta · pullback (LATERAL, contra a banda de Bollinger; com o %B da entrada) ou Manual; o modelo, o horizonte e a probabilidade do lado na hora da entrada.' },
+            { termo: 'Fecha em', texto: 'Contagem até a saída por tempo (minutos:segundos). “(prorrogada)” = é o fim da prorrogação com lucro. “só SL/TP” = ordem sem saída por tempo.' },
             { termo: 'Desde (UTC)', texto: 'Quando abriu.' },
             { termo: 'Fechar', texto: 'Manda o EA fechar agora (fechar nunca é bloqueado pelo BLOCK).' },
           ],
@@ -464,7 +469,7 @@ export const SECOES: Secao[] = [
       },
       {
         titulo: 'Suas operações (30 dias)',
-        html: 'O resultado REAL das ordens que você mandou, inclusive as que a corretora fechou sozinha no stop ou no alvo. Diferente do placar dos modelos, que mede as previsões.',
+        html: 'O resultado REAL das ordens que você mandou, inclusive as que a corretora fechou sozinha no stop ou no alvo. Diferente do placar dos modelos, que mede as previsões. Só conta a conta conectada agora (a da última conexão do EA): ao trocar da demo para a real, o placar começa zerado e a demo não se mistura.',
         tabela: {
           colunas: ['Cartão / coluna', 'Significado'],
           linhas: [
@@ -595,6 +600,22 @@ export const SECOES: Secao[] = [
           log. Na página Operar, os pedidos aparecem como ordens <b>MODIFY</b>.`,
       },
       {
+        titulo: 'Prorrogação com lucro na saída por tempo',
+        html: `Liga e desliga aqui ou pelo botão da página <b>Operar</b>, e vale para <b>todas</b> as posições (roleta e
+          manuais). Quando uma posição chega ao fim do tempo <b>com lucro</b> de pelo menos <b>“Lucro mínimo”</b>, em vez de
+          fechar a mercado ela passa a ser <b>acompanhada</b> (a cada 5 s):
+          <ul><li>o <b>stop</b> garante <b>“O stop garante”</b> % do <b>maior</b> lucro visto (nunca pior que o do trailing);</li>
+          <li>o <b>alvo</b> fica à frente do preço, a <b>“O alvo fica além do preço”</b> % do maior lucro;</li>
+          <li>quando o lucro passa a máxima anterior em <b>“Nova máxima conta com”</b> %, o stop sobe, o alvo vai mais à frente
+          e a janela renova;</li>
+          <li>sem nova máxima em <b>“Fecha sem nova máxima em”</b> minutos, ou no <b>“Teto da prorrogação”</b>, fecha a mercado.</li></ul>
+          Com os padrões (50%, 50%, +10%, 10 min, teto 60 min): lucro de US$ 2 no fim do tempo → stop garante US$ 1; se o
+          lucro chega a US$ 4, o stop passa a garantir US$ 2 e o alvo vai para +US$ 6. Sem lucro suficiente, sem cotação
+          recente do EA ou se a corretora não aceitar o stop tão perto, fecha como sempre; se o EA recusar o início, fecha na
+          volta seguinte. <b>Precisa do EA JevExecutor 2.4</b>; com o EA antigo, fecha por tempo como antes. Não há estudo de
+          que isso melhora o resultado: é uma escolha de gestão do operador (os modelos foram avaliados com a saída por tempo).`,
+      },
+      {
         titulo: 'Salvar',
         html: `<b>Salvar e aplicar</b> pede confirmação e vale na hora. Fica gravado no mesmo arquivo da página Risco
           (<code>config/application.yml</code>, bloco <code>trading.risk.money</code>) e entra no histórico de alterações dela.`,
@@ -608,22 +629,22 @@ export const SECOES: Secao[] = [
     titulo: 'Página Risco',
     resumo: 'Todas as regras que o sistema confere antes de cada ordem. Mudou e salvou: vale na hora, sem reiniciar.',
     blocos: [
-      { imagem: { src: 'risco', legenda: 'A página Risco inteira: limites da conta, travas de cada ordem, saídas, orçamento por mercado e perfis de perda.' } },
+      { imagem: { src: 'risco', legenda: 'A página Risco inteira: limites da conta, travas de cada ordem, saídas, orçamento por mercado.' } },
       {
         titulo: 'Como funciona',
         html: `Os valores ficam em <code>config/application.yml</code> (ao lado do jar, fora do git) e valem por cima do
           padrão do sistema. Cada gravação é auditada no histórico. Valor fora do permitido é recusado e nada é gravado. Os
           valores “na prática” usam o saldo atual informado pelo EA. <b>Regra de ouro: quando dois limites se aplicam, vale
           o menor.</b><br>A página tem três partes: <b>1 · Perfil pronto</b> (um clique), <b>2 · Stop e alvo em US$ e
-          trailing</b> (prevalece sobre tudo) e <b>3 · Ajuste fino</b> (campo a campo, as seções 3.1 a 3.5 abaixo).`,
+          trailing</b> (prevalece sobre tudo) e <b>3 · Ajuste fino</b> (campo a campo, as seções 3.1 a 3.4 abaixo).`,
       },
       {
         titulo: '1 · Perfil pronto',
         html: `Cinco conjuntos completos e coerentes, do <b>Ultra conservador</b> ao <b>Ultra arrojado</b>. Clicar num deles
           (e confirmar) substitui os limites da conta (3.1), as travas de ordem que ele define (3.2: lote máximo, saída por
           tempo, blackout, spread), as saídas (3.3: stop 1,5 ATR e alvo 1,5 R — as que foram testadas — em todos os
-          mercados; o ouro mantém a saída em 15 min da regra dele) e o orçamento de cada mercado (3.4), e volta ao perfil
-          de perda Padrão. <b>Não mexe</b> no stop/alvo em US$ nem no trailing (parte 2).<br>
+          mercados; o ouro mantém a saída em 15 min da regra dele) e o orçamento de cada mercado (3.4), inclusive a perda do
+          dia e da semana que trava as entradas. <b>Não mexe</b> no stop/alvo em US$ nem no trailing (parte 2).<br>
           Cada cartão mostra a perda máxima por ordem com o saldo de agora, quantas posições ao mesmo tempo e quando o
           sistema para de abrir ordens no dia e na semana. O perfil em vigor fica em verde com <b>EM VIGOR</b>; depois de
           um ajuste fino na parte 3, nenhum fica em verde. Nos perfis conservadores, com banca pequena, símbolos cujo lote
@@ -687,10 +708,7 @@ export const SECOES: Secao[] = [
           ],
         },
       },
-      {
-        titulo: '5 · Perfis de perda',
-        html: 'Pares de limites (dia, semana) escolhidos na página Operar. O Padrão usa os da seção 1; os demais são editados aqui.',
-      },
+
       {
         titulo: 'Barra de salvar e histórico',
         tabela: {
@@ -967,5 +985,5 @@ export const GLOSSARIO_NOMES: Record<string, string> = {
   maxSpreadRatio: 'Spread máximo', minMarginLevelPct: 'Nível de margem mínimo', stopAtr: 'Stop (× ATR)', targetR: 'Alvo (× stop)',
   marketEnabled: 'Mercado ativo', riskPerTradePct: 'Risco-alvo por operação', marketMaxOpenRiskPct: 'Risco aberto do mercado',
   marketMaxPositions: 'Posições do mercado', marketCloseAfter: 'Saída por tempo do mercado', marketStopAtr: 'Stop do mercado',
-  marketTargetR: 'Alvo do mercado', regraOuro: 'Regra do ouro', usdWeight: 'Peso no USD', lossProfile: 'Perfil de perda',
+  marketTargetR: 'Alvo do mercado', regraOuro: 'Regra do ouro', usdWeight: 'Peso no USD', lossProfile: 'Trava de perda',
 };

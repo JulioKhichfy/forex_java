@@ -54,7 +54,8 @@ public class RiskEditor {
     }
 
     /**
-     * Valida e põe em vigor. O perfil de perda "padrao" vem de {@code global} e não é editado à parte.
+     * Valida e põe em vigor. A perda do dia e da semana vem de {@code global}; os antigos perfis de perda à parte
+     * (loss-profiles) saíram em 15/10/2026 e são descartados na primeira gravação.
      *
      * @param json o mesmo formato que {@code GET /api/risk} devolve
      */
@@ -62,11 +63,7 @@ public class RiskEditor {
         Map<String, Object> copy = new LinkedHashMap<>(json);
         // o stop/alvo em US$ tem endpoint próprio: quem não o envia (a parte de baixo da página Risco) não o desfaz
         if (!copy.containsKey("money")) copy.put("money", mapper.convertValue(holder.get().money(), Map.class));
-        if (copy.get("lossProfiles") instanceof Map<?, ?> lp) {
-            Map<Object, Object> m = new LinkedHashMap<>(lp);
-            m.remove(RiskSettings.DEFAULT_PROFILE);
-            copy.put("lossProfiles", m);
-        }
+        copy.remove("lossProfiles");
         RiskSettings next;
         try {
             next = mapper.convertValue(copy, RiskSettings.class);
@@ -92,6 +89,16 @@ public class RiskEditor {
         Map<String, Object> cur = current();
         cur.put("money", money);
         return update(cur, source, "stop/alvo em US$ e trailing");
+    }
+
+    /** Só liga/desliga a prorrogação com lucro na saída por tempo (botão da página Operar); os valores ficam. */
+    @SuppressWarnings("unchecked")
+    public synchronized RiskSettings setTimeLock(boolean on, String source) {
+        Map<String, Object> money = new LinkedHashMap<>(mapper.convertValue(holder.get().money(), Map.class));
+        money.put("timeLockEnabled", on);
+        Map<String, Object> cur = current();
+        cur.put("money", money);
+        return update(cur, source, "prorrogação com lucro " + (on ? "ligada" : "desligada"));
     }
 
     /**
@@ -129,11 +136,7 @@ public class RiskEditor {
     @SuppressWarnings("unchecked")
     private Map<String, Object> current() {
         Map<String, Object> cur = mapper.convertValue(holder.get(), LinkedHashMap.class);
-        if (cur.get("lossProfiles") instanceof Map<?, ?> lp) {
-            Map<Object, Object> m = new LinkedHashMap<>(lp);
-            m.remove(RiskSettings.DEFAULT_PROFILE);
-            cur.put("lossProfiles", m);
-        }
+        cur.remove("lossProfiles");
         return cur;
     }
 
@@ -217,11 +220,7 @@ public class RiskEditor {
         out.put("markets", markets);
         out.put("exits", kebab(r.exits()));
         out.put("orders", kebab(r.orders()));
-        Map<String, Object> profiles = new LinkedHashMap<>();
-        r.lossProfiles().forEach((k, v) -> {
-            if (!RiskSettings.DEFAULT_PROFILE.equals(k)) profiles.put(k, kebab(v));
-        });
-        out.put("loss-profiles", profiles);
+
         out.put("money", kebab(r.money()));
         return out;
     }

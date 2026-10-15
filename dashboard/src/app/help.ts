@@ -68,7 +68,7 @@ export const HELP: Record<string, string> = {
   marketTargetR: 'Alvo deste mercado em múltiplos do stop. Vazio = o alvo da seção Saídas. O ouro usa 1,5.',
   regraOuro: 'Regra validada fora da amostra só para o ouro: modelo Eventos + Preço a 15 min, P ≥ 45% e diferença ≥ 15 pontos, apenas no momento de uma divulgação (evento + 2 min). A ordem sai sozinha em 15 min.',
   usdWeight: 'Quanto o risco deste mercado conta na exposição a USD (1 = tudo; 0 = nada, como índices e ações).',
-  lossProfile: 'Perfil de perda: troca só os limites de perda do dia e da semana. Escolha o perfil na página Operar.',
+  lossProfile: 'Trava de perda: com a perda do dia (ou da semana) acima destes limites, nenhuma entrada nova até 00:00 UTC (ou até segunda). Os valores vêm do perfil de risco aplicado na página Risco (seção 1, perda no dia e na semana).',
 
   // ------------------------------------------------------------------ radar
   radarAlertas: 'Tudo o que está fora do normal agora: alertas de preço (calculados na última barra FECHADA de cada período), eventos do calendário das próximas 2 h e notícias das últimas 6 h. Os mais fortes e os mais próximos do agora vêm primeiro. Verde = movimento de alta, vermelho = de baixa — descrição, não previsão.',

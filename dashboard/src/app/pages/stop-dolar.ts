@@ -14,6 +14,13 @@ interface Money {
   trailStartUsd: number;
   trailDistanceUsd: number;
   trailStepUsd: number;
+  timeLockEnabled: boolean;
+  timeLockMinProfitUsd: number;
+  timeLockKeepPct: number;
+  timeLockExtraPct: number;
+  timeLockMinutes: number;
+  timeLockMaxMinutes: number;
+  timeLockStepPct: number;
 }
 
 interface PreviewRow {
@@ -86,6 +93,36 @@ interface PreviewRow {
           </table>
         </section>
       </div>
+
+      <section class="panel" style="margin-top:16px">
+        <h3>Prorrogação com lucro na saída por tempo <tip text="Também liga e desliga pelo botão da página Operar. Precisa do JevExecutor 2.4 (move stop e alvo juntos)." /></h3>
+        <label class="check"><input type="checkbox" [checked]="d.timeLockEnabled" (change)="set('timeLockEnabled', $any($event.target).checked)" />
+          No fim do tempo, posição com lucro não fecha a mercado: o stop e o alvo acompanham o preço enquanto o lucro sobe</label>
+        <div class="grid two">
+          <div class="fields" [class.off]="!d.timeLockEnabled">
+            <label>Lucro mínimo para prorrogar <tip text="Abaixo disso (ou no prejuízo), a posição fecha por tempo como sempre." />
+              <span class="money">US$ <input type="number" min="0.05" step="0.1" [value]="d.timeLockMinProfitUsd" (input)="set('timeLockMinProfitUsd', +$any($event.target).value)" /></span></label>
+            <label>O stop garante <tip text="Parte do MAIOR lucro visto na prorrogação que o stop deixa garantida. O resto é o que você aceita devolver para tentar ganhar mais." />
+              <span class="money"><input type="number" min="1" max="99" step="5" [value]="d.timeLockKeepPct" (input)="set('timeLockKeepPct', +$any($event.target).value)" /> %</span></label>
+            <label>O alvo fica além do preço <tip text="O alvo fica à frente do preço, a esta % do maior lucro; a cada nova máxima ele vai mais à frente." />
+              <span class="money"><input type="number" min="1" step="5" [value]="d.timeLockExtraPct" (input)="set('timeLockExtraPct', +$any($event.target).value)" /> %</span></label>
+            <label>Nova máxima conta com <tip text="Só move stop e alvo (e renova a janela) quando o lucro passa a máxima anterior em pelo menos esta %. Evita mexer a cada tique." />
+              <span class="money">+<input type="number" min="1" step="5" [value]="d.timeLockStepPct" (input)="set('timeLockStepPct', +$any($event.target).value)" /> %</span></label>
+            <label>Fecha sem nova máxima em <tip text="A janela renova a cada nova máxima. Se o lucro não fizer nova máxima nesse tempo, fecha a mercado." />
+              <span class="money"><input type="number" min="1" step="5" [value]="d.timeLockMinutes" (input)="set('timeLockMinutes', +$any($event.target).value)" /> min</span></label>
+            <label>Teto da prorrogação <tip text="Tempo máximo além da saída original, mesmo com o lucro subindo. No teto, fecha a mercado." />
+              <span class="money"><input type="number" min="1" step="10" [value]="d.timeLockMaxMinutes" (input)="set('timeLockMaxMinutes', +$any($event.target).value)" /> min</span></label>
+          </div>
+          <table class="example small">
+            <tr><th>Maior lucro até agora</th><th>Stop garante</th><th>Alvo dá</th></tr>
+            @for (x of lockExample(); track x.profit) {
+              <tr><td>US$ {{ x.profit | number: '1.2-2' }}</td>
+                @if (x.keep === null) { <td colspan="2" class="muted">fecha a mercado (lucro abaixo do mínimo)</td> }
+                @else { <td class="up">+US$ {{ x.keep | number: '1.2-2' }}</td><td class="up">+US$ {{ x.target | number: '1.2-2' }}</td> }</tr>
+            }
+          </table>
+        </div>
+      </section>
 
       @if (d.enabled) {
         <section class="panel" style="margin-top:16px">
@@ -167,6 +204,17 @@ export class StopDolar implements OnInit {
     }));
   });
 
+  /** Prorrogação com lucro: o que o novo stop garante e o novo alvo dá em alguns lucros. */
+  protected lockExample = computed(() => {
+    const d = this.draft();
+    if (!d) return [];
+    const min = d.timeLockMinProfitUsd;
+    return [min / 2, min, 1, 2, 5].map((profit) => ({
+      profit, keep: profit < min ? null : profit * d.timeLockKeepPct / 100,
+      target: profit * (1 + d.timeLockExtraPct / 100),
+    }));
+  });
+
   protected marketsWithRows = computed(() => MARKETS.filter((m) => this.preview().some((r) => r.market === m.code)));
 
   ngOnInit(): void {
@@ -224,7 +272,8 @@ export class StopDolar implements OnInit {
     const d = this.draft();
     if (!d) return;
     const text = (d.enabled ? `Stop US$ ${d.stopUsd} e alvo US$ ${d.takeUsd} em TODA ordem nova.` : 'Stop e alvo em US$ DESLIGADOS (volta o ATR).')
-      + '\n' + (d.trailEnabled ? `Trailing: zero a zero com US$ ${d.trailStartUsd} de lucro, depois segue a US$ ${d.trailDistanceUsd}.` : 'Trailing desligado.');
+      + '\n' + (d.trailEnabled ? `Trailing: zero a zero com US$ ${d.trailStartUsd} de lucro, depois segue a US$ ${d.trailDistanceUsd}.` : 'Trailing desligado.')
+      + '\n' + (d.timeLockEnabled ? `Prorrogação com lucro: stop garante ${d.timeLockKeepPct}%, alvo +${d.timeLockExtraPct}% do maior lucro; fecha sem nova máxima em ${d.timeLockMinutes} min (teto ${d.timeLockMaxMinutes} min).` : 'Prorrogação com lucro desligada.');
     if (!confirm(`Aplicar agora?\n\n${text}`)) return;
     this.saving.set(true);
     // só o bloco em US$: não desfaz o que foi mudado na página Risco enquanto esta estava aberta

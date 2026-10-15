@@ -8,6 +8,7 @@ public enum Market {
     FX("fx"),
     METALS("metals"),
     CRYPTO("crypto"),
+    ENERGY("energy"),
     INDICES("indices"),
     STOCKS("stocks");
 

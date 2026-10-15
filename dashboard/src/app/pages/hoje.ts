@@ -342,8 +342,8 @@ export class Hoje implements OnInit, OnDestroy {
     this.api.latest(this.marketState.market()).subscribe({ next: (l) => this.latest.set(l), error: () => this.latest.set(null) });
   }
 
-  /** Ouro e bitcoin são cotados em USD: o calendário e as notícias que importam são os dos EUA. */
-  protected focusCurrency = computed(() => ['metals', 'crypto'].includes(this.marketState.market()) ? 'USD' : null);
+  /** Ouro, bitcoin e energia são cotados em USD: o calendário e as notícias que importam são os dos EUA. */
+  protected focusCurrency = computed(() => ['metals', 'crypto', 'energy'].includes(this.marketState.market()) ? 'USD' : null);
 
   private loadSlow(): void {
     this.api.upcoming(24, this.focusCurrency()).subscribe({ next: (e) => this.events.set(e), error: () => this.events.set([]) });

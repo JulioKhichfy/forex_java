@@ -106,10 +106,24 @@ public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits
      * @param trailStartUsd    lucro (US$) a partir do qual o stop começa a andar (vai para o zero a zero)
      * @param trailDistanceUsd quanto do lucro o stop deixa para trás (US$)
      * @param trailStepUsd     melhora mínima (US$) para mover de novo (evita mexer a cada tique)
+     * @param timeLockEnabled  prorrogação com lucro (pedido do operador em 15/10/2026): na saída por tempo, posição com
+     *                         lucro não fecha a mercado; recebe stop e alvo perto do preço e ganha mais um tempo
+     * @param timeLockMinProfitUsd lucro mínimo (US$) para prorrogar; abaixo disso fecha como sempre
+     * @param timeLockKeepPct  % do lucro do momento que o novo stop garante (o resto é o que se arrisca)
+     * @param timeLockExtraPct o novo alvo fica a esta % do lucro do momento além do preço
+     * @param timeLockMinutes  janela da prorrogação: renova a cada nova máxima de lucro; sem nova máxima nesse tempo,
+     *                         fecha a mercado
+     * @param timeLockMaxMinutes teto da prorrogação (desde o fim do tempo original): no teto, fecha a mercado
+     * @param timeLockStepPct  só atualiza stop/alvo (e renova a janela) quando o lucro passa a máxima anterior em
+     *                         pelo menos esta %
      */
     public record MoneyExits(Boolean enabled, Double stopUsd, Double takeUsd, Boolean trailEnabled,
-                             Double trailStartUsd, Double trailDistanceUsd, Double trailStepUsd) {
-        public static final MoneyExits OFF = new MoneyExits(false, null, null, false, null, null, null);
+                             Double trailStartUsd, Double trailDistanceUsd, Double trailStepUsd,
+                             Boolean timeLockEnabled, Double timeLockMinProfitUsd, Double timeLockKeepPct,
+                             Double timeLockExtraPct, Integer timeLockMinutes, Integer timeLockMaxMinutes,
+                             Double timeLockStepPct) {
+        public static final MoneyExits OFF = new MoneyExits(false, null, null, false, null, null, null,
+                false, null, null, null, null, null, null);
 
         public MoneyExits {
             if (enabled == null) enabled = false;
@@ -124,6 +138,23 @@ public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits
             if (!(trailStartUsd > 0)) throw new IllegalArgumentException("money.trail-start-usd deve ser > 0");
             if (!(trailDistanceUsd > 0)) throw new IllegalArgumentException("money.trail-distance-usd deve ser > 0");
             if (trailStepUsd < 0) throw new IllegalArgumentException("money.trail-step-usd deve ser >= 0");
+            if (timeLockEnabled == null) timeLockEnabled = false;
+            if (timeLockMinProfitUsd == null) timeLockMinProfitUsd = 0.30;
+            if (timeLockKeepPct == null) timeLockKeepPct = 50.0;
+            if (timeLockExtraPct == null) timeLockExtraPct = 50.0;
+            if (timeLockMinutes == null) timeLockMinutes = 10;
+            if (timeLockMaxMinutes == null) timeLockMaxMinutes = 60;
+            if (timeLockStepPct == null) timeLockStepPct = 10.0;
+            if (!(timeLockMinProfitUsd > 0)) throw new IllegalArgumentException("money.time-lock-min-profit-usd deve ser > 0");
+            if (!(timeLockKeepPct > 0 && timeLockKeepPct < 100)) {
+                throw new IllegalArgumentException("money.time-lock-keep-pct deve estar entre 0 e 100 (exclusive)");
+            }
+            if (!(timeLockExtraPct > 0)) throw new IllegalArgumentException("money.time-lock-extra-pct deve ser > 0");
+            if (timeLockMinutes < 1) throw new IllegalArgumentException("money.time-lock-minutes deve ser >= 1");
+            if (timeLockMaxMinutes < timeLockMinutes) {
+                throw new IllegalArgumentException("money.time-lock-max-minutes deve ser >= time-lock-minutes");
+            }
+            if (!(timeLockStepPct > 0)) throw new IllegalArgumentException("money.time-lock-step-pct deve ser > 0");
         }
 
         /**

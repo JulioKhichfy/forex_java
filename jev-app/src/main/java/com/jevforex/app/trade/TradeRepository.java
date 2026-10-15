@@ -33,7 +33,7 @@ public class TradeRepository {
                         Double slDistance, Double tpDistance, Double refPrice, Double atr, Double riskUsd,
                         Integer deviationPts, Instant closeAfterUtc, Long ticket, Long predictionId, String checksJson,
                         String status, String message, Double fillPrice, Long account, Instant createdAt,
-                        Instant expiresAt, Instant sentAt, Instant doneAt, Double slPrice) {
+                        Instant expiresAt, Instant sentAt, Instant doneAt, Double slPrice, Double tpPrice) {
 
         public Order(Long id, String market, String symbol, String action, String side, Double volume,
                      Double slDistance, Double tpDistance, Double refPrice, Double atr, Double riskUsd,
@@ -42,7 +42,7 @@ public class TradeRepository {
                      Instant expiresAt, Instant sentAt, Instant doneAt) {
             this(id, market, symbol, action, side, volume, slDistance, tpDistance, refPrice, atr, riskUsd, deviationPts,
                     closeAfterUtc, ticket, predictionId, checksJson, status, message, fillPrice, account, createdAt,
-                    expiresAt, sentAt, doneAt, null);
+                    expiresAt, sentAt, doneAt, null, null);
         }
     }
 
@@ -50,9 +50,10 @@ public class TradeRepository {
         return jdbc().sql("""
                         INSERT INTO order_request (market, symbol, action, side, volume, sl_distance, tp_distance, ref_price, atr, risk_usd,
                                                    deviation_pts, close_after_utc, ticket, prediction_id, checks, status,
-                                                   message, account, expires_at, sl_price)
+                                                   message, account, expires_at, sl_price, tp_price)
                         VALUES (:market, :symbol, :action, :side, :volume, :sl, :tp, :ref, :atr, :risk, :dev, :closeAfter,
-                                :ticket, :pred, CAST(:checks AS jsonb), :status, :message, :account, :expires, :slPrice)
+                                :ticket, :pred, CAST(:checks AS jsonb), :status, :message, :account, :expires, :slPrice,
+                                :tpPrice)
                         RETURNING id
                         """)
                 .param("market", o.market())
@@ -75,6 +76,7 @@ public class TradeRepository {
                 .param("account", o.account(), Types.BIGINT)
                 .param("expires", ts(o.expiresAt()), Types.TIMESTAMP)
                 .param("slPrice", o.slPrice(), Types.DOUBLE)
+                .param("tpPrice", o.tpPrice(), Types.DOUBLE)
                 .query(Long.class).single();
     }
 
@@ -138,15 +140,104 @@ public class TradeRepository {
                 .param("t", ticket).query(Long.class).single() > 0;
     }
 
-    /** Fechamentos por tempo vencidos: posições abertas por ordens com close_after_utc no passado. */
-    public List<Long> dueTimeExits() {
+    /**
+     * Saída por tempo vencida de uma posição.
+     *
+     * @param lockUntil  fim da prorrogação com lucro (null = ainda não foi prorrogada)
+     * @param lockStatus status do MODIFY da prorrogação (REJECTED/EXPIRED = não pegou: fechar)
+     */
+    public record DueExit(long ticket, Instant lockUntil, String lockStatus) {
+    }
+
+    /**
+     * Fechamentos por tempo vencidos: posições abertas por ordens com close_after_utc no passado. Uma posição
+     * prorrogada só volta quando a prorrogação acaba ou quando o EA recusou o novo stop/alvo.
+     */
+    public List<DueExit> dueTimeExits() {
         return jdbc().sql("""
-                        SELECT o.ticket FROM order_request o JOIN ea_position p ON p.ticket = o.ticket
-                         WHERE o.action = 'OPEN' AND o.status = 'FILLED' AND o.close_after_utc <= now()
+                        SELECT o.ticket, o.time_lock_until, m.status AS lock_status
+                          FROM order_request o JOIN ea_position p ON p.ticket = o.ticket
+                          LEFT JOIN order_request m ON m.id = o.time_lock_order_id
+                         WHERE p.account = (SELECT account FROM heartbeat WHERE component = 'ea'
+                                             ORDER BY reported_at DESC NULLS LAST, id DESC LIMIT 1)
+                           AND o.action = 'OPEN' AND o.status = 'FILLED' AND o.close_after_utc <= now()
+                           AND (o.time_lock_until IS NULL OR o.time_lock_until <= now()
+                                OR m.status IN ('REJECTED', 'EXPIRED', 'CANCELLED'))
                            AND NOT EXISTS (SELECT 1 FROM order_request c WHERE c.action = 'CLOSE' AND c.ticket = o.ticket
-                                             AND c.status IN ('PENDING', 'SENT', 'FILLED'))
+                                             AND (c.status IN ('PENDING', 'FILLED')
+                                                  -- entregue e sem resposta do EA: depois de vencido, pede de novo
+                                                  -- (15/10: um CLOSE SENT sem resposta deixou a posição aberta 2,5 h)
+                                                  OR (c.status = 'SENT' AND c.expires_at > now() - INTERVAL '30 seconds')))
                         """)
-                .query(Long.class).list();
+                .query((rs, i) -> new DueExit(rs.getLong("ticket"), instant(rs, "time_lock_until"),
+                        rs.getString("lock_status"))).list();
+    }
+
+    /** Início da prorrogação na linha OPEN da posição: a máxima, até quando e qual MODIFY levou o stop/alvo. */
+    public void markTimeLock(long ticket, Instant started, Instant until, double peakUsd, long modifyOrderId) {
+        jdbc().sql("""
+                        UPDATE order_request SET time_lock_started_at = :s, time_lock_until = :u, time_lock_peak_usd = :p,
+                               time_lock_peak_at = :s, time_lock_moves = 0, time_lock_order_id = :m
+                         WHERE action = 'OPEN' AND ticket = :t
+                        """)
+                .param("s", ts(started), Types.TIMESTAMP).param("u", ts(until), Types.TIMESTAMP).param("p", peakUsd)
+                .param("m", modifyOrderId).param("t", ticket).update();
+    }
+
+    /** Nova máxima de lucro na prorrogação: stop/alvo andaram e a janela renovou. */
+    public void updateTimeLock(long ticket, Instant until, double peakUsd) {
+        jdbc().sql("""
+                        UPDATE order_request SET time_lock_until = :u, time_lock_peak_usd = :p, time_lock_peak_at = now(),
+                               time_lock_moves = coalesce(time_lock_moves, 0) + 1
+                         WHERE action = 'OPEN' AND ticket = :t
+                        """)
+                .param("u", ts(until), Types.TIMESTAMP).param("p", peakUsd).param("t", ticket).update();
+    }
+
+    /** Prorrogação em andamento de uma posição aberta (o MODIFY do início pegou ou ainda está a caminho). */
+    public record ActiveLock(long ticket, Instant startedAt, Instant until, double peakUsd) {
+    }
+
+    public List<ActiveLock> activeTimeLocks() {
+        return jdbc().sql("""
+                        SELECT o.ticket, o.time_lock_started_at, o.time_lock_until, o.time_lock_peak_usd
+                          FROM order_request o JOIN ea_position p ON p.ticket = o.ticket
+                          LEFT JOIN order_request m ON m.id = o.time_lock_order_id
+                         WHERE p.account = (SELECT account FROM heartbeat WHERE component = 'ea'
+                                             ORDER BY reported_at DESC NULLS LAST, id DESC LIMIT 1)
+                           AND o.action = 'OPEN' AND o.status = 'FILLED' AND o.time_lock_until > now()
+                           AND o.time_lock_peak_usd IS NOT NULL
+                           AND (m.status IS NULL OR m.status NOT IN ('REJECTED', 'EXPIRED', 'CANCELLED'))
+                        """)
+                .query((rs, i) -> new ActiveLock(rs.getLong("ticket"), instant(rs, "time_lock_started_at"),
+                        instant(rs, "time_lock_until"), rs.getDouble("time_lock_peak_usd"))).list();
+    }
+
+    /**
+     * De onde veio cada posição aberta e como ela é protegida: a ordem OPEN, a entrada da roleta (estratégia), a
+     * previsão, a prorrogação e os movimentos do trailing. Uma linha por ticket (posição de fora do sistema não tem).
+     */
+    public List<java.util.Map<String, Object>> openOrderInfo(List<Long> tickets) {
+        if (tickets.isEmpty()) return List.of();
+        return jdbc().sql("""
+                        SELECT o.ticket, o.id AS order_id, o.created_at, o.close_after_utc, o.time_lock_until,
+                               o.time_lock_started_at, o.time_lock_peak_usd, o.time_lock_peak_at, o.time_lock_moves,
+                               lk.status AS time_lock_status, lk.message AS time_lock_message,
+                               o.sl_distance, o.tp_distance, o.atr, o.risk_usd, o.fill_price, CAST(o.checks AS text) AS checks,
+                               e.strategy, e.p_side, e.pct_b,
+                               coalesce(e.model, pr.model) AS model, coalesce(e.horizon_min, pr.horizon_min) AS horizon_min,
+                               pr.p_down, pr.p_flat, pr.p_up,
+                               (SELECT count(*) FROM order_request m WHERE m.action = 'MODIFY' AND m.ticket = o.ticket
+                                   AND m.status = 'FILLED' AND m.tp_price IS NULL) AS trail_moves,
+                               (SELECT m.message FROM order_request m WHERE m.action = 'MODIFY' AND m.ticket = o.ticket
+                                   AND m.status = 'FILLED' AND m.tp_price IS NULL ORDER BY m.id DESC LIMIT 1) AS trail_last
+                          FROM order_request o
+                          LEFT JOIN roulette_entry e ON e.order_id = o.id
+                          LEFT JOIN prediction pr ON pr.id = o.prediction_id
+                          LEFT JOIN order_request lk ON lk.id = o.time_lock_order_id
+                         WHERE o.action = 'OPEN' AND o.status = 'FILLED' AND o.ticket IN (:tickets)
+                        """)
+                .param("tickets", tickets).query().listOfRows();
     }
 
     // ------------------------------------------------------------------ posições
@@ -184,8 +275,14 @@ public class TradeRepository {
         }
     }
 
+    /** Posições da conta conectada agora (último heartbeat): a foto de outra conta (ex.: a demo) fica de fora. */
     public List<Position> positions() {
-        return jdbc().sql("SELECT * FROM ea_position ORDER BY open_time").query((rs, i) -> new Position(
+        return jdbc().sql("""
+                        SELECT * FROM ea_position
+                         WHERE account = (SELECT account FROM heartbeat WHERE component = 'ea'
+                                           ORDER BY reported_at DESC NULLS LAST, id DESC LIMIT 1)
+                         ORDER BY open_time
+                        """).query((rs, i) -> new Position(
                 rs.getLong("ticket"), rs.getString("market"), rs.getLong("account"), rs.getString("symbol"),
                 rs.getString("side"), rs.getDouble("volume"), rs.getDouble("open_price"), (Double) rs.getObject("sl"),
                 (Double) rs.getObject("tp"), (Double) rs.getObject("profit"), (Long) rs.getObject("magic"),
@@ -237,7 +334,11 @@ public class TradeRepository {
                                    (array_agg(price ORDER BY closed_at DESC))[1] AS exit_price,
                                    (array_agg(reason ORDER BY closed_at DESC))[1] AS reason,
                                    sum(profit + swap + commission) AS result
-                              FROM ea_deal WHERE closed_at >= :from GROUP BY position_ticket)
+                              FROM ea_deal
+                             WHERE closed_at >= :from   -- só a conta conectada agora: a demo não se mistura com a real
+                               AND account = (SELECT account FROM heartbeat WHERE component = 'ea'
+                                               ORDER BY reported_at DESC NULLS LAST, id DESC LIMIT 1)
+                             GROUP BY position_ticket)
                         SELECT d.*, o.side, o.fill_price, o.created_at AS opened_at, o.risk_usd
                           FROM d LEFT JOIN order_request o ON o.ticket = d.position_ticket AND o.action = 'OPEN'
                          ORDER BY d.closed_at DESC LIMIT :limit
@@ -304,7 +405,8 @@ public class TradeRepository {
                 instant(rs, "close_after_utc"), (Long) rs.getObject("ticket"), (Long) rs.getObject("prediction_id"),
                 rs.getString("checks"), rs.getString("status"), rs.getString("message"),
                 (Double) rs.getObject("fill_price"), (Long) rs.getObject("account"), instant(rs, "created_at"),
-                instant(rs, "expires_at"), instant(rs, "sent_at"), instant(rs, "done_at"), (Double) rs.getObject("sl_price"));
+                instant(rs, "expires_at"), instant(rs, "sent_at"), instant(rs, "done_at"), (Double) rs.getObject("sl_price"),
+                (Double) rs.getObject("tp_price"));
     }
 
     private static Instant instant(ResultSet rs, String col) throws SQLException {

@@ -1,7 +1,8 @@
 import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, OrderPreview, Prediction, Submit, TradeState } from '../api';
+import { RouterLink } from '@angular/router';
+import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, OrderPreview, PositionDetail, Prediction, Submit, TradeState } from '../api';
 import { ProbBar } from './prob-bar';
 import { Tip } from './tip';
 import { Brt } from '../brt';
@@ -11,7 +12,7 @@ import { MyTrades } from './my-trades';
 
 @Component({
   selector: 'page-operar',
-  imports: [DatePipe, DecimalPipe, FormsModule, ProbBar, Tip, MyTrades, Brt],
+  imports: [DatePipe, DecimalPipe, FormsModule, ProbBar, Tip, MyTrades, Brt, RouterLink],
   template: `
     <h1>Operar</h1>
     @if (state(); as s) {
@@ -50,14 +51,10 @@ import { MyTrades } from './my-trades';
             <button class="danger" (click)="flatten()" [disabled]="s.positions.length === 0 && !s.flattening">
               {{ s.flattening ? 'FLATTEN em andamento…' : 'FLATTEN (fechar tudo)' }}</button>
           </div>
-          <div class="profile">
-            <span class="small muted">Perfil de perda <tip key="lossProfile" />:</span>
-            @for (p of profileKeys(s); track p) {
-              <button [class.primary]="s.loss_profile === p" (click)="setProfile(p)">
-                {{ s.loss_profiles[p].label }} · {{ s.loss_profiles[p].maxDailyLossPct }}% dia /
-                {{ s.loss_profiles[p].maxWeeklyLossPct }}% semana</button>
-            }
-          </div>
+          @if (s.loss_limits; as ll) {
+            <p class="small">Trava de perda: <b>{{ ll.maxDailyLossPct }}%</b> no dia e <b>{{ ll.maxWeeklyLossPct }}%</b> na semana
+              <tip key="lossProfile" /> <span class="muted">— do perfil de risco da página <a routerLink="/risco">Risco</a></span></p>
+          }
           <p class="muted small">Limites (trading.risk): teto por trade {{ s.limits.global.maxRiskPerTradePct }}% ou
             US$ {{ s.limits.global.maxRiskPerTradeUsd | number: '1.2-2' }} · até {{ s.limits.global.maxPositions }} posições · stop
             {{ s.limits.exits.stopAtr }} ATR, alvo {{ s.limits.exits.targetR }} × stop · lote até
@@ -131,25 +128,57 @@ import { MyTrades } from './my-trades';
 
       <section class="panel" style="margin-top:16px">
         <h3>Posições abertas (deste sistema)</h3>
-        <div class="table-wrap"><table>
+        @if (s.money; as m) {
+          <div class="protect">
+            <div class="lockbar">
+              <button [class.primary]="m.timeLockEnabled" (click)="toggleTimeLock(!m.timeLockEnabled)" [disabled]="lockSaving()">
+                Prorrogar com lucro na saída por tempo: <b>{{ m.timeLockEnabled ? 'LIGADO' : 'desligado' }}</b></button>
+              <tip text="Vale para TODAS as posições que chegam ao fim do tempo (roleta e manuais). Com lucro, em vez de fechar a mercado, o stop vai para um preço que garante parte do lucro e o alvo para um pouco além do preço. Depois, a cada nova máxima de lucro, o stop sobe, o alvo vai à frente e a janela renova; sem nova máxima na janela, ou no teto, fecha a mercado. Sem lucro suficiente, fecha como sempre." />
+              <span class="small muted">No fim do tempo, com lucro ≥ US$ {{ m.timeLockMinProfitUsd | number: '1.2-2' }}: o stop
+                garante {{ m.timeLockKeepPct | number: '1.0-0' }}% do maior lucro e o alvo fica +{{ m.timeLockExtraPct | number: '1.0-0' }}% à frente,
+                andando a cada nova máxima (+{{ m.timeLockStepPct | number: '1.0-0' }}%); fecha sem nova máxima em {{ m.timeLockMinutes }} min ou no teto
+                de {{ m.timeLockMaxMinutes }} min. Valores na página <a routerLink="/risco">Risco</a> (parte 2).</span>
+            </div>
+            @if (m.timeLockEnabled && !eaAtLeast(2, 4)) {
+              <p class="small down">O EA conectado ({{ eaVersion() || 'versão desconhecida' }}) não sabe mover o alvo: as posições
+                fecham por tempo como antes. Rode mql5\\install.ps1 e recarregue o JevExecutor (2.4).</p>
+            }
+            <p class="small muted">
+              Trailing: @if (m.trailEnabled) { <b class="up">ligado</b> — zero a zero com US$ {{ m.trailStartUsd | number: '1.2-2' }} de lucro,
+                depois segue o preço a US$ {{ m.trailDistanceUsd | number: '1.2-2' }}, de US$ {{ m.trailStepUsd | number: '1.2-2' }} em
+                US$ {{ m.trailStepUsd | number: '1.2-2' }} } @else { <b>desligado</b> }
+              · Stop/alvo em US$ nas ordens novas: @if (m.enabled) { <b class="up">ligado</b> (US$ {{ m.stopUsd | number: '1.2-2' }} /
+                US$ {{ m.takeUsd | number: '1.2-2' }}) } @else { <b>desligado</b> (vale o ATR) }
+            </p>
+          </div>
+        }
+        <div class="table-wrap"><table class="positions">
           <tr><th>Ticket</th><th>Par</th><th>Lado</th><th class="right">Lote</th><th class="right">Abertura</th>
-            <th class="right">SL <tip text="Stop no servidor da corretora: fecha com perda se o preço chegar lá, mesmo com o computador desligado." /></th><th class="right">TP <tip text="Alvo no servidor da corretora: fecha com lucro se o preço chegar lá." /></th><th class="right">Resultado <tip key="patrimonio" /></th><th>Desde (UTC)</th><th></th></tr>
+            <th class="right">SL <tip text="Stop no servidor da corretora: fecha com perda se o preço chegar lá, mesmo com o computador desligado. Embaixo, quanto dá em US$ (positivo = lucro já garantido)." /></th><th class="right">TP <tip text="Alvo no servidor da corretora: fecha com lucro se o preço chegar lá. Embaixo, quanto dá em US$." /></th><th class="right">Resultado <tip key="patrimonio" /></th>
+            <th>Origem <tip text="Roleta (tendência = lado mais provável; pullback = LATERAL contra a banda de Bollinger) ou ordem manual. Modelo, horizonte e a probabilidade do lado na hora da entrada." /></th>
+            <th>Fecha em <tip text="Quanto falta para a saída por tempo (ou para o fim da prorrogação com lucro). Antes disso, só o stop e o alvo fecham a posição." /></th><th>Desde (UTC)</th><th></th></tr>
           @for (p of s.positions; track p.ticket) {
-            <tr>
+            @let d = s.details?.[p.ticket];
+            <tr class="main">
               <td class="mono">{{ p.ticket }}</td>
               <td class="mono">{{ p.symbol }}</td>
               <td><span class="badge" [class.buy]="p.side === 'BUY'" [class.sell]="p.side === 'SELL'">{{ p.side === 'BUY' ? 'COMPRA' : 'VENDA' }}</span></td>
               <td class="right mono">{{ p.volume }}</td>
               <td class="right mono">{{ p.openPrice }}</td>
-              <td class="right mono">{{ p.sl }}</td>
-              <td class="right mono">{{ p.tp }}</td>
+              <td class="right mono">{{ p.sl }}
+                @if (d?.slUsd != null) { <div class="small" [class.up]="d!.slUsd! >= 0" [class.down]="d!.slUsd! < 0">{{ usd(d!.slUsd!) }}</div> }</td>
+              <td class="right mono">{{ p.tp }}
+                @if (d?.tpUsd != null) { <div class="small up">{{ usd(d!.tpUsd!) }}</div> }</td>
               <td class="right mono" [class.up]="(p.profit ?? 0) > 0" [class.down]="(p.profit ?? 0) < 0">
                 US$ {{ p.profit | number: '1.2-2' }}</td>
+              <td class="small">{{ originText(d) }}</td>
+              <td class="mono" [class.warn]="d?.timeLockUntil">{{ remaining(d) }}</td>
               <td class="small mono" [brt]="p.openTime">{{ p.openTime | date: 'dd/MM HH:mm' : 'UTC' }}</td>
               <td><button (click)="close(p.ticket)">Fechar</button></td>
             </tr>
+            <tr class="sub"><td></td><td colspan="11" class="small muted">{{ detailText(d) }}</td></tr>
           } @empty {
-            <tr><td colspan="10" class="muted">Nenhuma posição aberta.</td></tr>
+            <tr><td colspan="12" class="muted">Nenhuma posição aberta.</td></tr>
           }
         </table></div>
       </section>
@@ -167,7 +196,7 @@ import { MyTrades } from './my-trades';
             <tr>
               <td class="mono">{{ o.id }}</td>
               <td class="small mono" [brt]="o.createdAt">{{ o.createdAt | date: 'dd/MM HH:mm:ss' : 'UTC' }}</td>
-              <td>{{ o.action === 'OPEN' ? (o.side === 'BUY' ? 'compra' : 'venda') : 'fechar #' + o.ticket }}</td>
+              <td>{{ o.action === 'OPEN' ? (o.side === 'BUY' ? 'compra' : 'venda') : (o.action === 'MODIFY' ? 'mover stop #' : 'fechar #') + o.ticket }}</td>
               <td class="mono">{{ o.symbol }}</td>
               <td class="right mono">{{ o.volume }}</td>
               <td class="right mono">{{ o.riskUsd !== null ? 'US$ ' + (o.riskUsd | number: '1.2-2') : '' }}</td>
@@ -197,6 +226,11 @@ import { MyTrades } from './my-trades';
     .checks tr.bad td { color: var(--down); }
     button.big { width: 100%; padding: 10px; font-weight: 700; margin-top: 12px; }
     button.danger { border-color: var(--down); color: var(--down); }
+    .protect { margin-bottom: 8px; }
+    .lockbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .positions tr.main td { border-bottom: none; }
+    .positions tr.sub td { padding-top: 0; }
+    td.warn { color: var(--warn, #d97706); }
   `,
 })
 export class Operar implements OnInit, OnDestroy {
@@ -209,6 +243,10 @@ export class Operar implements OnInit, OnDestroy {
   protected preview = signal<OrderPreview | null>(null);
   protected result = signal<Submit | null>(null);
   protected sending = signal(false);
+  protected lockSaving = signal(false);
+  /** Relógio de 1 s para a contagem até a saída por tempo. */
+  protected now = signal(Date.now());
+  private clock?: ReturnType<typeof setInterval>;
   /** O que cada trava confere (nomes como vêm do OrderService). */
   protected checkHelp: Partial<Record<string, string>> = {
     'EA conectado': 'O EA precisa ter mandado sinal de vida nos últimos 30 s: sem ele, ninguém executaria a ordem.',
@@ -253,10 +291,12 @@ export class Operar implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.load();
     this.timer = setInterval(() => this.load(), 5_000);
+    this.clock = setInterval(() => this.now.set(Date.now()), 1_000);
   }
 
   ngOnDestroy(): void {
     clearInterval(this.timer);
+    clearInterval(this.clock);
   }
 
   protected eaAge(): number {
@@ -324,13 +364,79 @@ export class Operar implements OnInit, OnDestroy {
     this.api.flatten().subscribe(() => this.load());
   }
 
-  protected profileKeys(s: TradeState): string[] {
-    return Object.keys(s.loss_profiles ?? {});
+  protected eaVersion(): string {
+    return String(this.detail()['ea_version'] ?? '');
   }
 
-  protected setProfile(name: string): void {
-    this.api.setLossProfile(name).subscribe(() => this.load());
+  /** Versão do EA conectado ≥ major.minor (o heartbeat traz "JevExecutor/2.4"). */
+  protected eaAtLeast(major: number, minor: number): boolean {
+    const m = /\/(\d+)\.(\d+)/.exec(this.eaVersion());
+    if (!m) return false;
+    const a = +m[1], b = +m[2];
+    return a > major || (a === major && b >= minor);
   }
+
+  protected toggleTimeLock(on: boolean): void {
+    const m = this.state()?.money;
+    const text = on
+      ? `Ligar a prorrogação com lucro?\n\nNo fim do tempo, posição com lucro ≥ US$ ${m?.timeLockMinProfitUsd} não fecha a mercado: ` +
+        `o stop garante ${m?.timeLockKeepPct}% do maior lucro e o alvo fica +${m?.timeLockExtraPct}% à frente, andando a cada nova máxima; ` +
+        `fecha sem nova máxima em ${m?.timeLockMinutes} min ou no teto de ${m?.timeLockMaxMinutes} min. ` +
+        `Vale para todas as posições (roleta e manuais).`
+      : 'Desligar a prorrogação com lucro? As posições voltam a fechar a mercado no fim do tempo (as já prorrogadas seguem até o fim da prorrogação).';
+    if (!confirm(text)) return;
+    this.lockSaving.set(true);
+    this.api.setTimeLock(on).subscribe({
+      next: () => { this.lockSaving.set(false); this.load(); },
+      error: (e) => { this.lockSaving.set(false); alert(e?.error?.message ?? 'não consegui mudar'); },
+    });
+  }
+
+  protected usd(v: number): string {
+    return (v >= 0 ? '+' : '−') + 'US$ ' + Math.abs(v).toFixed(2);
+  }
+
+  protected originText(d: PositionDetail | undefined): string {
+    if (!d) return '—';
+    if (d.origin === 'externa') return 'fora do sistema';
+    const who = d.origin === 'roleta' ? 'Roleta · ' + (d.strategy === 'pullback' ? 'pullback' : 'tendência') : 'Manual';
+    const parts = [who];
+    if (d.model) parts.push(`${d.model}${d.horizonMin ? ' ' + d.horizonMin + ' min' : ''}`);
+    if (d.pSide != null) parts.push(`P ${(d.pSide * 100).toFixed(0)}%`);
+    if (d.strategy === 'pullback' && d.pctB != null) parts.push(`%B ${d.pctB.toFixed(2)}`);
+    return parts.join(' · ');
+  }
+
+  /** Contagem até a saída por tempo (ou o fim da prorrogação). */
+  protected remaining(d: PositionDetail | undefined): string {
+    const until = d?.timeLockUntil ?? d?.closeAfterUtc;
+    if (!until) return d?.origin === 'externa' ? '—' : 'só SL/TP';
+    const ms = new Date(until).getTime() - this.now();
+    const tag = d?.timeLockUntil ? ' (prorrogada)' : '';
+    if (ms <= 0) return 'fechando…' + tag;
+    const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
+    return (h ? h + ':' + String(mm).padStart(2, '0') : String(mm)) + ':' + String(ss).padStart(2, '0') + tag;
+  }
+
+  protected detailText(d: PositionDetail | undefined): string {
+    if (!d) return '';
+    if (d.origin === 'externa') return 'Posição sem ordem deste sistema (o trailing e a prorrogação valem só para as do sistema).';
+    const parts: string[] = [];
+    if (d.stopMode === 'USD') parts.push('Stop/alvo de entrada: em US$ (página Risco, parte 2)');
+    else if (d.stopAtr != null) parts.push(`Stop de entrada: ${d.stopAtr.toFixed(2)} ATR, alvo ${d.targetR?.toFixed(2) ?? '—'} × o stop`);
+    if (d.riskUsdPlanned != null) parts.push(`perda planejada US$ ${d.riskUsdPlanned.toFixed(2)}`);
+    parts.push(d.trailMoves > 0 ? `trailing moveu o stop ${d.trailMoves}×${d.trailLast ? ' (último: ' + d.trailLast + ')' : ''}`
+      : 'trailing ainda não moveu o stop');
+    if (d.timeLockUntil) {
+      const st = d.timeLockStatus === 'FILLED' ? 'stop e alvo movidos' : d.timeLockStatus === 'REJECTED' || d.timeLockStatus === 'EXPIRED'
+        ? `o EA recusou (${d.timeLockMessage ?? d.timeLockStatus}): fecha a mercado` : `pedido ${d.timeLockStatus ?? ''}`;
+      const peak = d.timeLockPeakUsd != null ? `, maior lucro US$ ${d.timeLockPeakUsd.toFixed(2)}` : '';
+      const moves = d.timeLockMoves ? `, andou ${d.timeLockMoves}× por nova máxima` : '';
+      parts.push(`prorrogada com lucro: ${st}${peak}${moves}`);
+    }
+    return parts.join(' · ');
+  }
+
 
   protected block(on: boolean): void {
     this.api.block(on).subscribe(() => this.load());

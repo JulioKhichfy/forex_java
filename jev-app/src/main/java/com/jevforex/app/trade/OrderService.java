@@ -41,7 +41,6 @@ public class OrderService {
     public static final String SETTING_LOT = "orders.lot";
     public static final String SETTING_BLOCK = "orders.block";
     public static final String SETTING_FLATTEN = "orders.flatten";
-    public static final String SETTING_LOSS_PROFILE = "riskHolder.get().loss-profile";
     private static final int EA_MAX_SILENCE_SECONDS = 30;
 
     private final TradeRepository repo;
@@ -91,20 +90,16 @@ public class OrderService {
         return repo.setting(SETTING_LOT).map(Double::parseDouble).orElse(riskHolder.get().orders().defaultLot());
     }
 
-    /** Nome do perfil de perda em vigor (escolhido no dashboard; padrão = limites de trading.risk.global). */
+    /**
+     * Limites de perda do dia e da semana: os de trading.risk.global, que vêm do perfil de risco aplicado na página
+     * Risco (15/10/2026: a escolha à parte de um "perfil de perda" na página Operar saiu).
+     */
     public String lossProfileName() {
-        return repo.setting(SETTING_LOSS_PROFILE).filter(riskHolder.get().lossProfiles()::containsKey)
-                .orElse(RiskSettings.DEFAULT_PROFILE);
+        return RiskSettings.DEFAULT_PROFILE;
     }
 
     public RiskSettings.LossProfile lossProfile() {
-        return riskHolder.get().lossProfile(lossProfileName());
-    }
-
-    public RiskSettings.LossProfile setLossProfile(String name) {
-        RiskSettings.LossProfile p = riskHolder.get().lossProfile(name);   // nome desconhecido = erro
-        repo.setSetting(SETTING_LOSS_PROFILE, name);
-        return p;
+        return riskHolder.get().lossProfile(RiskSettings.DEFAULT_PROFILE);
     }
 
     public boolean blocked() {
@@ -371,13 +366,21 @@ public class OrderService {
      * Move o stop de uma posição aberta para um preço (trailing). O alvo fica onde está. Como fechar, proteger nunca é
      * bloqueado por BLOCK.
      */
-    public synchronized long modifyStop(TradeRepository.Position pos, double slPrice, String why) {
+    public long modifyStop(TradeRepository.Position pos, double slPrice, String why) {
+        return modify(pos, slPrice, null, why);
+    }
+
+    /**
+     * Move o stop e, se {@code tpPrice} não for null, também o alvo (prorrogação com lucro; EA 2.4). Proteger nunca é
+     * bloqueado por BLOCK.
+     */
+    public synchronized long modify(TradeRepository.Position pos, double slPrice, Double tpPrice, String why) {
         Instant now = Instant.now();
         return repo.insertOrder(new TradeRepository.Order(null, marketOf(pos.symbol()), pos.symbol(), "MODIFY", pos.side(),
                 pos.volume(), null, null, null, null, null, riskHolder.get().orders().deviationPoints(), null,
                 pos.ticket(), null, "[]", trading.mode() == TradingProperties.Mode.SHADOW ? "SHADOW" : "PENDING", why,
                 null, pos.account(), now, now.plusSeconds(riskHolder.get().orders().validitySeconds()), null, null,
-                slPrice));
+                slPrice, tpPrice));
     }
 
     /** Fecha uma posição (botão no dashboard ou saída por tempo). Fechar nunca é bloqueado por BLOCK. */

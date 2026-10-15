@@ -36,8 +36,8 @@ const PULLBACK_STUDY: Record<string, Record<number, number>> = {
       limite de <b>perda do dia/semana</b> (que para todas as roletas). Confira em cada mercado o que esta regra deu nas
       previsões já resolvidas antes de ligar.
       @if (state(); as s) {
-        <div class="small">Modo <b>{{ s.mode }}</b> · perfil de perda {{ s.loss_profile.label }} (dia {{ s.loss_profile.maxDailyLossPct }}%,
-          semana {{ s.loss_profile.maxWeeklyLossPct }}%) @if (s.blocked) { · <b class="down">BLOCK ligado: nenhuma ordem sai</b> }</div>
+        <div class="small">Modo <b>{{ s.mode }}</b> · trava de perda (perfil de risco): dia {{ s.loss_profile.maxDailyLossPct }}%,
+          semana {{ s.loss_profile.maxWeeklyLossPct }}% @if (s.blocked) { · <b class="down">BLOCK ligado: nenhuma ordem sai</b> }</div>
       }
     </div>
 

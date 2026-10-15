@@ -24,7 +24,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
   A página Risco do dashboard edita esses valores e grava em `config/application.yml` (ao lado do jar, fora do
   git, lido pelo Spring por cima do yml do jar); vale na hora (`RiskSettingsHolder`) e fica auditado em
   `risk_change`. Quem decide ordens lê `RiskSettingsHolder.get()`, nunca um `RiskSettings` guardado.
-- Todas as tabelas de negócio têm a coluna `market` (`fx` | `metals` | `crypto` | `indices` | `stocks`).
+- Todas as tabelas de negócio têm a coluna `market` (`fx` | `metals` | `crypto` | `energy` | `indices` | `stocks`).
   Índices e ações: um instrumento numa moeda só (a de lucro na corretora, `currency_profit`); o calendário entra
   pela moeda dele, sem fator USD. Gold, modelos, relatórios e cofre separados por mercado (`--market=`).
 - Migrações só via Flyway (`jev-app/src/main/resources/db/migration`), nunca alterar uma migração já aplicada.
@@ -52,8 +52,12 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 - **Stop em US$ e trailing** (`trading.risk.money`, página "Stop em US$", 14/10): ligado, toda ordem nova sai com stop/alvo em
   dólares por cima dos de ATR (trava "Stop em US$ × spread"). Trailing: `TrailingService` pede MODIFY (Flyway V11,
   `sl_price`) ao EA 2.2; só a favor, zero a zero no início. O placar das previsões continua em ATR.
+  Prorrogação com lucro (`money.time-lock-*`, botão na página Operar, 15/10): na saída por tempo, posição com lucro recebe
+  MODIFY com stop E alvo (Flyway V12, `tp_price`; EA 2.4); dinâmica: a cada nova máxima (+`step-pct`) stop/alvo andam e a janela de
+  `time-lock-minutes` renova; sem nova máxima, no teto (`time-lock-max-minutes`) ou se o EA recusar o início, fecha a mercado.
+  CLOSE entregue (SENT) sem resposta do EA deixa de valer depois de vencido (um deixou posição aberta 2,5 h).
 - **Perfis prontos** (`risk.presets` no application.yml, 15/10): Ultra conservador → Ultra arrojado; um clique na página Risco
-  substitui global, exits, mercados e campos de orders (`RiskEditor.withPreset`) e volta ao perfil de perda Padrão. A página
+  substitui global (inclusive a perda do dia/semana), exits, mercados e campos de orders (`RiskEditor.withPreset`). A página
   Risco tem 3 partes: perfis, stop/alvo em US$ + trailing (`POST /api/risk/money`, só esse bloco) e ajuste fino.
 - Features: mudou o significado de alguma feature ou do label → nova versão `features.fset` (v2), nunca
   reescrever a v1. O mesmo código calcula features no treino e ao vivo (não reimplementar "só para produção").
@@ -81,7 +85,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5; `news/`: GDELT (GKG) e SEC EDGAR |
 | jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
 | dashboard | Angular 20 (Hoje, Radar, Previsões, Operar, Roleta russa, Stop em US$, Risco, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
-| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.2 (executor com 3 chaves; OPEN, CLOSE, MODIFY), `install.ps1` |
+| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.4 (executor com 3 chaves; OPEN, CLOSE, MODIFY com stop e alvo), `install.ps1` |
 
 ## Comandos
 ```
@@ -150,7 +154,7 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             (--trading.mode=demo), sem mexer no yml
       - [x] 6d placar resolvido automaticamente (PredictionResolver), botão "aplicar treinamento" (JobService:
             comandos da CLI em processo separado) com champion × challenger no último mês (challenge.json) e
-            promoção pelo dashboard; perfis de perda escolhidos no dashboard (trading.risk.loss-profiles)
+            promoção pelo dashboard; perfis de perda (loss-profiles) removidos em 15/10: perda do dia/semana só em global
       - [ ] 7 índices e ações — código pronto (exportador, mercados, features/modelos/ordens/dashboard por
             mercado). Histórico M1 desde 2022 de 113 símbolos (62,5 mi barras) via `tools/mt5_history_backfill.py`
             (pacote MetaTrader5, mesmo contrato do exportador, origin=HISTORY). Walk-forward (cofres fechados):
@@ -197,3 +201,10 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       - [ ] 10b `headline-v2` (dimensões: ativo/moeda, juros, crescimento, risk-on/off, dólar, impacto, novidade — sem
             direção nem tese), plano e custo antes de avaliar (pontuar milhões de títulos não cabe no orçamento: amostra)
       - [ ] 10c estudo de evento (o preço reagiu?) antes de qualquer feature
+- [x] Passo 11 — energia (pedido do operador, 15/10): UKOIL, USOIL e XNGUSD como mercado `energy` (Market, importador,
+      exportador de candles com o input novo InpCandleMarkets3, EA 2.3 com InpSymbols6, dashboard, risco e perfis).
+      Histórico M1 desde 2022 (4,58 mi barras, tools/mt5_history_backfill.py --markets energy). Walk-forward sem
+      vantagem (E[R] −0,08 a −0,10 a 60 min; XNGUSD: spread maior que o movimento de 15 min, nunca sai de LATERAL).
+      Decisão do operador: produção com os três — cofre aberto em 15/10 (run 20261015-184445-energy: AUC 0,65/0,71,
+      gate 4 sem operações; lado mais provável −0,07 a 60 min) e modelo 20261015-190437 em produção;
+      trading.risk.markets.energy fica desligado (ligar na página Risco)
