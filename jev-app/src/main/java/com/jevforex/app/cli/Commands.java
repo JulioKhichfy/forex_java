@@ -25,10 +25,12 @@ public final class Commands {
     public static final String RESOLVE_PREDICTIONS = "resolve-predictions";
     public static final String RETRAIN_STUDY = "retrain-study";
     public static final String SCAN = "scan";
+    public static final String BACKFILL_NEWS = "backfill-news";
+    public static final String COLLECT_NEWS_ONCE = "collect-news-once";
 
     private static final Set<String> ALL = Set.of(HELP, PING, RISK, ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS,
             NORMALIZE, FEATURES, TRAIN, BACKFILL_BIS, BACKFILL_ARCHIVES, JEV_SCORE, JEV_SIGNALS, TRAIN_CHAMPION, PROMOTE,
-            PREDICT_NOW, RESOLVE_PREDICTIONS, RETRAIN_STUDY, SCAN);
+            PREDICT_NOW, RESOLVE_PREDICTIONS, RETRAIN_STUDY, SCAN, BACKFILL_NEWS, COLLECT_NEWS_ONCE);
     private static final Set<String> NEED_DB = Set.of(ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS, BACKFILL_ARCHIVES,
             JEV_SCORE, JEV_SIGNALS, PREDICT_NOW, RESOLVE_PREDICTIONS);
 
@@ -65,7 +67,7 @@ public final class Commands {
                                                 comunicados de decisão e atas dos arquivos dos bancos centrais
                                                 (horário de divulgação pelo calendário; rode normalize antes)
                   mt5-status                    saúde do MT5: heartbeat do EA, candles, calendário, próximos eventos
-                  normalize [--only=candles|calendar|documents]
+                  normalize [--only=candles|calendar|documents|news]
                                                 reconstrói o silver (Parquet, UTC) a partir do bronze e mostra as
                                                 checagens de qualidade (não precisa do Postgres)
                   features                      silver → gold: momentos de decisão, features (fset do yml) e labels
@@ -82,7 +84,11 @@ public final class Commands {
                   predict-now [--at=2026-10-09T15:00]
                                                 previsão ao vivo agora (ou num instante UTC) e grava no Postgres
                   resolve-predictions           placar: dá o resultado às previsões com o horizonte vencido
-                  scan [--market=fx|all]        radar: RSI, Bollinger, volume, movimentos e alertas por símbolo agora
+                  scan [--market=fx|all] [--json]  radar: RSI, Bollinger, volume, movimentos e alertas por símbolo
+                  backfill-news --source=gdelt [--from=2021-10-01] [--to=AAAA-MM-DD]
+                                                histórico de manchetes do GDELT (GKG, filtrado) para o bronze; retoma
+                  backfill-news --source=edgar  documentos da SEC das ações (precisa de EDGAR_USER_AGENT)
+                  collect-news-once             uma rodada ao vivo de GDELT e EDGAR
                   ask --qset=cb-text-v1 <fonte> [opções]
                        fontes:  --text="..." | --file=caminho.txt | --latest | --doc=<id>
                        opções:  --issuer="Federal Reserve" --currency=USD --previous="resumo anterior"

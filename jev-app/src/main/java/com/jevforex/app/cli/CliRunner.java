@@ -109,6 +109,9 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private final LivePredictionService livePredictions;
     private final PredictionResolver predictionResolver;
     private final com.jevforex.app.live.ScannerService scanner;
+    private final com.jevforex.collect.news.GdeltCollector gdelt;
+    private final com.jevforex.collect.news.EdgarCollector edgar;
+    private final com.jevforex.collect.news.NewsProperties newsProps;
 
     public CliRunner(JevClient jev, QuestionSetRegistry questionSets, JevCallRepository jevCalls,
                      RawDocumentRepository documents, FeedCollector collector, LakeStorage lake,
@@ -118,8 +121,12 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                      ExperimentProperties experimentProps, BisSpeechCollector bisCollector, BisProperties bisProps,
                      ArchiveCollector archiveCollector, JevScorer jevScorer, JevSignalExporter jevSignalExporter,
                      LivePredictionService livePredictions, PredictionResolver predictionResolver,
-                     com.jevforex.app.live.ScannerService scanner) {
+                     com.jevforex.app.live.ScannerService scanner, com.jevforex.collect.news.GdeltCollector gdelt,
+                     com.jevforex.collect.news.EdgarCollector edgar, com.jevforex.collect.news.NewsProperties newsProps) {
         this.scanner = scanner;
+        this.gdelt = gdelt;
+        this.edgar = edgar;
+        this.newsProps = newsProps;
         this.livePredictions = livePredictions;
         this.predictionResolver = predictionResolver;
         this.archiveCollector = archiveCollector;
@@ -170,6 +177,8 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.PROMOTE -> promote(args);
                 case Commands.PREDICT_NOW -> predictNow(args);
                 case Commands.SCAN -> scan(args);
+                case Commands.BACKFILL_NEWS -> backfillNews(args);
+                case Commands.COLLECT_NEWS_ONCE -> collectNewsOnce();
                 case Commands.RESOLVE_PREDICTIONS -> System.out.println("Placar: " + predictionResolver.resolve()
                         + " previsões resolvidas");
                 default -> System.out.println(Commands.usage());
@@ -470,8 +479,8 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
 
     private void normalize(ApplicationArguments args) {
         String only = opt(args, "only", "all");
-        if (!List.of("all", "candles", "calendar", "documents").contains(only)) {
-            throw new IllegalArgumentException("--only deve ser candles, calendar ou documents");
+        if (!List.of("all", "candles", "calendar", "documents", "news").contains(only)) {
+            throw new IllegalArgumentException("--only deve ser candles, calendar, documents ou news");
         }
         boolean all = only.equals("all");
         try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
@@ -488,6 +497,68 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
             if (all || only.equals("documents")) {
                 printDocuments(timed(() -> new DocumentNormalizer(lake.root()).run(sql, MAX_TEXT_CHARS)));
             }
+            if (all || only.equals("news")) normalizeNews(sql);
+        }
+    }
+
+    // ------------------------------------------------------------------ notícias além dos bancos centrais (passo 10a)
+
+    private void normalizeNews(LakeSql sql) {
+        var news = new com.jevforex.normalize.NewsNormalizer(lake.root());
+        var h = timed(() -> news.headlines(sql, newsProps.gdelt().availableLagMinutes(), newsProps.gdelt().themePrefixes()));
+        var r = h.value();
+        System.out.printf(Locale.ROOT, "%nManchetes do GDELT → %s  (%.1f s)%n", r.output(), h.seconds());
+        System.out.printf("  %d lotes no bronze · %d notícias lidas pelo GDELT · %d guardadas pelo filtro · %d únicas · "
+                + "de %s a %s%n", r.batches(), r.rowsTotal(), r.rows(), r.unique(), r.first(), r.last());
+        System.out.println("  Sites com mais notícias: " + r.byDomain());
+        if (r.liveSeen() > 0) {
+            System.out.printf(Locale.ROOT, "  Ao vivo: %d notícias; atraso do lote até o coletor gravar: mediana %.0f min,"
+                            + " 90%% até %.0f min (lag em uso: %d min)%n", r.liveSeen(), r.liveLagMinutesMedian(),
+                    r.liveLagMinutesP90(), newsProps.gdelt().availableLagMinutes());
+        }
+        var f = timed(() -> news.filings(sql));
+        var fr = f.value();
+        System.out.printf(Locale.ROOT, "%nDocumentos da SEC → %s  (%.1f s)%n", fr.output(), f.seconds());
+        System.out.printf("  %d documentos (%d com o texto principal) · por tipo %s%n", fr.filings(), fr.withPrimary(),
+                fr.byForm());
+        if (!fr.jsonOffsetMinutes().isEmpty()) {
+            System.out.println("  Diferença do acceptanceDateTime do JSON para o cabeçalho oficial (min → quantos): "
+                    + fr.jsonOffsetMinutes());
+        }
+    }
+
+    private void backfillNews(ApplicationArguments args) throws InterruptedException {
+        String source = opt(args, "source", "gdelt");
+        if (source.equals("edgar")) {
+            System.out.printf("Documentos da SEC desde %s: %s%n", newsProps.edgar().from(), newsProps.edgar().companies().keySet());
+            var r = edgar.collect(true);
+            System.out.printf("  %d empresas · %d documentos dos tipos %s · %d baixados agora · %d falhas%n",
+                    r.companies(), r.listed(), newsProps.edgar().forms(), r.fetched(), r.failed());
+            System.out.println("Próximo passo: normalize --only=news");
+            return;
+        }
+        if (!source.equals("gdelt")) throw new IllegalArgumentException("--source deve ser gdelt ou edgar");
+        LocalDate from = LocalDate.parse(opt(args, "from", "2021-10-01"));
+        LocalDate to = LocalDate.parse(opt(args, "to", LocalDate.now(java.time.ZoneOffset.UTC).plusDays(1).toString()));
+        long days = java.time.temporal.ChronoUnit.DAYS.between(from, to);
+        System.out.printf(Locale.ROOT, "Manchetes do GDELT (GKG) de %s a %s · %d dias · %d lotes de ~7 MB (~%.0f GB "
+                        + "baixados, só o filtrado fica no lake) · %d downloads simultâneos. Retoma de onde parou.%n",
+                from, to, days, days * 96, days * 96 * 7 / 1024.0, newsProps.gdelt().parallel());
+        var r = gdelt.backfill(from, to);
+        System.out.printf("  %d lotes · %d gravados · %d sem arquivo no GDELT · %d com erro (rode de novo para repetir)"
+                + " · %d de %d notícias guardadas%n", r.batches(), r.stored(), r.missing(), r.failed(), r.rowsKept(), r.rowsTotal());
+        System.out.println("Próximo passo: normalize --only=news");
+    }
+
+    private void collectNewsOnce() throws InterruptedException {
+        var g = gdelt.collectRecent();
+        System.out.printf("GDELT: %d lote(s) · %d gravado(s) · %d de %d notícias guardadas · %d com erro%n",
+                g.batches(), g.stored(), g.rowsKept(), g.rowsTotal(), g.failed());
+        if (newsProps.edgar().configured()) {
+            var e = edgar.collect(false);
+            System.out.printf("EDGAR: %d documentos listados · %d novos · %d falhas%n", e.listed(), e.fetched(), e.failed());
+        } else {
+            System.out.println("EDGAR: sem contato da SEC (defina EDGAR_USER_AGENT=\"Nome email@dominio\")");
         }
     }
 

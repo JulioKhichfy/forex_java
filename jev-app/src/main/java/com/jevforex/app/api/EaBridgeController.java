@@ -62,6 +62,7 @@ public class EaBridgeController {
      * CMD;NONE | CMD;BLOCK | CMD;FLATTEN
      * OPEN;id;símbolo;lado;volume;dist_sl;dist_tp;desvio_pontos;expira_em_utc;fechar_após_utc|-
      * CLOSE;id;ticket;desvio_pontos;expira_em_utc
+     * MODIFY;id;ticket;novo_stop_em_preço;expira_em_utc     (trailing; o alvo fica; EA 2.2+)
      * </pre>
      * dist_sl/dist_tp são distâncias em PREÇO: o EA aplica sobre o preço real da execução. Cada ordem sai uma vez.
      */
@@ -83,6 +84,8 @@ public class EaBridgeController {
                 out.append(String.format(Locale.ROOT, "OPEN;%d;%s;%s;%.2f;%.6f;%.6f;%d;%s;%s", o.id(), o.symbol(),
                         o.side(), o.volume(), o.slDistance(), o.tpDistance(), o.deviationPts(), expires,
                         o.closeAfterUtc() == null ? "-" : o.closeAfterUtc().truncatedTo(ChronoUnit.SECONDS)));
+            } else if ("MODIFY".equals(o.action())) {
+                out.append(String.format(Locale.ROOT, "MODIFY;%d;%d;%.8f;%s", o.id(), o.ticket(), o.slPrice(), expires));
             } else {
                 out.append(String.format(Locale.ROOT, "CLOSE;%d;%d;%d;%s", o.id(), o.ticket(), o.deviationPts(),
                         expires));

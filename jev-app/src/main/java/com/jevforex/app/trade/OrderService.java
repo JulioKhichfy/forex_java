@@ -201,8 +201,17 @@ public class OrderService {
         checks.add(new Check("Lote", lot >= minLot - 1e-9 && lot <= maxLot + 1e-9 && stepOk,
                 fmt(lot, 2), String.format(Locale.ROOT, "%.2f a %.2f, passo %.2f", minLot, maxLot, inst.lotStep())));
         RiskSettings.Exits exits = mr.exits(riskHolder.get().exits());   // as do mercado (ouro: as da regra validada)
-        Double slDist = atr == null ? null : exits.stopAtr() * atr;
-        Double tpDist = slDist == null ? null : exits.targetR() * slDist;
+        RiskSettings.MoneyExits money = riskHolder.get().money();
+        Double slDist, tpDist;
+        if (money.enabled()) {
+            // página "Stop em US$": a distância em preço que perde/ganha exatamente esses dólares com este lote
+            double perPrice = inst.lossPerLot(1.0) * lot;
+            slDist = perPrice > 0 ? money.stopUsd() / perPrice : null;
+            tpDist = perPrice > 0 ? money.takeUsd() / perPrice : null;
+        } else {
+            slDist = atr == null ? null : exits.stopAtr() * atr;
+            tpDist = slDist == null ? null : exits.targetR() * slDist;
+        }
         Double riskUsd = slDist == null ? null : inst.lossPerLot(slDist) * lot;
         Double rewardUsd = tpDist == null ? null : inst.lossPerLot(tpDist) * lot;
         double cap = balance == null ? 0 : riskHolder.get().global().maxRiskPerTradeMoney(balance);
@@ -264,6 +273,18 @@ public class OrderService {
         checks.add(new Check("Nível de margem", !hasMargin || marginLevel >= o.minMarginLevelPct(),
                 hasMargin ? fmt(marginLevel, 0) + "%" : "sem margem em uso", "≥ " + fmt(o.minMarginLevelPct(), 0) + "%"));
 
+        if (money.enabled()) {
+            // stop em dólares pequeno demais para o símbolo: dentro do spread ou do mínimo da corretora = sai na hora
+            Mt5Parsers.InstrumentSpec sp = spec(symbol);
+            double point = sp == null ? inst.tickSize() : sp.point();
+            double minDist = Math.max(sp == null || sp.stopsLevel() == null ? 0 : sp.stopsLevel() * point,
+                    spread == null ? 0 : 2.0 * spread * point);
+            checks.add(new Check("Stop em US$ × spread", slDist != null && slDist > minDist,
+                    slDist == null ? "sem stop" : String.format(Locale.ROOT, "%s de distância (US$ %.2f)",
+                            fmt(slDist, 6), money.stopUsd()),
+                    String.format(Locale.ROOT, "> %s (2 spreads ou o mínimo da corretora)", fmt(minDist, 6))));
+        }
+
         // ------------------------------------------------------------ gates de mercado (cap. 12)
         Double typical = typicalSpread(pred, market);
         boolean spreadOk = spread != null && typical != null && spread <= o.maxSpreadRatio() * typical;
@@ -312,6 +333,53 @@ public class OrderService {
         return new Submit(id, shadow ? "SHADOW" : "PENDING", p);
     }
 
+    /**
+     * Prévia da página "Stop em US$": com estes dólares e este lote (ou o mínimo do símbolo, se for maior), a que
+     * distância ficam o stop e o alvo em cada símbolo e se o stop fica longe o bastante do spread.
+     */
+    public record MoneyPreview(String market, String symbol, double lot, Double stopDistance, Double takeDistance,
+                               Double stopPoints, Integer spreadPoints, Integer stopsLevel, boolean ok) {
+    }
+
+    public List<MoneyPreview> moneyPreview(double lot, double stopUsd, double takeUsd) {
+        JsonNode detail = repo.latestAccount().map(a -> read(a.detailJson())).orElse(mapper.createObjectNode());
+        java.util.Map<String, Integer> spreads = new java.util.HashMap<>();
+        for (JsonNode q : detail.path("quotes")) {
+            if (q.hasNonNull("spread")) spreads.put(q.path("symbol").asText(), q.path("spread").asInt());
+        }
+        List<MoneyPreview> out = new ArrayList<>();
+        symbolsByMarket().forEach((market, symbols) -> {
+            for (String symbol : symbols) {
+                Instrument inst = instrument(symbol);
+                if (inst == null) continue;
+                Mt5Parsers.InstrumentSpec sp = spec(symbol);
+                double l = Math.max(lot, inst.minLot());
+                double perPrice = inst.lossPerLot(1.0) * l;
+                double point = sp == null ? inst.tickSize() : sp.point();
+                Integer spread = spreads.getOrDefault(symbol, sp == null ? null : sp.spreadPoints());
+                Integer stops = sp == null ? null : sp.stopsLevel();
+                Double sd = perPrice > 0 ? stopUsd / perPrice : null, td = perPrice > 0 ? takeUsd / perPrice : null;
+                double min = Math.max(stops == null ? 0 : stops * point, spread == null ? 0 : 2.0 * spread * point);
+                out.add(new MoneyPreview(market, symbol, l, sd, td, sd == null ? null : sd / point, spread, stops,
+                        sd != null && sd > min));
+            }
+        });
+        return out;
+    }
+
+    /**
+     * Move o stop de uma posição aberta para um preço (trailing). O alvo fica onde está. Como fechar, proteger nunca é
+     * bloqueado por BLOCK.
+     */
+    public synchronized long modifyStop(TradeRepository.Position pos, double slPrice, String why) {
+        Instant now = Instant.now();
+        return repo.insertOrder(new TradeRepository.Order(null, marketOf(pos.symbol()), pos.symbol(), "MODIFY", pos.side(),
+                pos.volume(), null, null, null, null, null, riskHolder.get().orders().deviationPoints(), null,
+                pos.ticket(), null, "[]", trading.mode() == TradingProperties.Mode.SHADOW ? "SHADOW" : "PENDING", why,
+                null, pos.account(), now, now.plusSeconds(riskHolder.get().orders().validitySeconds()), null, null,
+                slPrice));
+    }
+
     /** Fecha uma posição (botão no dashboard ou saída por tempo). Fechar nunca é bloqueado por BLOCK. */
     public synchronized long close(long ticket, String why) {
         TradeRepository.Position pos = repo.positions().stream().filter(p -> p.ticket() == ticket).findFirst()
@@ -358,7 +426,7 @@ public class OrderService {
         return base;   // índices e ações só existem com a especificação do MT5
     }
 
-    private Mt5Parsers.InstrumentSpec spec(String symbol) {
+    Mt5Parsers.InstrumentSpec spec(String symbol) {
         for (Mt5Parsers.InstrumentSpec s : mt5.latestSpecs()) if (s.symbol().equals(symbol)) return s;
         return null;
     }

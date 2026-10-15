@@ -32,6 +32,27 @@ class RouletteServiceTest {
     }
 
     @Test
+    void pullback_soEmLateral_contraABanda() {
+        var lateral = pred(0.25, 0.50, 0.25);
+        assertEquals("BUY", RouletteService.decidePullback(lateral, 0.05, 0.1).side(), "perto da banda inferior");
+        assertEquals("BUY", RouletteService.decidePullback(lateral, -0.2, 0.1).side(), "abaixo da banda inferior");
+        assertEquals("SELL", RouletteService.decidePullback(lateral, 0.95, 0.1).side(), "perto da superior");
+        assertEquals("SELL", RouletteService.decidePullback(lateral, 1.3, 0.0).side(), "fora da superior");
+        assertNull(RouletteService.decidePullback(lateral, 0.5, 0.1).side(), "no meio das bandas");
+        assertNull(RouletteService.decidePullback(lateral, 0.05, 0.0).side(), "band 0: só fora das bandas");
+        assertNull(RouletteService.decidePullback(lateral, null, 0.1).side(), "sem bandas: falhar fechado");
+        var alta = pred(0.20, 0.30, 0.50);
+        assertTrue(RouletteService.decidePullback(alta, 0.0, 0.1).why().startsWith("não é LATERAL"));
+    }
+
+    @Test
+    void configAntiga_semEstrategia_viraTendencia() {
+        var c = new RouletteService.Config(true, 15, "B", null, null, null, null, null, null);
+        assertEquals("trend", c.strategy());
+        assertEquals(0.1, c.band(), 1e-12);
+    }
+
+    @Test
     void travasIgnoradas_saoAsDeRisco_eExistemNoOrderService() throws Exception {
         String src = Files.readString(Path.of("src/main/java/com/jevforex/app/trade/OrderService.java"));
         for (String gate : OrderService.ROULETTE_WAIVED) {

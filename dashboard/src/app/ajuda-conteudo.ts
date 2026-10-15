@@ -76,7 +76,7 @@ export const SECOES: Secao[] = [
         tabela: {
           colunas: ['Elemento', 'O que faz'],
           linhas: [
-            { termo: 'Hoje · Radar · Previsões · Operar · Roleta russa · Risco · Modelos · Saúde · Ajuda', texto: 'As páginas. Cada uma tem uma seção nesta ajuda.' },
+            { termo: 'Hoje · Radar · Previsões · Operar · Roleta russa · Stop em US$ · Risco · Modelos · Saúde · Ajuda', texto: 'As páginas. Cada uma tem uma seção nesta ajuda.' },
             { termo: 'Forex · Índices · Ações · Ouro · Bitcoin', texto: 'O mercado que as páginas Hoje, Radar, Previsões, Operar e Modelos mostram. A escolha fica guardada no navegador. Forex = 7 pares principais; Índices = US30, US500, USTEC, DE30, UK100, JP225 e outros; Ações = AAPL, MSFT, NVDA, META, GOOGL, INTC, SPCX; Ouro = XAUUSD; Bitcoin = BTCUSD.' },
             { termo: 'modo SHADOW / DEMO / LIVE', texto: '<b>SHADOW</b>: as ordens são conferidas e registradas, mas não vão para o MT5. <b>DEMO</b>: vão só para conta demo. <b>LIVE</b>: conta real (selo em laranja). O modo é escolhido ao subir o servidor (<code>--trading.mode=demo</code>).' },
             { termo: 'Relógio (UTC)', texto: 'Hora do servidor em UTC; com o mouse, Brasília. Se aparecer “API fora do ar”, o servidor (java -jar jev-app.jar) não está respondendo.' },
@@ -512,6 +512,19 @@ export const SECOES: Secao[] = [
         },
       },
       {
+        titulo: 'Estratégia: Tendência ou Pullback (teste)',
+        html: `<b>Tendência</b> (padrão): a descrita acima — o lado mais provável, pulando LATERAL.<br>
+          <b>Pullback no LATERAL</b> (teste pedido em 14/10): só entra quando <b>LATERAL é o mais provável</b> e o preço está
+          na banda de Bollinger (20, 2, M15): <span class="up">COMPRA</span> na banda inferior ou abaixo,
+          <span class="down">VENDA</span> na superior ou acima. A <b>Banda</b> diz quão perto: “fora das bandas” (%B ≤ 0 ou
+          ≥ 1), “até 10%” (%B ≤ 0,1 ou ≥ 0,9) ou “até 20%”. As bandas e o preço vêm do Radar no momento da decisão; sem
+          barra recente, não entra. A ordem sai no horizonte escolhido (15 ou 60 min), com o stop e o alvo da página Risco.
+          <br><b>Antes de ligar:</b> no teste fora da amostra (abr–set/2026, ~100 mil momentos) esta regra deu resultado
+          médio <b>negativo</b> em forex (−0,19 R), índices (−0,14 a −0,17), ações (−0,27) e bitcoin (−0,05 a −0,07) e
+          <b>zero</b> no ouro: o preço quase não volta da banda nesses minutos e o spread fica com a diferença. O quadro
+          mostra esse número em vermelho e o placar real do pullback separado da tendência.`,
+      },
+      {
         titulo: 'Os números de cada quadro',
         tabela: {
           colunas: ['Linha', 'Significado'],
@@ -528,6 +541,47 @@ export const SECOES: Secao[] = [
         html: `<b>PARAR ROLETA RUSSA</b> (vermelho, no topo) para todos os mercados; o botão do quadro para só aquele. Parar
           impede entradas novas; as posições abertas saem pelo tempo, pelo stop ou pelo alvo — para fechar já, use
           <b>Fechar</b> ou <b>FLATTEN</b> na página Operar. Em modo LIVE (conta real) o sistema pede para digitar LIVE ao ligar.`,
+      },
+    ],
+  },
+
+  // ======================================================================== stop em US$
+  {
+    id: 'stop-dolar',
+    titulo: 'Página Stop em US$',
+    resumo: 'Stop e alvo de cada ordem em dólares (no lugar dos de ATR) e trailing stop das posições abertas.',
+    blocos: [
+      {
+        titulo: 'Stop e alvo por ordem, em US$',
+        html: `Com a caixa <b>“Usar stop e alvo em dólares”</b> marcada, <b>toda ordem nova</b> — da página Operar, da Hoje
+          e da Roleta — sai com stop e alvo que perdem/ganham exatamente esses valores com o lote da ordem, em qualquer
+          mercado. Isso tem <b>prioridade</b> sobre o stop e o alvo em ATR da página Risco (os gerais e os de cada mercado).
+          Desmarcada, voltam os de ATR. Posições já abertas não mudam.<br>
+          A linha de baixo mostra quantas vezes o alvo é maior que o stop, quanto é preciso acertar para empatar (antes do
+          spread) e quanto do saldo o stop representa (em vermelho acima de 5%).<br>
+          <b>Atenção:</b> um stop fixo em dólares fica perto ou longe do preço conforme o símbolo e o lote. A tabela
+          <b>“Onde fica o stop em cada símbolo”</b> mostra a distância em preço e em pontos com o lote escolhido, e o spread
+          de agora. <span class="down">“perto demais”</span> = o stop cairia a menos de 2 spreads (ou do mínimo da corretora):
+          a ordem é recusada pela trava <b>Stop em US$ × spread</b>, que vale também na Roleta.`,
+      },
+      {
+        titulo: 'Trailing stop',
+        html: `Com <b>“Ativar trailing stop”</b>, o servidor confere a cada 5 segundos todas as posições abertas pelo sistema
+          e pede ao EA para mover o stop <b>a favor</b> (nunca contra; o alvo fica onde está):
+          <ul><li>quando o lucro chega a <b>“Começar com lucro de”</b> (padrão US$ 2), o stop vai para o preço de entrada —
+          a operação não dá mais prejuízo (zero a zero);</li>
+          <li>depois, o stop segue o preço deixando <b>“Distância do stop”</b> do lucro para trás (com US$ 2: lucro de
+          US$ 5 → o stop trava US$ 3);</li>
+          <li>só pede de novo quando trava pelo menos <b>“Mover a cada”</b> a mais (evita mexer a cada tique).</li></ul>
+          A tabela ao lado mostra o efeito com os valores da tela. O trailing vale com ou sem o stop em dólares ligado, e
+          também para as posições que já estavam abertas. <b>Precisa do EA JevExecutor 2.2</b> (rode
+          <code>mql5\\install.ps1</code> e recarregue o EA no gráfico); com o EA antigo nada é movido e o servidor avisa no
+          log. Na página Operar, os pedidos aparecem como ordens <b>MODIFY</b>.`,
+      },
+      {
+        titulo: 'Salvar',
+        html: `<b>Salvar e aplicar</b> pede confirmação e vale na hora. Fica gravado no mesmo arquivo da página Risco
+          (<code>config/application.yml</code>, bloco <code>trading.risk.money</code>) e entra no histórico de alterações dela.`,
       },
     ],
   },

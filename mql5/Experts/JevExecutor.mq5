@@ -8,6 +8,7 @@
 //|    (distâncias aplicadas sobre o preço real da execução)          |
 //|  - fecha posições pedidas (botão, saída por tempo) e obedece      |
 //|    BLOCK (sem entradas novas) e FLATTEN (fecha tudo deste EA)     |
+//|  - move o stop de posições abertas (trailing: MODIFY, v2.2)       |
 //|  - reporta cada execução (POST /api/ea/execution) e envia         |
 //|    heartbeat com saldo, margem, cotações e posições               |
 //|                                                                  |
@@ -22,7 +23,7 @@
 //| Expert Advisors → "Permitir WebRequest…" → http://127.0.0.1:8080  |
 //+------------------------------------------------------------------+
 #property copyright   "Jev Forex"
-#property version     "2.10"
+#property version     "2.20"
 #property description "Jev Forex — executor das ordens aprovadas no dashboard, com SL/TP no servidor."
 
 #include <Trade/Trade.mqh>
@@ -43,7 +44,7 @@ input string InpSymbols5         = "XAUUSD,BTCUSD";            // Cotações: ou
 input int    InpPollSeconds      = 1;                       // Busca de ordens (s)
 input int    InpHeartbeatSeconds = 5;                       // Heartbeat (s)
 
-#define EA_VERSION "JevExecutor/2.1"
+#define EA_VERSION "JevExecutor/2.2"
 #define MAX_SEEN   500
 
 CTrade   g_trade;
@@ -220,6 +221,9 @@ void PollSignals()
                if(k == 5 && f[0] == "CLOSE")
                   ExecuteClose(f);
                else
+                  if(k == 5 && f[0] == "MODIFY")
+                     ExecuteModify(f);
+               else
                   PrintFormat("JevExecutor: linha ignorada (formato desconhecido): %s", line);
      }
   }
@@ -362,6 +366,73 @@ void ExecuteClose(const string &f[])
      {
       string msg = StringFormat("corretora recusou: %u %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
       PrintFormat("JevExecutor: falhou fechar %I64u — %s", ticket, msg);
+      ReportExecution(id, "REJECTED", ticket, 0, msg);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| MODIFY;id;ticket;stop;expira — move o stop (trailing); o alvo fica. |
+//| Só a favor e longe do preço o bastante; proteger não é bloqueado    |
+//| por BLOCK (como fechar).                                            |
+//+------------------------------------------------------------------+
+void ExecuteModify(const string &f[])
+  {
+   string id = f[1];
+   if(AlreadySeen(id))
+      return;
+   ulong ticket = (ulong)StringToInteger(f[2]);
+   double sl = StringToDouble(f[3]);
+   datetime expires = ParseIsoUtc(f[4]);
+   string reason = ExecuteBlockedReason();
+   if(reason == "" && expires <= TimeGMT())
+      reason = "pedido vencido (" + f[4] + ")";
+   if(reason == "" && !PositionSelectByTicket(ticket))
+      reason = StringFormat("posição %I64u não está aberta", ticket);
+   if(reason == "" && PositionGetInteger(POSITION_MAGIC) != InpMagic)
+      reason = StringFormat("posição %I64u não é deste EA (magic diferente)", ticket);
+   double tp = 0;
+   int digits = 5;
+   if(reason == "")
+     {
+      string broker = PositionGetString(POSITION_SYMBOL);
+      tp = PositionGetDouble(POSITION_TP);
+      double current = PositionGetDouble(POSITION_SL);
+      digits = (int)SymbolInfoInteger(broker, SYMBOL_DIGITS);
+      sl = NormalizeDouble(sl, digits);
+      double point = SymbolInfoDouble(broker, SYMBOL_POINT);
+      double gap = SymbolInfoInteger(broker, SYMBOL_TRADE_STOPS_LEVEL) * point;
+      if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+        {
+         if(current > 0 && sl <= current)
+            reason = "o stop novo não melhora o atual";
+         else
+            if(sl >= SymbolInfoDouble(broker, SYMBOL_BID) - gap)
+               reason = "stop novo colado no preço (mínimo da corretora)";
+        }
+      else
+        {
+         if(current > 0 && sl >= current)
+            reason = "o stop novo não melhora o atual";
+         else
+            if(sl <= SymbolInfoDouble(broker, SYMBOL_ASK) + gap)
+               reason = "stop novo colado no preço (mínimo da corretora)";
+        }
+     }
+   if(reason != "")
+     {
+      PrintFormat("JevExecutor: não movi o stop de %I64u (ordem %s): %s", ticket, id, reason);
+      ReportExecution(id, "REJECTED", ticket, 0, reason);
+      return;
+     }
+   if(g_trade.PositionModify(ticket, sl, tp) && g_trade.ResultRetcode() == TRADE_RETCODE_DONE)
+     {
+      PrintFormat("JevExecutor: stop de %I64u movido para %s (ordem %s)", ticket, DoubleToString(sl, digits), id);
+      ReportExecution(id, "FILLED", ticket, sl, "stop " + DoubleToString(sl, digits));
+     }
+   else
+     {
+      string msg = StringFormat("corretora recusou: %u %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
+      PrintFormat("JevExecutor: falhou mover o stop de %I64u — %s", ticket, msg);
       ReportExecution(id, "REJECTED", ticket, 0, msg);
      }
   }

@@ -20,7 +20,7 @@ spring:
   task:
     scheduling:
       pool:
-        size: 4               # importação do MT5, coleta e previsões ao vivo não esperam umas pelas outras
+        size: 8               # importação do MT5, coletas, previsões, roleta e saída por tempo não esperam umas pelas outras
 
 server:
   address: 127.0.0.1        # API só acessível pela sua máquina
@@ -233,6 +233,38 @@ collect:
       enabled: false
 
 # ---------------------------------------------------------------------
+#  Notícias além dos bancos centrais (passo 10a): só coleta para o bronze; o Jev entra depois, com plano e teto
+# ---------------------------------------------------------------------
+news:
+  gdelt:                        # manchetes do GDELT (GKG: um arquivo a cada 15 min em data.gdeltproject.org, grátis)
+    enabled: true               # coleta ao vivo no modo servidor; histórico: backfill-news --source=gdelt
+    parallel: 3                 # downloads simultâneos no histórico (~7 MB por lote; só o filtrado fica no lake)
+    retries: 3
+    live-minutes: 15
+    available-lag-minutes: 15   # no silver, a manchete vale a partir do horário do lote + 15 min
+    domains: [apnews.com, cnbc.com, marketwatch.com, yahoo.com, forbes.com, bloomberg.com, wsj.com, ft.com,
+              reuters.com, nytimes.com, washingtonpost.com, bbc.com, bbc.co.uk, theguardian.com, economist.com,
+              barrons.com, businessinsider.com, foxbusiness.com, cnn.com, nasdaq.com, benzinga.com, thestreet.com,
+              investing.com]
+    always-domains: [fxstreet.com, kitco.com, coindesk.com, cointelegraph.com, theblock.co]   # qualquer tema
+    theme-prefixes: [ECON_, EPU_ECONOMY, EPU_POLICY_MONETARY, EPU_CATS_MONETARY, SANCTIONS, ARMEDCONFLICT,
+                     MILITARY, ENV_OIL, TRADE_]
+    title-keywords: [bitcoin, crypto, "federal reserve", "the fed", "fed ", ecb, tariff, opec, "gold price"]
+  edgar:                      # SEC: 8-K (resultados, fatos relevantes), 10-Q, 10-K das ações em uso
+    enabled: true               # ao vivo a cada 5 min no modo servidor; histórico: backfill-news --source=edgar
+    user-agent: ${EDGAR_USER_AGENT:}   # a SEC exige "Nome email@dominio"; vazio = não coleta
+    delay-millis: 250           # limite da SEC: 10 pedidos por segundo
+    forms: [8-K, 8-K/A, 10-Q, 10-K, 6-K]
+    from: 2021-10-01
+    companies:                  # símbolo do MT5 → CIK da SEC (SPCX: sem CIK conhecido)
+      AAPL: 320193
+      MSFT: 789019
+      NVDA: 1045810
+      META: 1326801
+      GOOGL: 1652044
+      INTC: 50863
+
+# ---------------------------------------------------------------------
 #  MetaTrader 5 (passo 2): exportadores MQL5 → inbox → bronze + Postgres; EA em shadow
 # ---------------------------------------------------------------------
 mt5:
@@ -296,6 +328,16 @@ trading:
       blackout-after-minutes: 2       # …até 2 min depois de evento de importância alta da moeda
       max-spread-ratio: 2.0           # gate 3: spread atual até 2 × o típico do horário
       min-margin-level-pct: 300       # sem entrada nova se o nível de margem estiver abaixo de 300%
+
+    # ===== STOP E ALVO EM US$ E TRAILING (página "Stop em US$") =====
+    money:
+      enabled: false                  # ligado: toda ordem nova sai com stop/alvo em dólares (no lugar dos de ATR)
+      stop-usd: 5.0                   # perda máxima por ordem, em US$
+      take-usd: 10.0                  # ganho no alvo por ordem, em US$
+      trail-enabled: false            # move o stop das posições abertas a favor (precisa do EA 2.2)
+      trail-start-usd: 2.0            # com este lucro, o stop vai para o zero a zero…
+      trail-distance-usd: 2.0         # …e depois segue o preço deixando isto do lucro para trás
+      trail-step-usd: 0.5             # só move de novo quando trava pelo menos isto a mais
 
     # ===== ORÇAMENTO POR MERCADO =====
     markets:

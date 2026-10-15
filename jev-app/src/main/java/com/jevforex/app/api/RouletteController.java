@@ -17,7 +17,8 @@ import java.util.Map;
  *
  * <pre>
  * GET  /api/roulette?days=30                          estado de cada mercado, entradas, resultado real e o simulado
- * POST /api/roulette/start?market=fx&horizon=60&model=B[&lot=0.01]   liga (sem lot = lote mínimo de cada símbolo)
+ * POST /api/roulette/start?market=fx&horizon=60&model=B[&lot=0.01][&strategy=trend|pullback&band=0.1]
+ *                                                     liga (sem lot = lote mínimo de cada símbolo)
  * POST /api/roulette/stop[?market=fx]                 para um mercado (sem market = todos)
  * </pre>
  */
@@ -48,8 +49,10 @@ public class RouletteController {
     @PostMapping("/start")
     public RouletteService.Config start(@RequestParam String market, @RequestParam int horizon,
                                        @RequestParam(defaultValue = "B") String model,
-                                       @RequestParam(required = false) Double lot) {
-        return roulette.start(market, horizon, model, lot);
+                                       @RequestParam(required = false) Double lot,
+                                       @RequestParam(defaultValue = "trend") String strategy,
+                                       @RequestParam(defaultValue = "0.1") double band) {
+        return roulette.start(market, horizon, model, lot, strategy, band);
     }
 
     @PostMapping("/stop")

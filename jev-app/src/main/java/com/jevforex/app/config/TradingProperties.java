@@ -34,7 +34,8 @@ public record TradingProperties(
     }
 
     public record Risk(Global global, Map<String, MarketRiskConfig> markets, RiskSettings.Exits exits,
-                       RiskSettings.Orders orders, Map<String, RiskSettings.LossProfile> lossProfiles) {
+                       RiskSettings.Orders orders, Map<String, RiskSettings.LossProfile> lossProfiles,
+                       RiskSettings.MoneyExits money) {
     }
 
     public record Global(double maxRiskPerTradePct, double maxRiskPerTradeUsd, double maxOpenRiskPct,
@@ -63,7 +64,7 @@ public record TradingProperties(
                     c.enabled(), c.riskPerTradePct(), c.maxOpenRiskPct(), c.maxPositions(), c.usdWeight(),
                     c.closeAfterMinutes(), c.stopAtr(), c.targetR())));
         }
-        return new RiskSettings(global, m, risk.exits(), risk.orders(), risk.lossProfiles());
+        return new RiskSettings(global, m, risk.exits(), risk.orders(), risk.lossProfiles(), risk.money());
     }
 
     public Map<String, Instrument> toInstruments() {

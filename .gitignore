@@ -25,7 +25,7 @@ logs/
 # MQL5 compilado (o MetaEditor gera ao lado do .mq5)
 *.ex5
 mql5/**/*.log
-config/
+/config/
 hs_err_pid*.log
 
 # imagens da aba Ajuda: mostram a conta (saldo, ordens) e o repositório é público — gere com tools/capturar-ajuda.mjs

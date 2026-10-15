@@ -40,9 +40,18 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
   `trading.mode` DEMO ou LIVE e o modo batendo com a conta (LIVE só em conta real). Stop/alvo vão como
   DISTÂNCIA; o EA aplica sobre o preço da execução. O EA só mexe em posições com o magic dele e nunca reenvia.
   Testar a mecânica em DEMO antes de apontar para a conta real (a troca é decisão do usuário).
-- **Roleta** (`RouletteService`, decisão do operador em 14/10/2026): ordens automáticas por mercado que IGNORAM as
+- **Notícias (passo 10a):** GDELT pelos arquivos GKG de 15 min (`data.gdeltproject.org`), nunca pela API de busca (bloqueia
+  o IP por minutos com poucos pedidos). O bronze `gdelt_gkg` guarda só o filtrado (`news.gdelt`: sites + temas/palavras)
+  em `.jsonl.gz`; o original é público e permanente (URL no meta) — mudar o filtro = reprocessar de lá. Point-in-time:
+  lote + `available-lag-minutes` (o carimbo do lote vem ~7 min à frente da publicação: é conservador). EDGAR exige
+  contato no User-Agent (`EDGAR_USER_AGENT`, nunca no git); o horário vale pelo `-index-headers` (Nova York → UTC).- **Roleta** (`RouletteService`, decisão do operador em 14/10/2026): ordens automáticas por mercado que IGNORAM as
   travas de risco por ordem (`OrderService.ROULETTE_WAIVED`); valem as técnicas, o BLOCK e a perda do dia/semana
   (que para todas). Não estender essa exceção a outras ordens sem o operador pedir.
+  Estratégias: `trend` (lado mais provável, pula LATERAL) e `pullback` (teste do operador, 14/10: só em LATERAL,
+  contra a banda de Bollinger M15 do radar; E[R] fora da amostra negativo, ~0 no ouro). Placar separado (Flyway V10).
+- **Stop em US$ e trailing** (`trading.risk.money`, página "Stop em US$", 14/10): ligado, toda ordem nova sai com stop/alvo em
+  dólares por cima dos de ATR (trava "Stop em US$ × spread"). Trailing: `TrailingService` pede MODIFY (Flyway V11,
+  `sl_price`) ao EA 2.2; só a favor, zero a zero no início. O placar das previsões continua em ATR.
 - Features: mudou o significado de alguma feature ou do label → nova versão `features.fset` (v2), nunca
   reescrever a v1. O mesmo código calcula features no treino e ao vivo (não reimplementar "só para produção").
   Todo cálculo novo precisa respeitar point-in-time e ganhar teste no `FeatureBuilderTest`.
@@ -63,13 +72,13 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-core | domínio puro: Market, Instrument, RiskSettings, PositionSizer (lote mínimo), BrokerSymbols |
 | jev-typesafe | JevClient, QuestionSet/Registry, JevResponse, CbTextSignal |
 | jev-lake | LakeStorage em disco local (bronze/silver/gold), LakeSql (DuckDB embarcado) |
-| jev-normalize | bronze → silver em Parquet: Candle/Calendar/DocumentNormalizer, WeeklyOpenCheck, DocumentText (HTML/PDF), Chunker (sem Spring) |
+| jev-normalize | bronze → silver em Parquet: Candle/Calendar/Document/NewsNormalizer, WeeklyOpenCheck, DocumentText (HTML/PDF), Chunker (sem Spring) |
 | jev-features | silver → gold: FeatureBuilder (momentos de decisão, features A/B, labels 15/60 min), FeatureConfig; `scan/`: radar (ScanLoader incremental, Scanner: RSI, Bollinger, volume, ATR, alertas) (sem Spring) |
 | jev-ml | walk-forward: Dataset, Outcomes (stop/alvo/tempo no M1), Gbm (Smile), Metrics, ExperimentRunner (modo cofre), ReportWriter, ModelStore (versões em produção) (sem Spring) |
-| jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5 |
+| jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5; `news/`: GDELT (GKG) e SEC EDGAR |
 | jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
-| dashboard | Angular 20 (Hoje, Radar, Previsões, Operar, Roleta russa, Risco, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
-| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor (executor com 3 chaves), `install.ps1` |
+| dashboard | Angular 20 (Hoje, Radar, Previsões, Operar, Roleta russa, Stop em US$, Risco, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
+| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.2 (executor com 3 chaves; OPEN, CLOSE, MODIFY), `install.ps1` |
 
 ## Comandos
 ```
@@ -78,6 +87,7 @@ mvn -q clean package                       # build + testes
 java -jar jev-app/target/jev-app.jar ping | risk --balance=20 | collect-once
 java -jar jev-app/target/jev-app.jar ask --qset=cb-text-v1 --latest
 java -jar jev-app/target/jev-app.jar import-mt5-once | mt5-status | risk --balance=20 --mt5 | backfill-bis | backfill-archives
+java -jar jev-app/target/jev-app.jar backfill-news --source=gdelt [--from=2021-10-01] | backfill-news --source=edgar | collect-news-once
 java -jar jev-app/target/jev-app.jar jev-score [--run --max-usd=1.5] | jev-signals   # sem --run: só o plano e o custo
 java -jar jev-app/target/jev-app.jar normalize [--only=candles|calendar|documents]   # silver (sem Postgres)
 java -jar jev-app/target/jev-app.jar features                    # gold: features + labels (fset do yml)
@@ -177,3 +187,10 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             roulette_entry). DEMO e LIVE (LIVE pede digitar LIVE). Antes de construir, o placar ao vivo mostrava E[R] da
             regra negativo no forex (−0,15/−0,27) e nas ações, ~+0,05 nos índices a 60 min pulando LATERAL; a página
             mostra esse simulado e o resultado real ao lado de cada botão
+- [ ] Passo 10 — notícias além dos bancos centrais (pedido do operador, 14/10)
+      - [x] 10a coleta: GDELT GKG (histórico desde 2021-10 + ao vivo a cada 15 min; ~1.800 de ~140 mil notícias/dia
+            passam no filtro; ~1 MB/dia no bronze) e SEC EDGAR (8-K/10-Q/10-K das 6 ações; espera EDGAR_USER_AGENT).
+            silver/headlines (uma por URL, temas e tom do GDELT, available_utc) e silver/filings
+      - [ ] 10b `headline-v2` (dimensões: ativo/moeda, juros, crescimento, risk-on/off, dólar, impacto, novidade — sem
+            direção nem tese), plano e custo antes de avaliar (pontuar milhões de títulos não cabe no orçamento: amostra)
+      - [ ] 10c estudo de evento (o preço reagiu?) antes de qualquer feature

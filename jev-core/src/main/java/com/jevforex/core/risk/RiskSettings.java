@@ -11,7 +11,7 @@ import java.util.Map;
  * <p>Regra geral: quando existe limite em % e em US$, vale o MENOR dos dois.</p>
  */
 public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits exits, Orders orders,
-                           Map<String, LossProfile> lossProfiles) {
+                           Map<String, LossProfile> lossProfiles, MoneyExits money) {
 
     /** Perfil de perda implícito: os limites de {@code global}. */
     public static final String DEFAULT_PROFILE = "padrao";
@@ -32,6 +32,12 @@ public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits
             });
         }
         lossProfiles = java.util.Collections.unmodifiableMap(p);
+        if (money == null) money = MoneyExits.OFF;
+    }
+
+    public RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits exits, Orders orders,
+                        Map<String, LossProfile> lossProfiles) {
+        this(global, markets, exits, orders, lossProfiles, null);
     }
 
     /** Limites de perda do perfil escolhido (nome desconhecido = falha, não cai no padrão em silêncio). */
@@ -82,6 +88,53 @@ public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits
         public Exits {
             if (!(stopAtr > 0)) throw new IllegalArgumentException("exits.stop-atr deve ser > 0");
             if (!(targetR > 0)) throw new IllegalArgumentException("exits.target-r deve ser > 0");
+        }
+    }
+
+    /**
+     * Stop e alvo em DÓLARES por ordem e trailing stop (página "Stop em US$", pedido do operador em 14/10/2026).
+     *
+     * <p>Ligado ({@code enabled}), vale POR CIMA do stop/alvo em ATR (exits e os de cada mercado) em toda ordem nova:
+     * a distância em preço sai de {@code stop-usd} ÷ (valor de 1,0 de preço × lote). O trailing é independente: com
+     * lucro de {@code trail-start-usd}, o stop vai para o zero a zero; depois segue o preço, travando
+     * lucro − {@code trail-distance-usd}, só quando melhora pelo menos {@code trail-step-usd}.</p>
+     *
+     * @param enabled          stop e alvo em US$ no lugar dos de ATR
+     * @param stopUsd          perda máxima por ordem, em US$
+     * @param takeUsd          ganho no alvo por ordem, em US$
+     * @param trailEnabled     move o stop das posições abertas a favor
+     * @param trailStartUsd    lucro (US$) a partir do qual o stop começa a andar (vai para o zero a zero)
+     * @param trailDistanceUsd quanto do lucro o stop deixa para trás (US$)
+     * @param trailStepUsd     melhora mínima (US$) para mover de novo (evita mexer a cada tique)
+     */
+    public record MoneyExits(Boolean enabled, Double stopUsd, Double takeUsd, Boolean trailEnabled,
+                             Double trailStartUsd, Double trailDistanceUsd, Double trailStepUsd) {
+        public static final MoneyExits OFF = new MoneyExits(false, null, null, false, null, null, null);
+
+        public MoneyExits {
+            if (enabled == null) enabled = false;
+            if (stopUsd == null) stopUsd = 5.0;
+            if (takeUsd == null) takeUsd = 10.0;
+            if (trailEnabled == null) trailEnabled = false;
+            if (trailStartUsd == null) trailStartUsd = 2.0;
+            if (trailDistanceUsd == null) trailDistanceUsd = trailStartUsd;
+            if (trailStepUsd == null) trailStepUsd = 0.5;
+            if (!(stopUsd > 0)) throw new IllegalArgumentException("money.stop-usd deve ser > 0");
+            if (!(takeUsd > 0)) throw new IllegalArgumentException("money.take-usd deve ser > 0");
+            if (!(trailStartUsd > 0)) throw new IllegalArgumentException("money.trail-start-usd deve ser > 0");
+            if (!(trailDistanceUsd > 0)) throw new IllegalArgumentException("money.trail-distance-usd deve ser > 0");
+            if (trailStepUsd < 0) throw new IllegalArgumentException("money.trail-step-usd deve ser >= 0");
+        }
+
+        /**
+         * Lucro que o stop deve travar com o lucro atual: nada antes do início; depois lucro − distância, nunca abaixo
+         * de zero (no início, com distância = início, é o zero a zero).
+         *
+         * @return null = o trailing ainda não começou
+         */
+        public Double lockedProfit(double profitUsd) {
+            if (profitUsd < trailStartUsd) return null;
+            return Math.max(0, profitUsd - trailDistanceUsd);
         }
     }
 

@@ -332,6 +332,8 @@ export interface RouletteConfig {
   startedAt: string | null;
   stoppedAt: string | null;
   stopReason: string | null;
+  strategy: 'trend' | 'pullback';
+  band: number;
 }
 
 export interface RouletteEntry {
@@ -340,6 +342,8 @@ export interface RouletteEntry {
   symbol: string;
   model: string;
   horizon_min: number;
+  strategy: 'trend' | 'pullback';
+  pct_b: number | null;
   side: 'BUY' | 'SELL' | null;
   p_side: number | null;
   status: 'SENDING' | 'SENT' | 'SKIPPED' | 'REFUSED';
@@ -362,10 +366,10 @@ export interface RouletteState {
   markets: Record<string, RouletteConfig>;
   max_lot: number;
   entry_max_age_minutes: number;
-  counts: { market: string; sent: number; skipped: number; refused: number }[];
-  closed: { market: string; trades: number; result_usd: number | null; wins: number; avg_r: number | null;
+  counts: { market: string; strategy: string; sent: number; skipped: number; refused: number }[];
+  closed: { market: string; strategy: string; trades: number; result_usd: number | null; wins: number; avg_r: number | null;
     gains: number | null; losses: number | null }[];
-  open: { market: string; positions: number; risk_usd: number | null; profit_usd: number | null }[];
+  open: { market: string; strategy: string; positions: number; risk_usd: number | null; profit_usd: number | null }[];
   simulated: { market: string; model: string; horizon_min: number; n: number; avg_r: number; sum_r: number;
     hit_rate: number; since: string }[];
   entries: RouletteEntry[];
@@ -377,9 +381,10 @@ export class Api {
     return this.http.get<RouletteState>(`/api/roulette?days=${days}`);
   }
 
-  rouletteStart(market: string, horizon: number, model: string, lot: number | null): Observable<RouletteConfig> {
+  rouletteStart(market: string, horizon: number, model: string, lot: number | null, strategy = 'trend',
+                band = 0.1): Observable<RouletteConfig> {
     return this.http.post<RouletteConfig>(`/api/roulette/start?market=${market}&horizon=${horizon}&model=${model}`
-      + (lot ? `&lot=${lot}` : ''), {});
+      + `&strategy=${strategy}&band=${band}` + (lot ? `&lot=${lot}` : ''), {});
   }
 
   rouletteStop(market: string | null = null): Observable<unknown> {

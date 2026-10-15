@@ -33,16 +33,26 @@ public class TradeRepository {
                         Double slDistance, Double tpDistance, Double refPrice, Double atr, Double riskUsd,
                         Integer deviationPts, Instant closeAfterUtc, Long ticket, Long predictionId, String checksJson,
                         String status, String message, Double fillPrice, Long account, Instant createdAt,
-                        Instant expiresAt, Instant sentAt, Instant doneAt) {
+                        Instant expiresAt, Instant sentAt, Instant doneAt, Double slPrice) {
+
+        public Order(Long id, String market, String symbol, String action, String side, Double volume,
+                     Double slDistance, Double tpDistance, Double refPrice, Double atr, Double riskUsd,
+                     Integer deviationPts, Instant closeAfterUtc, Long ticket, Long predictionId, String checksJson,
+                     String status, String message, Double fillPrice, Long account, Instant createdAt,
+                     Instant expiresAt, Instant sentAt, Instant doneAt) {
+            this(id, market, symbol, action, side, volume, slDistance, tpDistance, refPrice, atr, riskUsd, deviationPts,
+                    closeAfterUtc, ticket, predictionId, checksJson, status, message, fillPrice, account, createdAt,
+                    expiresAt, sentAt, doneAt, null);
+        }
     }
 
     public long insertOrder(Order o) {
         return jdbc().sql("""
                         INSERT INTO order_request (market, symbol, action, side, volume, sl_distance, tp_distance, ref_price, atr, risk_usd,
                                                    deviation_pts, close_after_utc, ticket, prediction_id, checks, status,
-                                                   message, account, expires_at)
+                                                   message, account, expires_at, sl_price)
                         VALUES (:market, :symbol, :action, :side, :volume, :sl, :tp, :ref, :atr, :risk, :dev, :closeAfter,
-                                :ticket, :pred, CAST(:checks AS jsonb), :status, :message, :account, :expires)
+                                :ticket, :pred, CAST(:checks AS jsonb), :status, :message, :account, :expires, :slPrice)
                         RETURNING id
                         """)
                 .param("market", o.market())
@@ -64,6 +74,7 @@ public class TradeRepository {
                 .param("message", o.message(), Types.VARCHAR)
                 .param("account", o.account(), Types.BIGINT)
                 .param("expires", ts(o.expiresAt()), Types.TIMESTAMP)
+                .param("slPrice", o.slPrice(), Types.DOUBLE)
                 .query(Long.class).single();
     }
 
@@ -118,6 +129,13 @@ public class TradeRepository {
     public long openOrders(String action) {
         return jdbc().sql("SELECT count(*) FROM order_request WHERE action = :a AND status IN ('PENDING', 'SENT')")
                 .param("a", action).query(Long.class).single();
+    }
+
+    /** Pedido de mudança de stop ainda em andamento para a posição (o trailing não empilha pedidos). */
+    public boolean pendingModify(long ticket) {
+        return jdbc().sql("SELECT count(*) FROM order_request WHERE action = 'MODIFY' AND ticket = :t "
+                        + "AND status IN ('PENDING', 'SENT') AND expires_at > now()")
+                .param("t", ticket).query(Long.class).single() > 0;
     }
 
     /** Fechamentos por tempo vencidos: posições abertas por ordens com close_after_utc no passado. */
@@ -286,7 +304,7 @@ public class TradeRepository {
                 instant(rs, "close_after_utc"), (Long) rs.getObject("ticket"), (Long) rs.getObject("prediction_id"),
                 rs.getString("checks"), rs.getString("status"), rs.getString("message"),
                 (Double) rs.getObject("fill_price"), (Long) rs.getObject("account"), instant(rs, "created_at"),
-                instant(rs, "expires_at"), instant(rs, "sent_at"), instant(rs, "done_at"));
+                instant(rs, "expires_at"), instant(rs, "sent_at"), instant(rs, "done_at"), (Double) rs.getObject("sl_price"));
     }
 
     private static Instant instant(ResultSet rs, String col) throws SQLException {
