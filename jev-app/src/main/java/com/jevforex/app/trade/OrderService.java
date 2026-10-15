@@ -415,7 +415,7 @@ public class OrderService {
     // ------------------------------------------------------------------ apoio
 
     /** Especificação real da corretora (MT5) se houver; senão a aproximada do application.yml. */
-    Instrument instrument(String symbol) {
+    public Instrument instrument(String symbol) {
         Instrument base = catalog.bySymbol().get(symbol);
         Mt5Parsers.InstrumentSpec s = spec(symbol);
         if (s != null) {

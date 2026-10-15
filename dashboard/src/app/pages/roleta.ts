@@ -9,7 +9,7 @@ interface Form {
   horizon: number;
   model: string;
   lot: number | null;
-  strategy: 'trend' | 'pullback';
+  strategy: 'trend' | 'pullback' | 'both';
   band: number;
 }
 
@@ -57,24 +57,26 @@ const PULLBACK_STUDY: Record<string, Record<number, number>> = {
         @let strat = c?.on ? c!.strategy : f.strategy;
         @let hz = c?.on ? c!.horizon : f.horizon;
         @let sim = simulated(m.code, hz, c?.on ? c!.model : f.model);
-        <section class="panel card" [class.on]="c?.on" [class.test]="strat === 'pullback'">
+        <section class="panel card" [class.on]="c?.on" [class.test]="strat !== 'trend'">
           <h3>{{ m.label }}
             @if (c?.on) { <span class="badge running">RODANDO</span> } @else { <span class="badge">parada</span> }
-            @if (strat === 'pullback') { <span class="badge sell">PULLBACK · TESTE</span> }</h3>
+            @if (strat === 'pullback') { <span class="badge sell">PULLBACK · TESTE</span> }
+            @if (strat === 'both') { <span class="badge sell">TENDÊNCIA + PULLBACK</span> }</h3>
           @if (c?.on) {
             <p class="small">Desde <span [brt]="c!.startedAt">{{ c!.startedAt | date: 'dd/MM HH:mm' : 'UTC' }} UTC</span> ·
               {{ names[c!.model] ?? c!.model }} · <b>{{ c!.horizon }} min</b> · lote {{ c!.lot ?? 'mínimo de cada símbolo' }}
-              @if (c!.strategy === 'pullback') { · {{ bandLabel(c!.band) }} }</p>
+              · {{ strategyLabel(c!.strategy) }} @if (c!.strategy !== 'trend') { ({{ bandLabel(c!.band) }}) }</p>
             <button class="stop" (click)="stop(m.code)" [disabled]="busy()">Parar roleta russa</button>
           } @else {
             <div class="form">
-              <label>Estratégia <tip text="Tendência: o lado mais provável, pulando quando LATERAL é o mais provável. Pullback (teste): só quando LATERAL é o mais provável, COMPRA na banda inferior de Bollinger e VENDE na superior." />
+              <label>Estratégia <tip text="Tendência: o lado mais provável, pulando quando LATERAL é o mais provável. Pullback (teste): só quando LATERAL é o mais provável, COMPRA na banda inferior de Bollinger e VENDE na superior. Tendência + pullback: as duas juntas — cada previsão vai para a que lhe cabe (LATERAL no meio das bandas continua sem ordem: não há lado)." />
                 <select [value]="f.strategy" (change)="patch(m.code, { strategy: $any($event.target).value })">
                   <option value="trend">Tendência</option>
                   <option value="pullback" [disabled]="!serverHasStrategy()">Pullback no LATERAL (teste){{ serverHasStrategy() ? '' : ' — reinicie o servidor' }}</option>
+                  <option value="both" [disabled]="!serverHasStrategy()">Tendência + pullback (todas as previsões){{ serverHasStrategy() ? '' : ' — reinicie o servidor' }}</option>
                 </select>
               </label>
-              @if (f.strategy === 'pullback') {
+              @if (f.strategy !== 'trend') {
                 <label>Banda <tip text="Quão perto da banda de Bollinger (20, 2, M15) o preço precisa estar. %B: 0 = banda inferior, 1 = superior. 'Até 10%' compra com %B ≤ 0,1 e vende com %B ≥ 0,9." />
                   <select [value]="'' + f.band" (change)="patch(m.code, { band: +$any($event.target).value })">
                     <option value="0">fora das bandas</option>
@@ -105,7 +107,7 @@ const PULLBACK_STUDY: Record<string, Record<number, number>> = {
           }
 
           <div class="stats">
-            @if (strat === 'pullback') {
+            @if (strat !== 'trend') {
               @let st = study(m.code, hz);
               <div class="test-box small">
                 <b>Teste fora da amostra</b> (abr–set/2026, modelo Eventos + Preço, até 10% da banda, {{ hz }} min):
@@ -113,7 +115,8 @@ const PULLBACK_STUDY: Record<string, Record<number, number>> = {
                 por operação, já com o spread. Negativo em forex, índices, ações e bitcoin; zero no ouro. É um teste ao
                 vivo da sua hipótese: acompanhe o resultado real abaixo.
               </div>
-            } @else {
+            }
+            @if (strat !== 'pullback') {
               <div class="small muted">Esta regra nas previsões já resolvidas ({{ days }} dias) <tip text="Cada previsão do modelo e horizonte escolhidos, no lado mais provável, pulando LATERAL, com o stop, o alvo, a saída por tempo e o spread do placar. É o que a roleta teria feito, sem slippage." /></div>
               @if (sim) {
                 <div [class.up]="sim.avg_r > 0" [class.down]="sim.avg_r < 0">
@@ -247,7 +250,7 @@ export class Roleta implements OnInit, OnDestroy {
   /** As estratégias com algum dado no mercado (placar separado), começando pela escolhida agora. */
   protected strategiesOf(market: string, current: string): string[] {
     const s = this.state();
-    const seen = new Set<string>([current]);
+    const seen = new Set<string>(current === 'both' ? ['trend', 'pullback'] : [current]);
     for (const r of [...(s?.counts ?? []), ...(s?.closed ?? []), ...(s?.open ?? [])]) {
       if (r.market === market) seen.add(r.strategy ?? 'trend');
     }
@@ -255,7 +258,7 @@ export class Roleta implements OnInit, OnDestroy {
   }
 
   protected strategyLabel(s: string): string {
-    return s === 'pullback' ? 'Pullback (teste)' : 'Tendência';
+    return s === 'pullback' ? 'Pullback (teste)' : s === 'both' ? 'Tendência + pullback' : 'Tendência';
   }
 
   protected bandLabel(b: number): string {
@@ -291,14 +294,14 @@ export class Roleta implements OnInit, OnDestroy {
     const f = this.form(market);
     const sim = this.simulated(market, f.horizon, f.model);
     const st = this.study(market, f.horizon);
-    const simText = f.strategy === 'pullback'
-      ? `PULLBACK (TESTE): só quando LATERAL é o mais provável; compra na banda inferior, vende na superior (${this.bandLabel(f.band)}).\n`
-        + `No teste fora da amostra (abr–set/2026) deu E[R] ${st === null ? '—' : (st >= 0 ? '+' : '') + st.toFixed(2)} por operação.`
-      : sim ? `Nas previsões já resolvidas, esta regra deu E[R] ${sim.avg_r >= 0 ? '+' : ''}${sim.avg_r.toFixed(2)} por operação `
-        + `(${sim.n} operações, soma ${sim.sum_r.toFixed(0)} R).` : 'Ainda não há previsões resolvidas para esta regra.';
+    const pull = `PULLBACK (TESTE): quando LATERAL é o mais provável, compra na banda inferior e vende na superior (${this.bandLabel(f.band)}).\n`
+      + `No teste fora da amostra (abr–set/2026) deu E[R] ${st === null ? '—' : (st >= 0 ? '+' : '') + st.toFixed(2)} por operação.`;
+    const trend = sim ? `TENDÊNCIA: nas previsões já resolvidas deu E[R] ${sim.avg_r >= 0 ? '+' : ''}${sim.avg_r.toFixed(2)} por operação `
+      + `(${sim.n} operações, soma ${sim.sum_r.toFixed(0)} R).` : 'TENDÊNCIA: ainda não há previsões resolvidas para esta regra.';
+    const simText = f.strategy === 'pullback' ? pull : f.strategy === 'both' ? `${trend}\n\n${pull}` : trend;
     const text = `Ligar a roleta de ${label} em ${s.mode}?\n\n${MODEL_NAMES[f.model] ?? f.model}, ${f.horizon} min, lote `
       + `${f.lot ?? 'mínimo de cada símbolo'}.\nCada previsão nova vira uma ordem por símbolo, sem as travas de risco por ordem.\n\n${simText}`;
-    if (f.strategy === 'pullback' && !this.serverHasStrategy()) {
+    if (f.strategy !== 'trend' && !this.serverHasStrategy()) {
       this.error.set('O servidor em execução é anterior ao pullback: reinicie-o antes de ligar esta estratégia.');
       return;
     }

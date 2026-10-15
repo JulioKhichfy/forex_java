@@ -76,7 +76,7 @@ export const SECOES: Secao[] = [
         tabela: {
           colunas: ['Elemento', 'O que faz'],
           linhas: [
-            { termo: 'Hoje · Radar · Previsões · Operar · Roleta russa · Stop em US$ · Risco · Modelos · Saúde · Ajuda', texto: 'As páginas. Cada uma tem uma seção nesta ajuda.' },
+            { termo: 'Hoje · Radar · Previsões · Operar · Roleta russa · Risco · Modelos · Saúde · Ajuda', texto: 'As páginas. Cada uma tem uma seção nesta ajuda.' },
             { termo: 'Forex · Índices · Ações · Ouro · Bitcoin', texto: 'O mercado que as páginas Hoje, Radar, Previsões, Operar e Modelos mostram. A escolha fica guardada no navegador. Forex = 7 pares principais; Índices = US30, US500, USTEC, DE30, UK100, JP225 e outros; Ações = AAPL, MSFT, NVDA, META, GOOGL, INTC, SPCX; Ouro = XAUUSD; Bitcoin = BTCUSD.' },
             { termo: 'modo SHADOW / DEMO / LIVE', texto: '<b>SHADOW</b>: as ordens são conferidas e registradas, mas não vão para o MT5. <b>DEMO</b>: vão só para conta demo. <b>LIVE</b>: conta real (selo em laranja). O modo é escolhido ao subir o servidor (<code>--trading.mode=demo</code>).' },
             { termo: 'Relógio (UTC)', texto: 'Hora do servidor em UTC; com o mouse, Brasília. Se aparecer “API fora do ar”, o servidor (java -jar jev-app.jar) não está respondendo.' },
@@ -349,11 +349,24 @@ export const SECOES: Secao[] = [
             { termo: 'Probabilidades', texto: 'A barra de três cores.' },
             { termo: 'Sinal', texto: 'COMPRA, VENDA ou “—”.' },
             { termo: 'Resultado', texto: `O que aconteceu de fato: ${ALTA} ou ${QUEDA} se o preço andou mais de meio ATR já pagando o spread; senão LATERAL. “aguardando” = horizonte ainda não passou.` },
-            { termo: 'Acertou?', texto: '😊 a previsão bateu com o resultado; 😞 errou. Passe o mouse para ver o que foi previsto.' },
+            { termo: 'Cor da linha', texto: '<b>Verde-claro</b> = a previsão bateu com o resultado; <b>vermelho-claro</b> = errou; sem cor = fora da conta (aguardando, ou LATERAL com a caixa desmarcada). Passe o mouse na linha para ver o que foi previsto.' },
             { termo: 'considerar LATERAL (caixa)', texto: '<b>Desmarcada</b> (padrão): compara só a direção — ALTA se P(alta) > P(queda), senão QUEDA — e os momentos que terminaram LATERAL ficam sem marca e fora da conta. <b>Marcada</b>: compara a classe mais provável das três, inclusive LATERAL, em todos os momentos resolvidos.' },
-            { termo: '😊 N acerto(s) · 😞 N erro(s) · %', texto: 'O total do histórico mostrado (48 h do par selecionado, todos os modelos e horizontes), a taxa de acerto, quantos LATERAL ficaram fora e quantos ainda aguardam resultado.' },
+            { termo: 'Filtros', texto: '<b>P(alta) / P(queda)</b>: só as previsões cuja direção mais provável é esta. <b>P mín.</b>: só as com a probabilidade desse lado de pelo menos X%. <b>Horizonte</b> 15/60 min e <b>Modelo</b> (A · Preço, E · Eventos, B · Eventos + Preço). Nenhum botão marcado = todos.' },
+            { termo: 'N acerto(s) · N erro(s) · %', texto: 'O total das linhas mostradas (com os filtros), a taxa de acerto, quantos LATERAL ficaram fora e quantos ainda aguardam resultado.' },
           ],
         },
+      },
+      {
+        titulo: 'Backtest das previsões',
+        html: `E se cada previsão já resolvida tivesse virado uma ordem? Escolha os pares (todos do mercado ou o selecionado),
+          o <b>período</b> (última hora, hoje, 24 h, 48 h, 7 ou 30 dias), o <b>horizonte</b> (15 ou 60 min), o <b>modelo</b>, o
+          <b>lote</b>, a direção, a P mínima e se pula as previsões com LATERAL mais provável (como a roleta de tendência), e clique
+          <b>Rodar backtest</b>. Cada previsão vira uma operação no lado mais provável, com o stop, o alvo e a saída no horizonte
+          do placar, já com o spread. Aparecem as operações, os <b>acertos</b> (verde) e as <b>derrotas</b> (vermelho), o
+          <b>resultado em US$</b>, o E[R], o total por par e cada operação.<br>
+          O US$ converte o R pela perda no stop de hoje com o lote escolhido (ou o mínimo do símbolo; com o stop em US$ ligado,
+          1 R = esse valor). Não inclui slippage nem previsões manuais. Previsões cujo horizonte ainda não terminou ficam de fora
+          ("aguardando").`,
       },
     ],
   },
@@ -512,7 +525,7 @@ export const SECOES: Secao[] = [
         },
       },
       {
-        titulo: 'Estratégia: Tendência ou Pullback (teste)',
+        titulo: 'Estratégia: Tendência, Pullback (teste) ou as duas',
         html: `<b>Tendência</b> (padrão): a descrita acima — o lado mais provável, pulando LATERAL.<br>
           <b>Pullback no LATERAL</b> (teste pedido em 14/10): só entra quando <b>LATERAL é o mais provável</b> e o preço está
           na banda de Bollinger (20, 2, M15): <span class="up">COMPRA</span> na banda inferior ou abaixo,
@@ -522,7 +535,10 @@ export const SECOES: Secao[] = [
           <br><b>Antes de ligar:</b> no teste fora da amostra (abr–set/2026, ~100 mil momentos) esta regra deu resultado
           médio <b>negativo</b> em forex (−0,19 R), índices (−0,14 a −0,17), ações (−0,27) e bitcoin (−0,05 a −0,07) e
           <b>zero</b> no ouro: o preço quase não volta da banda nesses minutos e o spread fica com a diferença. O quadro
-          mostra esse número em vermelho e o placar real do pullback separado da tendência.`,
+          mostra esse número em vermelho e o placar real do pullback separado da tendência.<br>
+          <b>Tendência + pullback</b>: as duas juntas, aproveitando todas as previsões. Previsão com ALTA ou QUEDA mais
+          provável segue a tendência; com LATERAL mais provável vai para o pullback (entra só se o preço estiver na banda —
+          LATERAL no meio das bandas continua sem ordem, porque não há lado). O placar mostra as duas pernas separadas.`,
       },
       {
         titulo: 'Os números de cada quadro',
@@ -548,8 +564,8 @@ export const SECOES: Secao[] = [
   // ======================================================================== stop em US$
   {
     id: 'stop-dolar',
-    titulo: 'Página Stop em US$',
-    resumo: 'Stop e alvo de cada ordem em dólares (no lugar dos de ATR) e trailing stop das posições abertas.',
+    titulo: 'Risco · Stop e alvo em US$ e trailing',
+    resumo: 'Parte 2 da página Risco: stop e alvo de cada ordem em dólares (prevalecem sobre tudo) e trailing stop das posições abertas.',
     blocos: [
       {
         titulo: 'Stop e alvo por ordem, em US$',
@@ -598,7 +614,21 @@ export const SECOES: Secao[] = [
         html: `Os valores ficam em <code>config/application.yml</code> (ao lado do jar, fora do git) e valem por cima do
           padrão do sistema. Cada gravação é auditada no histórico. Valor fora do permitido é recusado e nada é gravado. Os
           valores “na prática” usam o saldo atual informado pelo EA. <b>Regra de ouro: quando dois limites se aplicam, vale
-          o menor.</b>`,
+          o menor.</b><br>A página tem três partes: <b>1 · Perfil pronto</b> (um clique), <b>2 · Stop e alvo em US$ e
+          trailing</b> (prevalece sobre tudo) e <b>3 · Ajuste fino</b> (campo a campo, as seções 3.1 a 3.5 abaixo).`,
+      },
+      {
+        titulo: '1 · Perfil pronto',
+        html: `Cinco conjuntos completos e coerentes, do <b>Ultra conservador</b> ao <b>Ultra arrojado</b>. Clicar num deles
+          (e confirmar) substitui os limites da conta (3.1), as travas de ordem que ele define (3.2: lote máximo, saída por
+          tempo, blackout, spread), as saídas (3.3: stop 1,5 ATR e alvo 1,5 R — as que foram testadas — em todos os
+          mercados; o ouro mantém a saída em 15 min da regra dele) e o orçamento de cada mercado (3.4), e volta ao perfil
+          de perda Padrão. <b>Não mexe</b> no stop/alvo em US$ nem no trailing (parte 2).<br>
+          Cada cartão mostra a perda máxima por ordem com o saldo de agora, quantas posições ao mesmo tempo e quando o
+          sistema para de abrir ordens no dia e na semana. O perfil em vigor fica em verde com <b>EM VIGOR</b>; depois de
+          um ajuste fino na parte 3, nenhum fica em verde. Nos perfis conservadores, com banca pequena, símbolos cujo lote
+          mínimo arrisca mais que o teto (ex.: ouro, ~US$ 16 por ordem) ficam sem ordem — é o perfil funcionando. Os
+          números ficam no <code>application.yml</code> (<code>risk.presets</code>).`,
       },
       {
         titulo: '1 · Limites da conta inteira',

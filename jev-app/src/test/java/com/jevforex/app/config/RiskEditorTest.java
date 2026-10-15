@@ -55,6 +55,39 @@ class RiskEditorTest {
     }
 
     @Test
+    void perfisProntosDoYml_validos_eAplicadosSubstituemSaidasDosMercados() throws Exception {
+        StandardEnvironment env = new StandardEnvironment();
+        new YamlPropertySourceLoader().load("app", new FileSystemResource("src/main/resources/application.yml"))
+                .forEach(ps -> env.getPropertySources().addLast(ps));
+        RiskPresetProperties presets = Binder.get(env).bind("risk", RiskPresetProperties.class).get();
+        assertEquals(java.util.List.of("ultra-conservador", "conservador", "moderado", "arrojado", "ultra-arrojado"),
+                java.util.List.copyOf(presets.presets().keySet()));
+
+        // o operador mexeu: forex com stop 4 ATR e alvo 9 R
+        RiskSettings mexido = new RiskSettings(sample().global(),
+                Map.of(Market.FX, new RiskSettings.MarketRisk(true, 100, 100, 14, 1.0, 15, 4.0, 9.0)),
+                new RiskSettings.Exits(5.0, 9.0), sample().orders(), Map.of(), sample().money());
+        RiskSettingsHolder holder = new RiskSettingsHolder(mexido);
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        RiskEditor editor = new RiskEditor(holder, mapper, null, "x.yml");
+        for (var e : presets.presets().entrySet()) {
+            RiskSettings r = mapper.convertValue(editor.withPreset(e.getValue()), RiskSettings.class);   // valida
+            assertEquals(new RiskSettings.Exits(1.5, 1.5), r.exits(), e.getKey());
+            assertEquals(null, r.forMarket(Market.FX).stopAtr(), e.getKey() + ": forex volta ao stop geral");
+            assertEquals(Integer.valueOf(15), r.forMarket(Market.METALS).closeAfterMinutes(), "ouro: 15 min da regra");
+            assertEquals(sample().money(), r.money(), "o stop em US$ não muda");
+        }
+        Map<String, Object> moderado = presets.presets().get("moderado");
+        assertTrue(!editor.matches(moderado));
+        holder.set(mapper.convertValue(editor.withPreset(moderado), RiskSettings.class));
+        assertTrue(editor.matches(moderado), "depois de aplicado, o perfil aparece em vigor");
+        assertEquals(10.0, holder.get().global().maxRiskPerTradeUsd(), 1e-12);
+        assertEquals(RiskSettings.MinLotPolicy.ALLOW_UP_TO_CAP, holder.get().global().minLotPolicy());
+        assertEquals(0.02, holder.get().orders().maxLot(), 1e-12);
+        assertEquals(30, holder.get().orders().validitySeconds(), "campos de orders fora do perfil ficam");
+    }
+
+    @Test
     void valorInvalido_recusado_semGravar(@TempDir Path dir) {
         Path file = dir.resolve("config/application.yml");
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());

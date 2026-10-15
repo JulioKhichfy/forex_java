@@ -391,3 +391,73 @@ trading:
     USDCAD: { market: fx, tick-size: 0.00001, tick-value-per-lot: 0.72, min-lot: 0.01, lot-step: 0.01, max-lot: 100, typical-stop: 0.0016 }
     XAUUSD: { market: metals, tick-size: 0.01, tick-value-per-lot: 1.00, min-lot: 0.01, lot-step: 0.01, max-lot: 50, typical-stop: 9.0 }
     BTCUSD: { market: crypto, tick-size: 0.01, tick-value-per-lot: 0.01, min-lot: 0.01, lot-step: 0.01, max-lot: 10, typical-stop: 300 }
+
+# ---------------------------------------------------------------------
+#  Perfis prontos de risco (página Risco: um clique aplica e fica no histórico)
+# ---------------------------------------------------------------------
+# Cada perfil substitui global, exits e os mercados listados (inteiros) e os campos de orders listados. Não mexe no
+# stop/alvo em US$ (trading.risk.money, que prevalece quando ligado) nem nos perfis de perda extras; volta ao perfil
+# de perda Padrão (o de global). Saídas iguais em todos: stop 1,5 ATR e alvo 1,5 R, as do walk-forward e do cofre;
+# o ouro mantém 15 min, o horizonte da regra validada dele.
+risk:
+  presets:
+    ultra-conservador:
+      label: Ultra conservador
+      description: Uma posição por vez, perda pequena por ordem e parada cedo no dia. Com banca pequena, símbolos cujo lote mínimo arrisca mais que o teto (ex. ouro) ficam sem ordem.
+      global: { max-risk-per-trade-pct: 2, max-risk-per-trade-usd: 2, max-open-risk-pct: 4, max-daily-loss-pct: 3, max-weekly-loss-pct: 6, max-positions: 1, max-usd-net-exposure-pct: 4, min-lot-policy: SKIP }
+      exits: { stop-atr: 1.5, target-r: 1.5 }
+      orders: { default-lot: 0.01, max-lot: 0.01, close-after-minutes: 60, blackout-before-minutes: 15, blackout-after-minutes: 5, max-spread-ratio: 1.5 }
+      markets:
+        fx: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 1.0 }
+        metals: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
+        crypto: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 0.5 }
+        indices: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 0.0 }
+        stocks: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 0.0 }
+    conservador:
+      label: Conservador
+      description: Até duas posições, teto de US$ 5 por ordem e parada com 6% de perda no dia.
+      global: { max-risk-per-trade-pct: 3, max-risk-per-trade-usd: 5, max-open-risk-pct: 8, max-daily-loss-pct: 6, max-weekly-loss-pct: 12, max-positions: 2, max-usd-net-exposure-pct: 8, min-lot-policy: SKIP }
+      exits: { stop-atr: 1.5, target-r: 1.5 }
+      orders: { default-lot: 0.01, max-lot: 0.01, close-after-minutes: 60, blackout-before-minutes: 10, blackout-after-minutes: 2, max-spread-ratio: 2.0 }
+      markets:
+        fx: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 2, usd-weight: 1.0 }
+        metals: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
+        crypto: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 0.5 }
+        indices: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 0.0 }
+        stocks: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 0.0 }
+    moderado:
+      label: Moderado
+      description: Até três posições, teto de US$ 10 por ordem, aceita o lote mínimo até o teto e para com 10% de perda no dia.
+      global: { max-risk-per-trade-pct: 5, max-risk-per-trade-usd: 10, max-open-risk-pct: 15, max-daily-loss-pct: 10, max-weekly-loss-pct: 20, max-positions: 3, max-usd-net-exposure-pct: 15, min-lot-policy: ALLOW_UP_TO_CAP }
+      exits: { stop-atr: 1.5, target-r: 1.5 }
+      orders: { default-lot: 0.01, max-lot: 0.02, close-after-minutes: 60, blackout-before-minutes: 10, blackout-after-minutes: 2, max-spread-ratio: 2.0 }
+      markets:
+        fx: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 3, usd-weight: 1.0 }
+        metals: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 1, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
+        crypto: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 1, usd-weight: 0.5 }
+        indices: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 2, usd-weight: 0.0 }
+        stocks: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 2, usd-weight: 0.0 }
+    arrojado:
+      label: Arrojado
+      description: Até cinco posições, teto de US$ 20 por ordem e parada com 20% de perda no dia.
+      global: { max-risk-per-trade-pct: 10, max-risk-per-trade-usd: 20, max-open-risk-pct: 30, max-daily-loss-pct: 20, max-weekly-loss-pct: 35, max-positions: 5, max-usd-net-exposure-pct: 30, min-lot-policy: ALLOW_UP_TO_CAP }
+      exits: { stop-atr: 1.5, target-r: 1.5 }
+      orders: { default-lot: 0.01, max-lot: 0.03, close-after-minutes: 60, blackout-before-minutes: 5, blackout-after-minutes: 1, max-spread-ratio: 3.0 }
+      markets:
+        fx: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 5, usd-weight: 1.0 }
+        metals: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 2, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
+        crypto: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 2, usd-weight: 0.5 }
+        indices: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 3, usd-weight: 0.0 }
+        stocks: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 3, usd-weight: 0.0 }
+    ultra-arrojado:
+      label: Ultra arrojado
+      description: Até dez posições, teto de US$ 40 por ordem, spread e eventos quase sem travar; só para quando perde 35% no dia.
+      global: { max-risk-per-trade-pct: 20, max-risk-per-trade-usd: 40, max-open-risk-pct: 60, max-daily-loss-pct: 35, max-weekly-loss-pct: 50, max-positions: 10, max-usd-net-exposure-pct: 60, min-lot-policy: ALLOW_UP_TO_CAP }
+      exits: { stop-atr: 1.5, target-r: 1.5 }
+      orders: { default-lot: 0.01, max-lot: 0.05, close-after-minutes: 60, blackout-before-minutes: 2, blackout-after-minutes: 1, max-spread-ratio: 4.0 }
+      markets:
+        fx: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 7, usd-weight: 1.0 }
+        metals: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 2, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
+        crypto: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 2, usd-weight: 0.5 }
+        indices: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 4, usd-weight: 0.0 }
+        stocks: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 4, usd-weight: 0.0 }

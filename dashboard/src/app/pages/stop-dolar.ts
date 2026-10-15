@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
@@ -32,7 +32,10 @@ interface PreviewRow {
   selector: 'page-stop-dolar',
   imports: [DecimalPipe, Tip, RouterLink],
   template: `
-    <div class="notice">
+    @if (embedded()) {
+      <h2 class="section">2 · Stop e alvo em US$ (prevalece sobre tudo) e trailing stop</h2>
+    }
+    <div class="notice" [class.hidden]="embedded()">
       <b>Stop e alvo em dólares, e trailing stop.</b> Ligado, vale <b>por cima</b> do stop e do alvo em ATR da página
       <a routerLink="/risco">Risco</a> em <b>toda ordem nova</b> (manual e da roleta), em todos os mercados. Desligado,
       valem os de ATR. As posições já abertas não mudam de stop/alvo — só o trailing mexe nelas.
@@ -114,7 +117,7 @@ interface PreviewRow {
         <button class="primary" (click)="save()" [disabled]="!changed() || saving()">{{ saving() ? 'Salvando…' : 'Salvar e aplicar' }}</button>
         @if (changed()) { <button (click)="reset()">Descartar</button> }
         @if (message(); as m) { <span class="small" [class.down]="m.error" [class.up]="!m.error">{{ m.text }}</span> }
-        <span class="small muted">Vale na hora, fica gravado em {{ file() }} e no histórico da página Risco.</span>
+        <span class="small muted">Vale na hora, fica gravado em {{ file() }} e no histórico de alterações.</span>
       </div>
     } @else if (outdated()) {
       <p class="down">O servidor em execução é anterior a esta página: reinicie-o (mvn -q package -DskipTests e suba o jar de novo).</p>
@@ -133,9 +136,13 @@ interface PreviewRow {
     .example { margin-top: 12px; }
     .market { margin: 10px 0 2px; font-weight: 600; text-transform: uppercase; }
     .savebar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+    .hidden { display: none; }
+    h2.section { margin: 24px 0 10px; }
   `,
 })
 export class StopDolar implements OnInit {
+  /** Dentro da página Risco (sem o aviso do topo, com título de seção). */
+  embedded = input(false);
   private http = inject(HttpClient);
   private settings = signal<any>(null);
   protected draft = signal<Money | null>(null);
@@ -220,7 +227,8 @@ export class StopDolar implements OnInit {
       + '\n' + (d.trailEnabled ? `Trailing: zero a zero com US$ ${d.trailStartUsd} de lucro, depois segue a US$ ${d.trailDistanceUsd}.` : 'Trailing desligado.');
     if (!confirm(`Aplicar agora?\n\n${text}`)) return;
     this.saving.set(true);
-    this.http.post<any>('/api/risk', { settings: { ...this.settings(), money: d }, note: 'página Stop em US$' }).subscribe({
+    // só o bloco em US$: não desfaz o que foi mudado na página Risco enquanto esta estava aberta
+    this.http.post<any>('/api/risk/money', d).subscribe({
       next: (r) => {
         this.saving.set(false);
         this.settings.set(r.settings);

@@ -47,11 +47,14 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
   contato no User-Agent (`EDGAR_USER_AGENT`, nunca no git); o horário vale pelo `-index-headers` (Nova York → UTC).- **Roleta** (`RouletteService`, decisão do operador em 14/10/2026): ordens automáticas por mercado que IGNORAM as
   travas de risco por ordem (`OrderService.ROULETTE_WAIVED`); valem as técnicas, o BLOCK e a perda do dia/semana
   (que para todas). Não estender essa exceção a outras ordens sem o operador pedir.
-  Estratégias: `trend` (lado mais provável, pula LATERAL) e `pullback` (teste do operador, 14/10: só em LATERAL,
+  Estratégias: `trend` (lado mais provável, pula LATERAL), `both` (as duas: LATERAL → pullback, resto → trend; placar por perna) e `pullback` (teste do operador, 14/10: só em LATERAL,
   contra a banda de Bollinger M15 do radar; E[R] fora da amostra negativo, ~0 no ouro). Placar separado (Flyway V10).
 - **Stop em US$ e trailing** (`trading.risk.money`, página "Stop em US$", 14/10): ligado, toda ordem nova sai com stop/alvo em
   dólares por cima dos de ATR (trava "Stop em US$ × spread"). Trailing: `TrailingService` pede MODIFY (Flyway V11,
   `sl_price`) ao EA 2.2; só a favor, zero a zero no início. O placar das previsões continua em ATR.
+- **Perfis prontos** (`risk.presets` no application.yml, 15/10): Ultra conservador → Ultra arrojado; um clique na página Risco
+  substitui global, exits, mercados e campos de orders (`RiskEditor.withPreset`) e volta ao perfil de perda Padrão. A página
+  Risco tem 3 partes: perfis, stop/alvo em US$ + trailing (`POST /api/risk/money`, só esse bloco) e ajuste fino.
 - Features: mudou o significado de alguma feature ou do label → nova versão `features.fset` (v2), nunca
   reescrever a v1. O mesmo código calcula features no treino e ao vivo (não reimplementar "só para produção").
   Todo cálculo novo precisa respeitar point-in-time e ganhar teste no `FeatureBuilderTest`.

@@ -332,7 +332,7 @@ export interface RouletteConfig {
   startedAt: string | null;
   stoppedAt: string | null;
   stopReason: string | null;
-  strategy: 'trend' | 'pullback';
+  strategy: 'trend' | 'pullback' | 'both';
   band: number;
 }
 
@@ -375,8 +375,44 @@ export interface RouletteState {
   entries: RouletteEntry[];
 }
 
+/** Backtest das previsões resolvidas (GET /api/predictions/backtest). */
+export interface BacktestResult {
+  from: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  sumR: number;
+  avgR: number | null;
+  usd: number;
+  pending: number;
+  skippedFlat: number;
+  filtered: number;
+  moneyStop: boolean;
+  bySymbol: { symbol: string; trades: number; wins: number; losses: number; sumR: number; usd: number }[];
+  list: { moment: string; symbol: string; side: 'BUY' | 'SELL'; pSide: number; label: string; r: number; usd: number | null }[];
+}
+
+export interface BacktestQuery {
+  market: string;
+  symbol: string | null;
+  period: string;
+  horizon: number;
+  model: string;
+  lot: number;
+  side: string;
+  minProb: number;
+  skipFlat: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class Api {
+  backtest(q: BacktestQuery): Observable<BacktestResult> {
+    const p = new URLSearchParams({ market: q.market, period: q.period, horizon: String(q.horizon), model: q.model,
+      lot: String(q.lot), side: q.side, minProb: String(q.minProb), skipFlat: String(q.skipFlat) });
+    if (q.symbol) p.set('symbol', q.symbol);
+    return this.http.get<BacktestResult>(`/api/predictions/backtest?${p}`);
+  }
+
   roulette(days = 30): Observable<RouletteState> {
     return this.http.get<RouletteState>(`/api/roulette?days=${days}`);
   }

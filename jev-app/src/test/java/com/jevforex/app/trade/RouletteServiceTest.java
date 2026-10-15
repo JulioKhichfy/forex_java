@@ -46,6 +46,19 @@ class RouletteServiceTest {
     }
 
     @Test
+    void asDuasJuntas_cadaPrevisaoVaiParaSuaPerna() {
+        var lateral = pred(0.25, 0.50, 0.25);
+        var alta = pred(0.20, 0.30, 0.50);
+        assertEquals("pullback", RouletteService.leg("both", lateral));
+        assertEquals("trend", RouletteService.leg("both", alta));
+        assertEquals("trend", RouletteService.leg("trend", lateral), "só tendência: a decisão pula a LATERAL");
+        assertEquals("pullback", RouletteService.leg("pullback", alta), "só pullback: a decisão pula a não LATERAL");
+        // juntas: a alta entra pela tendência; a lateral, pela banda
+        assertEquals("BUY", RouletteService.decide(alta).side());
+        assertEquals("SELL", RouletteService.decidePullback(lateral, 0.97, 0.1).side());
+    }
+
+    @Test
     void configAntiga_semEstrategia_viraTendencia() {
         var c = new RouletteService.Config(true, 15, "B", null, null, null, null, null, null);
         assertEquals("trend", c.strategy());

@@ -4,6 +4,18 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { Tip } from './tip';
 import { Brt } from '../brt';
+import { StopDolar } from './stop-dolar';
+
+/** Um perfil pronto (risk.presets): os números vêm do yml como texto. */
+interface Preset {
+  name: string;
+  label: string;
+  description: string | null;
+  global: Record<string, string>;
+  orders: Record<string, string>;
+  active: boolean;
+  error?: string;
+}
 
 interface Field {
   key: string;
@@ -46,7 +58,7 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
 
 @Component({
   selector: 'page-risco',
-  imports: [DatePipe, DecimalPipe, FormsModule, Tip, Brt],
+  imports: [DatePipe, DecimalPipe, FormsModule, Tip, Brt, StopDolar],
   template: `
     <h1>Risco</h1>
     <div class="notice">
@@ -57,9 +69,31 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
       @if (accountMode()) { <span class="badge" [class.warn]="accountMode() === 'REAL'">{{ accountMode() }}</span> }
     </div>
 
+    <h2 class="section">1 · Perfil pronto <tip text="Um clique aplica um conjunto completo e coerente: limites da conta, de cada mercado, travas de ordem e saídas (stop 1,5 ATR e alvo 1,5 R, as testadas). Não mexe no stop/alvo em US$ (abaixo), que prevalece quando ligado. Depois você ainda pode ajustar campo a campo na parte 3." /></h2>
+    <div class="presets">
+      @for (p of presets(); track p.name) {
+        <button class="preset" [class.active]="p.active" (click)="applyPreset(p)" [disabled]="applying() || !!p.error">
+          <span class="plabel">{{ p.label }} @if (p.active) { <span class="badge ok">EM VIGOR</span> }</span>
+          <span class="small">por ordem até <b>US$ {{ presetCap(p) | number: '1.2-2' }}</b>
+            · {{ num(p.global['max-positions']) }} {{ num(p.global['max-positions']) === 1 ? 'posição' : 'posições' }}
+            · para com {{ num(p.global['max-daily-loss-pct']) }}% no dia ({{ num(p.global['max-weekly-loss-pct']) }}% na semana)
+            · lote até {{ p.orders['max-lot'] }}</span>
+          <span class="small muted">{{ p.error ?? p.description }}</span>
+        </button>
+      }
+    </div>
+    @if (presets().length && !anyActive()) {
+      <p class="small muted">Nenhum perfil em vigor: as regras atuais foram ajustadas à mão (parte 3). Clique num perfil para voltar a um conjunto coerente.</p>
+    }
+    @if (presetMessage(); as m) { <p class="small" [class.down]="m.error" [class.up]="!m.error">{{ m.text }}</p> }
+
+    <page-stop-dolar [embedded]="true" />
+
+    <h2 class="section">3 · Ajuste fino, campo a campo</h2>
+
     @if (draft(); as d) {
       <section class="panel">
-        <h3>1 · Limites da conta inteira <tip text="Valem somando todos os mercados (forex, índices, ações). Uma ordem só passa se respeitar todos." /></h3>
+        <h3>3.1 · Limites da conta inteira <tip text="Valem somando todos os mercados (forex, índices, ações). Uma ordem só passa se respeitar todos." /></h3>
         <div class="table-wrap"><table>
           <tr><th>Regra</th><th>Valor</th><th>Na prática, com o saldo atual <tip text="O mesmo limite convertido em dinheiro, usando o saldo informado pelo EA." /></th><th>Salvo</th></tr>
           @for (f of globalFields; track f.key) {
@@ -83,7 +117,7 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
       </section>
 
       <section class="panel" style="margin-top:16px">
-        <h3>2 · Travas de cada ordem enviada ao MT5 <tip text="Conferidas no clique e de novo no envio. O dashboard só escolhe o lote, entre o lote mínimo da corretora e o lote máximo daqui." /></h3>
+        <h3>3.2 · Travas de cada ordem enviada ao MT5 <tip text="Conferidas no clique e de novo no envio. O dashboard só escolhe o lote, entre o lote mínimo da corretora e o lote máximo daqui." /></h3>
         <div class="table-wrap"><table>
           <tr><th>Trava</th><th>Valor</th><th>Na prática</th><th>Salvo</th></tr>
           @for (f of orderFields; track f.key) {
@@ -99,7 +133,7 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
 
       <div class="grid two" style="margin-top:16px">
         <section class="panel">
-          <h3>3 · Saídas <tip text="Toda ordem sai com stop e alvo no servidor da corretora. Mudar aqui muda as ordens novas; os modelos foram avaliados com stop 1,5 ATR e alvo 1,5 × stop." /></h3>
+          <h3>3.3 · Saídas <tip text="Toda ordem sai com stop e alvo no servidor da corretora. Mudar aqui muda as ordens novas; os modelos foram avaliados com stop 1,5 ATR e alvo 1,5 × stop." /></h3>
           <table>
             <tr><th>Saída</th><th>Valor</th><th>Na prática</th></tr>
             @for (f of exitFields; track f.key) {
@@ -113,7 +147,7 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
         </section>
 
         <section class="panel">
-          <h3>5 · Perfis de perda <tip key="lossProfile" /></h3>
+          <h3>3.5 · Perfis de perda <tip key="lossProfile" /></h3>
           <table>
             <tr><th>Perfil</th><th>No dia (%) <tip key="maxDailyLossPct" /></th><th>Na semana (%) <tip key="maxWeeklyLossPct" /></th></tr>
             @for (p of profileKeys(d); track p) {
@@ -133,7 +167,7 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
       </div>
 
       <section class="panel" style="margin-top:16px">
-        <h3>4 · Orçamento por mercado <tip text="Além dos limites da conta inteira, cada mercado tem o próprio orçamento. Vale o mais restritivo." /></h3>
+        <h3>3.4 · Orçamento por mercado <tip text="Além dos limites da conta inteira, cada mercado tem o próprio orçamento. Vale o mais restritivo." /></h3>
         <div class="table-wrap"><table>
           <tr><th>Mercado</th><th>Ativo <tip key="marketEnabled" /></th><th>Risco-alvo por operação (%) <tip key="riskPerTradePct" /></th>
             <th>Risco aberto (%) <tip key="marketMaxOpenRiskPct" /></th><th>Posições <tip key="marketMaxPositions" /></th>
@@ -198,6 +232,11 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
       z-index: 5; box-shadow: 0 -4px 12px rgb(0 0 0 / .08); }
     .savebar .badge { margin: 2px 4px 2px 0; }
     .note { flex: 1; min-width: 200px; }
+    h2.section { margin: 24px 0 10px; }
+    .presets { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .preset { display: grid; gap: 4px; text-align: left; padding: 10px 12px; border-radius: 10px; background: var(--panel); }
+    .preset.active { border: 2px solid var(--up); background: var(--up-bg); }
+    .plabel { font-weight: 700; font-size: 15px; }
   `,
 })
 export class Risco implements OnInit {
@@ -216,6 +255,10 @@ export class Risco implements OnInit {
   protected message = signal<string | null>(null);
   protected error = signal(false);
   protected note = '';
+  protected presets = signal<Preset[]>([]);
+  protected applying = signal(false);
+  protected presetMessage = signal<{ text: string; error: boolean } | null>(null);
+  protected anyActive = computed(() => this.presets().some((p) => p.active));
   private tick = signal(0);   // os inputs mudam o objeto por dentro: este sinal força recalcular o diff
   protected diff = computed(() => { this.tick(); return changes(this.saved(), this.draft()); });
 
@@ -285,6 +328,37 @@ export class Risco implements OnInit {
     return g.maxRiskPerTradeUsd > 0 ? Math.min(byPct, g.maxRiskPerTradeUsd) : byPct;
   }
 
+  protected num(v: string | undefined): number {
+    return Number(v ?? 0);
+  }
+
+  /** Teto de perda por ordem do perfil com o saldo de agora: o menor entre o % e o valor em US$. */
+  protected presetCap(p: Preset): number {
+    const pct = this.balance() * this.num(p.global['max-risk-per-trade-pct']) / 100;
+    const usd = this.num(p.global['max-risk-per-trade-usd']);
+    return usd > 0 ? Math.min(pct, usd) : pct;
+  }
+
+  protected applyPreset(p: Preset): void {
+    const text = `Aplicar o perfil ${p.label}?\n\n${p.description ?? ''}\n\nPor ordem até US$ ${this.presetCap(p).toFixed(2)}`
+      + ` · ${p.global['max-positions']} posição(ões) · perda máx. ${p.global['max-daily-loss-pct']}% no dia e`
+      + ` ${p.global['max-weekly-loss-pct']}% na semana · stop 1,5 ATR e alvo 1,5 R em todos os mercados.\n\n`
+      + 'Substitui os limites da conta, dos mercados, as saídas e as travas de ordem. O stop/alvo em US$ não muda.';
+    if (!confirm(text)) return;
+    this.applying.set(true);
+    this.http.post<any>(`/api/risk/presets/${p.name}`, {}).subscribe({
+      next: () => {
+        this.applying.set(false);
+        this.presetMessage.set({ text: `Perfil ${p.label} em vigor.`, error: false });
+        this.load();
+      },
+      error: (e) => {
+        this.applying.set(false);
+        this.presetMessage.set({ text: 'Recusado: ' + (e?.error?.message ?? 'erro'), error: true });
+      },
+    });
+  }
+
   protected reset(): void {
     this.draft.set(structuredClone(this.saved()));
     this.message.set(null);
@@ -294,7 +368,9 @@ export class Risco implements OnInit {
     const list = this.diff().map((c) => `• ${c.path}: ${c.from} → ${c.to}`).join('\n');
     if (!confirm(`Aplicar agora estas mudanças de risco?\n\n${list}`)) return;
     this.saving.set(true);
-    this.http.post<any>('/api/risk', { settings: this.draft(), note: this.note || null }).subscribe({
+    // sem o stop/alvo em US$: ele tem a seção própria (e o servidor mantém o que está em vigor)
+    const { money, ...settings } = this.draft();
+    this.http.post<any>('/api/risk', { settings, note: this.note || null }).subscribe({
       next: (r) => {
         this.saved.set(r.settings);
         this.draft.set(structuredClone(r.settings));
@@ -320,6 +396,7 @@ export class Risco implements OnInit {
       this.accountMode.set(r.account_mode ?? null);
       this.file.set(r.file);
     });
+    this.http.get<Preset[]>('/api/risk/presets').subscribe({ next: (p) => this.presets.set(p), error: () => this.presets.set([]) });
     this.loadHistory();
   }
 

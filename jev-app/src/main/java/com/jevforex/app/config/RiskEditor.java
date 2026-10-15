@@ -60,6 +60,8 @@ public class RiskEditor {
      */
     public synchronized RiskSettings update(Map<String, Object> json, String source, String note) {
         Map<String, Object> copy = new LinkedHashMap<>(json);
+        // o stop/alvo em US$ tem endpoint próprio: quem não o envia (a parte de baixo da página Risco) não o desfaz
+        if (!copy.containsKey("money")) copy.put("money", mapper.convertValue(holder.get().money(), Map.class));
         if (copy.get("lossProfiles") instanceof Map<?, ?> lp) {
             Map<Object, Object> m = new LinkedHashMap<>(lp);
             m.remove(RiskSettings.DEFAULT_PROFILE);
@@ -83,6 +85,84 @@ public class RiskEditor {
                 .update();
         holder.set(next);
         return next;
+    }
+
+    /** Só o stop/alvo em US$ e o trailing; o resto continua como está. */
+    public synchronized RiskSettings updateMoney(Map<String, Object> money, String source) {
+        Map<String, Object> cur = current();
+        cur.put("money", money);
+        return update(cur, source, "stop/alvo em US$ e trailing");
+    }
+
+    /**
+     * O resultado de aplicar um perfil pronto sobre as regras em vigor: {@code global}, {@code exits} e cada mercado
+     * listado são substituídos; {@code orders} só nos campos do perfil. Chaves do yml (kebab-case) viram camelCase.
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> withPreset(Map<String, Object> preset) {
+        Map<String, Object> cur = current();
+        Map<String, Object> p = (Map<String, Object>) camel(preset);
+        for (String part : List.of("global", "exits")) {
+            if (p.get(part) instanceof Map<?, ?> m) cur.put(part, new LinkedHashMap<>((Map<String, Object>) m));
+        }
+        if (p.get("orders") instanceof Map<?, ?> o) {
+            Map<String, Object> orders = new LinkedHashMap<>((Map<String, Object>) cur.get("orders"));
+            orders.putAll((Map<String, Object>) o);
+            cur.put("orders", orders);
+        }
+        if (p.get("markets") instanceof Map<?, ?> ms) {
+            Map<String, Object> markets = new LinkedHashMap<>((Map<String, Object>) cur.get("markets"));
+            ((Map<String, Object>) ms).forEach((code, v) -> markets.put(Market.fromCode(code).name(), v));
+            cur.put("markets", markets);
+        }
+        return cur;
+    }
+
+    /** O perfil está em vigor: aplicá-lo agora não mudaria nada do que ele define. */
+    public boolean matches(Map<String, Object> preset) {
+        RiskSettings now = holder.get();
+        RiskSettings after = parse(withPreset(preset));
+        return now.global().equals(after.global()) && now.exits().equals(after.exits())
+                && now.orders().equals(after.orders()) && now.markets().equals(after.markets());
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> current() {
+        Map<String, Object> cur = mapper.convertValue(holder.get(), LinkedHashMap.class);
+        if (cur.get("lossProfiles") instanceof Map<?, ?> lp) {
+            Map<Object, Object> m = new LinkedHashMap<>(lp);
+            m.remove(RiskSettings.DEFAULT_PROFILE);
+            cur.put("lossProfiles", m);
+        }
+        return cur;
+    }
+
+    private RiskSettings parse(Map<String, Object> json) {
+        try {
+            return mapper.convertValue(json, RiskSettings.class);
+        } catch (IllegalArgumentException e) {
+            Throwable c = e;
+            while (c.getCause() != null) c = c.getCause();
+            throw new IllegalArgumentException(c.getMessage(), e);
+        }
+    }
+
+    /** "max-risk-per-trade-pct" → "maxRiskPerTradePct", em todos os níveis; "label"/"description" saem. */
+    private static Object camel(Object o) {
+        if (o instanceof Map<?, ?> m) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            m.forEach((k, v) -> {
+                String key = String.valueOf(k);
+                if (key.equals("label") || key.equals("description")) return;
+                java.util.regex.Matcher x = java.util.regex.Pattern.compile("-([a-z0-9])").matcher(key);
+                StringBuilder b = new StringBuilder();
+                while (x.find()) x.appendReplacement(b, x.group(1).toUpperCase());
+                x.appendTail(b);
+                out.put(b.toString(), camel(v));
+            });
+            return out;
+        }
+        return o;
     }
 
     public List<Change> history(int limit) {

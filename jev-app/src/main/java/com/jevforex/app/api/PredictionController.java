@@ -27,6 +27,9 @@ import java.util.Map;
  * GET  /api/predictions?symbol=&hours= histórico
  * GET  /api/predictions/scoreboard    placar ao vivo por modelo (desde a versão em produção)
  * POST /api/predictions/run           prevê agora (gatilho MANUAL: aparece no painel, fora do placar)
+ * GET  /api/predictions/backtest?market=fx&period=48h&horizon=60&model=B[&symbol=EURUSD][&lot=0.01]
+ *                                      [&side=all|BUY|SELL][&minProb=0][&skipFlat=true]
+ *                                      e se cada previsão resolvida tivesse virado ordem: acertos, derrotas, R e US$
  * </pre>
  */
 @RestController
@@ -36,8 +39,11 @@ public class PredictionController {
 
     private final PredictionRepository repo;
     private final LivePredictionService live;
+    private final com.jevforex.app.trade.PredictionBacktest backtest;
 
-    public PredictionController(PredictionRepository repo, LivePredictionService live) {
+    public PredictionController(PredictionRepository repo, LivePredictionService live,
+                                com.jevforex.app.trade.PredictionBacktest backtest) {
+        this.backtest = backtest;
         this.repo = repo;
         this.live = live;
     }
@@ -64,6 +70,19 @@ public class PredictionController {
                                                          @RequestParam(defaultValue = "24") int hours,
                                                          @RequestParam(defaultValue = "500") int limit) {
         return repo.history(market, symbol, Instant.now().minus(Duration.ofHours(hours)), Math.min(limit, 5000));
+    }
+
+    @GetMapping("/backtest")
+    public com.jevforex.app.trade.PredictionBacktest.Result backtest(
+            @RequestParam(defaultValue = "fx") String market, @RequestParam(required = false) String symbol,
+            @RequestParam(defaultValue = "48h") String period, @RequestParam(defaultValue = "60") int horizon,
+            @RequestParam(defaultValue = "B") String model, @RequestParam(defaultValue = "0.01") double lot,
+            @RequestParam(defaultValue = "all") String side, @RequestParam(defaultValue = "0") double minProb,
+            @RequestParam(defaultValue = "true") boolean skipFlat) {
+        if (!List.of(15, 60).contains(horizon)) throw new IllegalArgumentException("horizon deve ser 15 ou 60");
+        if (!List.of("all", "BUY", "SELL").contains(side)) throw new IllegalArgumentException("side deve ser all, BUY ou SELL");
+        return backtest.run(new com.jevforex.app.trade.PredictionBacktest.Query(market,
+                symbol == null || symbol.isBlank() ? null : symbol, period, horizon, model, lot, side, minProb, skipFlat));
     }
 
     @GetMapping("/scoreboard")

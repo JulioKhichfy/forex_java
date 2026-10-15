@@ -1,7 +1,7 @@
-import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, WritableSignal, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, Prediction, RunResult, Score } from '../api';
+import { Api, BacktestResult, LatestPredictions, MODEL_NAMES, MODEL_ORDER, Prediction, RunResult, Score } from '../api';
 import { ProbBar } from './prob-bar';
 import { Tip } from './tip';
 import { Brt } from '../brt';
@@ -96,32 +96,104 @@ import { MyTrades } from './my-trades';
         <div class="hist-bar">
           <label class="small"><input type="checkbox" [ngModel]="withFlat()" (ngModelChange)="withFlat.set($event)" />
             considerar LATERAL <tip text="Desmarcado: compara só a direção (ALTA se P(alta) > P(queda), senão QUEDA) com o que aconteceu, e ignora os momentos em que o preço ficou LATERAL. Marcado: compara a classe mais provável das três (inclusive LATERAL) com o resultado, em todos os momentos resolvidos." /></label>
+        </div>
+        <div class="hist-bar">
+          <span class="small muted">Previsto <tip text="Mostra só as previsões cuja direção mais provável é esta (P(alta) > P(queda) = alta). Nenhum marcado = todas." /></span>
+          <button class="chip" [class.on]="dirOn('ALTA')" (click)="toggle(dirFilter, 'ALTA')">P(alta)</button>
+          <button class="chip" [class.on]="dirOn('QUEDA')" (click)="toggle(dirFilter, 'QUEDA')">P(queda)</button>
+          <label class="small">P mín. <input class="pmin" type="number" min="0" max="100" step="5" [ngModel]="minProb()" (ngModelChange)="minProb.set(+$event || 0)" />%
+            <tip text="Só as previsões em que a probabilidade do lado previsto (alta ou queda) é pelo menos isto." /></label>
+          <span class="sep"></span>
+          <span class="small muted">Horizonte</span>
+          @for (h of horizons; track h) { <button class="chip" [class.on]="hFilter().has(h)" (click)="toggle(hFilter, h)">{{ h }} min</button> }
+          <span class="sep"></span>
+          <span class="small muted">Modelo</span>
+          @for (m of models; track m) { <button class="chip" [class.on]="mFilter().has(m)" (click)="toggle(mFilter, m)" [title]="names[m] ?? m">{{ m }} · {{ names[m] }}</button> }
+        </div>
+        <div class="hist-bar">
           @if (tally(); as t) {
-            <span class="small">😊 <b class="up">{{ t.hits }}</b> acerto(s) · 😞 <b class="down">{{ t.misses }}</b> erro(s)
+            <span class="small"><span class="pill hit">{{ t.hits }} acerto(s)</span> <span class="pill miss">{{ t.misses }} erro(s)</span>
               @if (t.hits + t.misses) { · {{ 100 * t.hits / (t.hits + t.misses) | number: '1.0-0' }}% }
               @if (!withFlat() && t.flat) { <span class="muted"> · {{ t.flat }} LATERAL fora da conta</span> }
               @if (t.pending) { <span class="muted"> · {{ t.pending }} aguardando</span> }</span>
           }
         </div>
         <div class="table-wrap"><table>
-          <tr><th>Momento</th><th>Modelo</th><th>h <tip key="horizonte" /></th><th>Probabilidades <tip key="probabilidades" /></th><th>Sinal <tip key="gate4" /></th><th>Resultado <tip text="O que aconteceu de fato: ALTA ou QUEDA se andou mais de meio ATR já pagando o spread; senão LATERAL." /></th>
-            <th>Acertou? <tip text="😊 a previsão bateu com o que aconteceu; 😞 errou. Sem a opção LATERAL, vale a direção mais provável entre alta e queda, e os momentos LATERAL ficam sem marca." /></th></tr>
-          @for (p of history(); track p.id) {
-            <tr>
+          <tr><th>Momento</th><th>Modelo</th><th>h <tip key="horizonte" /></th><th>Probabilidades <tip key="probabilidades" /></th><th>Sinal <tip key="gate4" /></th><th>Resultado <tip text="O que aconteceu de fato: ALTA ou QUEDA se andou mais de meio ATR já pagando o spread; senão LATERAL. Linha verde = a previsão acertou; vermelha = errou; sem cor = fora da conta (aguardando, ou LATERAL sem a opção marcada)." /></th></tr>
+          @for (p of shown(); track p.id) {
+            <tr [class.hit]="verdict(p) === true" [class.miss]="verdict(p) === false" [title]="'previsto: ' + (guess(p) ?? '—')">
               <td class="small mono nowrap" [brt]="p.momentUtc">{{ p.momentUtc | date: 'dd/MM HH:mm' : 'UTC' }}</td>
               <td class="small">{{ names[p.model] ?? p.model }}</td>
               <td class="small">{{ p.horizonMin }}</td>
               <td><prob-bar [down]="p.pDown" [flat]="p.pFlat" [up]="p.pUp" /></td>
               <td class="small">{{ p.signal === 'NO_TRADE' ? '—' : p.signal === 'BUY' ? 'COMPRA' : 'VENDA' }}</td>
               <td class="small">{{ p.label ?? 'aguardando' }}</td>
-              <td class="emoji" [title]="'previsto: ' + (guess(p) ?? '—')">{{ verdict(p) === true ? '😊' : verdict(p) === false ? '😞' : '' }}</td>
             </tr>
           } @empty {
-            <tr><td colspan="7" class="muted">{{ selected() ? 'Sem histórico.' : 'Selecione um par na tabela.' }}</td></tr>
+            <tr><td colspan="6" class="muted">{{ selected() ? (history().length ? 'Nenhuma previsão com estes filtros.' : 'Sem histórico.') : 'Selecione um par na tabela.' }}</td></tr>
           }
         </table></div>
       </section>
     </div>
+
+    <section class="panel bt" style="margin-top:16px">
+      <h3>Backtest das previsões <tip text="E se cada previsão já resolvida do período tivesse virado uma ordem no lado mais provável (compra se P(alta) > P(queda), senão venda), com o stop, o alvo e a saída no horizonte do placar, já com o spread? O resultado em US$ usa o lote escolhido (ou o mínimo do símbolo) e a perda no stop de hoje; com o stop em US$ ligado, 1 R = esse valor." /></h3>
+      <div class="row2">
+        <label class="small">Pares <select [(ngModel)]="bt.scope"><option value="all">todos do mercado</option>
+          <option value="one" [disabled]="!selected()">{{ selected() ?? 'selecione um par' }}</option></select></label>
+        <label class="small">Período <select [(ngModel)]="bt.period">@for (p of periods; track p.v) { <option [value]="p.v">{{ p.l }}</option> }</select></label>
+        <label class="small">Horizonte <select [(ngModel)]="bt.horizon"><option [ngValue]="15">15 min</option><option [ngValue]="60">60 min</option></select></label>
+        <label class="small">Modelo <select [(ngModel)]="bt.model">@for (m of models; track m) { <option [value]="m">{{ m }} · {{ names[m] }}</option> }</select></label>
+        <label class="small">Lote <input type="number" min="0.01" step="0.01" [(ngModel)]="bt.lot" /></label>
+        <label class="small">Direção <select [(ngModel)]="bt.side"><option value="all">todas</option><option value="BUY">só P(alta)</option><option value="SELL">só P(queda)</option></select></label>
+        <label class="small">P mín. <input type="number" min="0" max="100" step="5" [(ngModel)]="bt.minProb" />%</label>
+        <label class="small"><input type="checkbox" [(ngModel)]="bt.skipFlat" style="width:auto" /> pular LATERAL <tip text="Marcado: quando LATERAL é o mais provável não há ordem (como a roleta de tendência). Desmarcado: opera essas também, pelo lado mais provável entre alta e queda." /></label>
+        <button class="primary" (click)="runBacktest()" [disabled]="btBusy()">{{ btBusy() ? 'Calculando…' : 'Rodar backtest' }}</button>
+      </div>
+      @if (btError(); as e) { <p class="down small">{{ e }}</p> }
+      @if (btResult(); as r) {
+        <div class="kpis">
+          <div class="kpi"><span class="small muted">operações</span><b>{{ r.trades }}</b></div>
+          <div class="kpi hit"><span class="small">acertos (lucro)</span><b>{{ r.wins }}</b></div>
+          <div class="kpi miss"><span class="small">derrotas</span><b>{{ r.losses }}</b></div>
+          <div class="kpi" [class.hit]="r.usd > 0" [class.miss]="r.usd < 0"><span class="small">resultado</span><b>US$ {{ r.usd | number: '1.2-2' }}</b></div>
+          <div class="kpi" [class.hit]="(r.avgR ?? 0) > 0" [class.miss]="(r.avgR ?? 0) < 0"><span class="small">E[R] por operação</span><b>{{ r.avgR === null ? '—' : (r.avgR | number: '1.2-2') }}</b></div>
+          <div class="kpi"><span class="small muted">acerto</span><b>{{ r.trades ? (100 * r.wins / r.trades | number: '1.0-0') + '%' : '—' }}</b></div>
+        </div>
+        <p class="small muted">Desde <span [brt]="r.from">{{ r.from | date: 'dd/MM HH:mm' : 'UTC' }} UTC</span>
+          @if (r.skippedFlat) { · {{ r.skippedFlat }} com LATERAL mais provável puladas }
+          @if (r.filtered) { · {{ r.filtered }} fora dos filtros }
+          @if (r.pending) { · {{ r.pending }} ainda aguardando o resultado (o horizonte não terminou) }
+          @if (r.moneyStop) { · 1 R = o stop em US$ da página Risco }</p>
+        @if (r.bySymbol.length > 1) {
+          <div class="table-wrap"><table>
+            <tr><th>Par</th><th class="right">Operações</th><th class="right">Acertos</th><th class="right">Derrotas</th><th class="right">Soma R</th><th class="right">US$</th></tr>
+            @for (l of r.bySymbol; track l.symbol) {
+              <tr [class.hit]="l.usd > 0" [class.miss]="l.usd < 0">
+                <td class="mono">{{ l.symbol }}</td><td class="right mono">{{ l.trades }}</td><td class="right mono">{{ l.wins }}</td>
+                <td class="right mono">{{ l.losses }}</td><td class="right mono">{{ l.sumR | number: '1.2-2' }}</td>
+                <td class="right mono">{{ l.usd | number: '1.2-2' }}</td></tr>
+            }
+          </table></div>
+        }
+        <div class="table-wrap bt-list"><table>
+          <tr><th>Momento</th><th>Par</th><th>Lado</th><th class="right">P</th><th>Resultado</th><th class="right">R</th><th class="right">US$</th></tr>
+          @for (t of r.list; track $index) {
+            <tr [class.hit]="t.r > 0" [class.miss]="t.r <= 0">
+              <td class="small mono nowrap" [brt]="t.moment">{{ t.moment | date: 'dd/MM HH:mm' : 'UTC' }}</td>
+              <td class="mono">{{ t.symbol }}</td>
+              <td class="small">{{ t.side === 'BUY' ? 'COMPRA' : 'VENDA' }}</td>
+              <td class="right mono small">{{ t.pSide * 100 | number: '1.0-0' }}%</td>
+              <td class="small">{{ t.label }}</td>
+              <td class="right mono">{{ t.r | number: '1.2-2' }}</td>
+              <td class="right mono">{{ t.usd === null ? '—' : (t.usd | number: '1.2-2') }}</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="7" class="muted">Nenhuma previsão resolvida no período com estes filtros.</td></tr>
+          }
+        </table></div>
+      }
+    </section>
   `,
   styles: `
     .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -132,7 +204,25 @@ import { MyTrades } from './my-trades';
     .badge { margin-top: 2px; }
     .hist-bar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 4px 0 8px; }
     .hist-bar label { display: flex; align-items: center; gap: 6px; }
-    td.emoji { font-size: 18px; text-align: center; }
+    tr.hit td { background: var(--up-bg); }
+    tr.miss td { background: var(--down-bg); }
+    .pill { padding: 1px 8px; border-radius: 999px; font-weight: 600; }
+    .pill.hit { background: var(--up-bg); color: var(--up); }
+    .pill.miss { background: var(--down-bg); color: var(--down); }
+    .chip { padding: 2px 10px; border-radius: 999px; font-size: 12px; }
+    .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .sep { width: 8px; }
+    input.pmin, .bt input, .bt select { width: 64px; font: inherit; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--panel-2); color: var(--text); }
+    .bt select { width: auto; }
+    .bt .row2 { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+    .bt .row2 label { display: flex; align-items: center; gap: 6px; }
+    .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin: 6px 0 12px; }
+    .kpi { padding: 8px 14px; border-radius: 10px; background: var(--panel-2); display: grid; }
+    .kpi b { font-size: 20px; }
+    .kpi.hit { background: var(--up-bg); color: var(--up); }
+    .kpi.miss { background: var(--down-bg); color: var(--down); }
+    .bt-list { max-height: 360px; overflow-y: auto; }
   `,
 })
 export class Previsoes implements OnInit, OnDestroy {
@@ -157,18 +247,62 @@ export class Previsoes implements OnInit, OnDestroy {
 
   /** Histórico: conta LATERAL como classe (marcado) ou só a direção alta × queda (desmarcado). */
   protected withFlat = signal(false);
+  /** Filtros do histórico (vazio = todos). */
+  protected dirFilter = signal<Set<string>>(new Set());
+  protected hFilter = signal<Set<number>>(new Set());
+  protected mFilter = signal<Set<string>>(new Set());
+  protected minProb = signal(0);
+  protected shown = computed(() => {
+    const dir = this.dirFilter(), hs = this.hFilter(), ms = this.mFilter(), min = this.minProb() / 100;
+    return this.history().filter((p) => {
+      const d = p.pUp > p.pDown ? 'ALTA' : p.pDown > p.pUp ? 'QUEDA' : null;
+      if (dir.size && (d === null || !dir.has(d))) return false;
+      if (Math.max(p.pUp, p.pDown) < min) return false;
+      if (hs.size && !hs.has(p.horizonMin)) return false;
+      return !ms.size || ms.has(p.model);
+    });
+  });
   protected tally = computed(() => {
     const t = { hits: 0, misses: 0, flat: 0, pending: 0 };
     this.withFlat();
-    for (const p of this.history()) {
+    for (const p of this.shown()) {
       if (!p.label) { t.pending++; continue; }
       const v = this.verdict(p);
       if (v === true) t.hits++;
       else if (v === false) t.misses++;
       else t.flat++;
     }
-    return this.history().length ? t : null;
+    return this.shown().length ? t : null;
   });
+
+  protected dirOn(d: string): boolean {
+    return this.dirFilter().has(d);
+  }
+
+  protected toggle<T>(s: WritableSignal<Set<T>>, v: T): void {
+    const n = new Set(s());
+    if (n.has(v)) n.delete(v); else n.add(v);
+    s.set(n);
+  }
+
+  // ------------------------------------------------------------------ backtest
+  protected periods = [{ v: '1h', l: 'última hora' }, { v: 'today', l: 'hoje (UTC)' }, { v: '24h', l: '24 h' },
+    { v: '48h', l: '48 h' }, { v: '7d', l: '7 dias' }, { v: '30d', l: '30 dias' }];
+  protected bt = { scope: 'all', period: 'today', horizon: 60, model: 'B', lot: 0.01, side: 'all', minProb: 0, skipFlat: true };
+  protected btResult = signal<BacktestResult | null>(null);
+  protected btBusy = signal(false);
+  protected btError = signal<string | null>(null);
+
+  protected runBacktest(): void {
+    this.btBusy.set(true);
+    this.btError.set(null);
+    this.api.backtest({ market: this.marketState.market(), symbol: this.bt.scope === 'one' ? this.selected() : null,
+      period: this.bt.period, horizon: this.bt.horizon, model: this.bt.model, lot: this.bt.lot, side: this.bt.side,
+      minProb: this.bt.minProb / 100, skipFlat: this.bt.skipFlat }).subscribe({
+      next: (r) => { this.btResult.set(r); this.btBusy.set(false); },
+      error: (e) => { this.btError.set(e?.error?.message ?? 'backtest indisponível (reinicie o servidor?)'); this.btBusy.set(false); },
+    });
+  }
 
   constructor() {
     effect(() => { this.marketState.market(); this.selected.set(null); this.history.set([]); this.load(); });

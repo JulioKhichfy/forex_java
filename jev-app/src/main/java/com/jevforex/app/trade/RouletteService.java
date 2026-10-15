@@ -42,8 +42,11 @@ public class RouletteService {
     static final Duration ENTRY_MAX_AGE = Duration.ofMinutes(10);
     static final Set<Integer> HORIZONS = Set.of(15, 60);
     static final Set<String> MODELS = Set.of("A", "E", "B");
-    /** trend = lado mais provável, pula LATERAL; pullback = só em LATERAL, contra a banda de Bollinger (teste). */
-    static final Set<String> STRATEGIES = Set.of("trend", "pullback");
+    /**
+     * trend = lado mais provável, pula LATERAL; pullback = só em LATERAL, contra a banda de Bollinger (teste);
+     * both = as duas juntas: cada previsão vai para a perna que lhe cabe (LATERAL → pullback, senão tendência).
+     */
+    static final Set<String> STRATEGIES = Set.of("trend", "pullback", "both");
     /** Para o pullback: barra M15 do radar mais velha que isto = sem bandas (falhar fechado: não entra). */
     static final Duration BANDS_MAX_AGE = Duration.ofMinutes(5);
 
@@ -99,7 +102,7 @@ public class RouletteService {
     public synchronized Config start(String market, int horizon, String model, Double lot, String strategy,
                                      Double band) {
         String m = Market.fromCode(market).code();
-        if (!STRATEGIES.contains(strategy)) throw new IllegalArgumentException("Estratégia deve ser trend ou pullback");
+        if (!STRATEGIES.contains(strategy)) throw new IllegalArgumentException("Estratégia deve ser trend, pullback ou both");
         if (band == null || band < 0 || band > 0.3) throw new IllegalArgumentException("Distância da banda deve ir de 0 a 0,3");
         if (!HORIZONS.contains(horizon)) throw new IllegalArgumentException("Horizonte deve ser 15 ou 60 min");
         if (!MODELS.contains(model)) throw new IllegalArgumentException("Modelo deve ser A, E ou B");
@@ -146,13 +149,14 @@ public class RouletteService {
 
     private void run(String market, Config c) {
         Instant now = Instant.now();
-        boolean pullback = "pullback".equals(c.strategy());
         Map<String, Double> bands = null;   // %B de cada símbolo agora (só no pullback, lido uma vez por rodada)
         for (PredictionRepository.Prediction p : predictions.latest(market)) {
             if (!p.model().equals(c.model()) || p.horizonMin() != c.horizon()) continue;
             if (p.momentUtc().isBefore(now.minus(ENTRY_MAX_AGE))) continue;
-            Long entry = claim(market, p, c.strategy());   // uma vez por previsão, mesmo se o servidor cair no meio
+            String leg = leg(c.strategy(), p);   // a perna que cuida desta previsão (o placar separa as duas)
+            Long entry = claim(market, p, leg);   // uma vez por previsão, mesmo se o servidor cair no meio
             if (entry == null) continue;
+            boolean pullback = "pullback".equals(leg);
             Double pctB = null;
             if (pullback) {
                 if (bands == null) bands = bands(market, now);
@@ -184,6 +188,12 @@ public class RouletteService {
                 return;
             }
         }
+    }
+
+    /** Na estratégia "both", LATERAL mais provável vai para o pullback e o resto para a tendência. */
+    static String leg(String strategy, PredictionRepository.Prediction p) {
+        if (!"both".equals(strategy)) return strategy;
+        return p.pFlat() >= Math.max(p.pUp(), p.pDown()) ? "pullback" : "trend";
     }
 
     /** Lado escolhido (null = pular) e a probabilidade dele. */
