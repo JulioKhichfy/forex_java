@@ -116,14 +116,20 @@ public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits
      * @param timeLockMaxMinutes teto da prorrogação (desde o fim do tempo original): no teto, fecha a mercado
      * @param timeLockStepPct  só atualiza stop/alvo (e renova a janela) quando o lucro passa a máxima anterior em
      *                         pelo menos esta %
+     * @param protectEnabled   proteção de lucro por mercado (pedido do operador em 16/10/2026): com lucro de
+     *                         {@code protect-trigger-usd}, o stop vai para garantir {@code protect-lock-usd}
+     * @param protectTriggerUsd lucro (US$) que dispara a proteção
+     * @param protectLockUsd   lucro (US$) que o stop passa a garantir
+     * @param protectMarkets   mercados em que a proteção vale (códigos: metals, crypto, indices, energy…)
      */
     public record MoneyExits(Boolean enabled, Double stopUsd, Double takeUsd, Boolean trailEnabled,
                              Double trailStartUsd, Double trailDistanceUsd, Double trailStepUsd,
                              Boolean timeLockEnabled, Double timeLockMinProfitUsd, Double timeLockKeepPct,
                              Double timeLockExtraPct, Integer timeLockMinutes, Integer timeLockMaxMinutes,
-                             Double timeLockStepPct) {
+                             Double timeLockStepPct, Boolean protectEnabled, Double protectTriggerUsd,
+                             Double protectLockUsd, java.util.List<String> protectMarkets) {
         public static final MoneyExits OFF = new MoneyExits(false, null, null, false, null, null, null,
-                false, null, null, null, null, null, null);
+                false, null, null, null, null, null, null, false, null, null, null);
 
         public MoneyExits {
             if (enabled == null) enabled = false;
@@ -155,6 +161,21 @@ public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits
                 throw new IllegalArgumentException("money.time-lock-max-minutes deve ser >= time-lock-minutes");
             }
             if (!(timeLockStepPct > 0)) throw new IllegalArgumentException("money.time-lock-step-pct deve ser > 0");
+            if (protectEnabled == null) protectEnabled = false;
+            if (protectTriggerUsd == null) protectTriggerUsd = 3.0;
+            if (protectLockUsd == null) protectLockUsd = 0.20;
+            protectMarkets = protectMarkets == null ? java.util.List.of("metals", "crypto", "indices", "energy")
+                    : java.util.List.copyOf(protectMarkets);
+            if (!(protectLockUsd >= 0)) throw new IllegalArgumentException("money.protect-lock-usd deve ser >= 0");
+            if (!(protectTriggerUsd > protectLockUsd)) {
+                throw new IllegalArgumentException("money.protect-trigger-usd deve ser maior que protect-lock-usd");
+            }
+            for (String code : protectMarkets) Market.fromCode(code);   // código desconhecido = erro
+        }
+
+        /** A proteção de lucro vale para este mercado. */
+        public boolean protects(String marketCode) {
+            return protectEnabled && protectMarkets.contains(marketCode);
         }
 
         /**
@@ -183,11 +204,17 @@ public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits
      * @param blackoutAfterMinutes  … nem nos N min depois
      * @param maxSpreadRatio       spread atual ÷ spread típico do horário acima disso = sem ordem (gate 3)
      * @param minMarginLevelPct    nível de margem (equity ÷ margem) abaixo disso = sem entrada nova
+     * @param sessionMarginMinutes a saída por tempo precisa cair pelo menos isto antes do fim da sessão do símbolo
+     *                             (16/10/2026: posição aberta às 20:02 de sexta com saída em 60 min ficou para o fim
+     *                             de semana)
      */
     public record Orders(double defaultLot, double maxLot, int closeAfterMinutes, int deviationPoints,
                          int validitySeconds, int quoteMaxAgeSeconds, int atrMaxAgeMinutes, int blackoutBeforeMinutes,
-                         int blackoutAfterMinutes, double maxSpreadRatio, double minMarginLevelPct) {
+                         int blackoutAfterMinutes, double maxSpreadRatio, double minMarginLevelPct,
+                         Integer sessionMarginMinutes) {
         public Orders {
+            if (sessionMarginMinutes == null) sessionMarginMinutes = 5;
+            if (sessionMarginMinutes < 0) throw new IllegalArgumentException("orders.session-margin-minutes < 0");
             if (!(defaultLot > 0) || maxLot < defaultLot) {
                 throw new IllegalArgumentException("orders: precisa 0 < default-lot <= max-lot");
             }

@@ -21,6 +21,10 @@ interface Money {
   timeLockMinutes: number;
   timeLockMaxMinutes: number;
   timeLockStepPct: number;
+  protectEnabled: boolean;
+  protectTriggerUsd: number;
+  protectLockUsd: number;
+  protectMarkets: string[];
 }
 
 interface PreviewRow {
@@ -93,6 +97,30 @@ interface PreviewRow {
           </table>
         </section>
       </div>
+
+      <section class="panel" style="margin-top:16px">
+        <h3>Proteção de lucro por mercado <tip text="Independe do trailing: com os dois ligados, vale o stop que protege mais. Vale também para as posições já abertas. Precisa do JevExecutor 2.2 ou mais novo." /></h3>
+        <label class="check"><input type="checkbox" [checked]="d.protectEnabled" (change)="set('protectEnabled', $any($event.target).checked)" />
+          Proteger lucro: quando o lucro passa do gatilho, o stop vai para garantir o valor escolhido</label>
+        <div class="grid two">
+          <div class="fields" [class.off]="!d.protectEnabled">
+            <label>Quando o lucro passar de <tip text="Lucro flutuante da posição, em US$, que dispara a proteção." />
+              <span class="money">US$ <input type="number" min="0.1" step="0.5" [value]="d.protectTriggerUsd" (input)="set('protectTriggerUsd', +$any($event.target).value)" /></span></label>
+            <label>O stop garante <tip text="Lucro que fica garantido: o stop vai para o preço de entrada mais este valor (venda: menos)." />
+              <span class="money">US$ <input type="number" min="0" step="0.1" [value]="d.protectLockUsd" (input)="set('protectLockUsd', +$any($event.target).value)" /></span></label>
+          </div>
+          <div class="fields" [class.off]="!d.protectEnabled">
+            <span class="small muted">Vale nos mercados:</span>
+            <div class="markets">
+              @for (m of allMarkets; track m.code) {
+                <label class="small"><input type="checkbox" [checked]="(d.protectMarkets ?? []).includes(m.code)" (change)="toggleProtectMarket(m.code, $any($event.target).checked)" /> {{ m.label }}</label>
+              }
+            </div>
+          </div>
+        </div>
+        <p class="small muted">Ex.: lucro de US$ {{ d.protectTriggerUsd | number: '1.2-2' }} ou mais → o pior resultado da posição passa a ser
+          +US$ {{ d.protectLockUsd | number: '1.2-2' }} (salvo gap/slippage).</p>
+      </section>
 
       <section class="panel" style="margin-top:16px">
         <h3>Prorrogação com lucro na saída por tempo <tip text="Também liga e desliga pelo botão da página Operar. Precisa do JevExecutor 2.4 (move stop e alvo juntos)." /></h3>
@@ -174,6 +202,8 @@ interface PreviewRow {
     .market { margin: 10px 0 2px; font-weight: 600; text-transform: uppercase; }
     .savebar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
     .hidden { display: none; }
+    .markets { display: flex; gap: 12px; flex-wrap: wrap; }
+    .markets label { display: flex; gap: 4px; align-items: center; }
     h2.section { margin: 24px 0 10px; }
   `,
 })
@@ -214,6 +244,15 @@ export class StopDolar implements OnInit {
       target: profit * (1 + d.timeLockExtraPct / 100),
     }));
   });
+
+  protected allMarkets = MARKETS;
+
+  protected toggleProtectMarket(code: string, on: boolean): void {
+    const d = this.draft();
+    if (!d) return;
+    const list = (d.protectMarkets ?? []).filter((c) => c !== code);
+    this.set('protectMarkets', on ? [...list, code] : list);
+  }
 
   protected marketsWithRows = computed(() => MARKETS.filter((m) => this.preview().some((r) => r.market === m.code)));
 
@@ -273,6 +312,7 @@ export class StopDolar implements OnInit {
     if (!d) return;
     const text = (d.enabled ? `Stop US$ ${d.stopUsd} e alvo US$ ${d.takeUsd} em TODA ordem nova.` : 'Stop e alvo em US$ DESLIGADOS (volta o ATR).')
       + '\n' + (d.trailEnabled ? `Trailing: zero a zero com US$ ${d.trailStartUsd} de lucro, depois segue a US$ ${d.trailDistanceUsd}.` : 'Trailing desligado.')
+      + '\n' + (d.protectEnabled ? `Proteção: com lucro de US$ ${d.protectTriggerUsd}, o stop garante US$ ${d.protectLockUsd} (${(d.protectMarkets ?? []).join(', ')}).` : 'Proteção de lucro desligada.')
       + '\n' + (d.timeLockEnabled ? `Prorrogação com lucro: stop garante ${d.timeLockKeepPct}%, alvo +${d.timeLockExtraPct}% do maior lucro; fecha sem nova máxima em ${d.timeLockMinutes} min (teto ${d.timeLockMaxMinutes} min).` : 'Prorrogação com lucro desligada.');
     if (!confirm(`Aplicar agora?\n\n${text}`)) return;
     this.saving.set(true);

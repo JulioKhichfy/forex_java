@@ -324,6 +324,7 @@ trading:
       blackout-after-minutes: 2       # …até 2 min depois de evento de importância alta da moeda
       max-spread-ratio: 2.0           # gate 3: spread atual até 2 × o típico do horário
       min-margin-level-pct: 300       # sem entrada nova se o nível de margem estiver abaixo de 300%
+      session-margin-minutes: 5       # a saída por tempo precisa cair 5 min antes do fim da sessão do símbolo (EA 2.5)
 
     # ===== STOP E ALVO EM US$ E TRAILING (página "Stop em US$") =====
     money:
@@ -344,6 +345,12 @@ trading:
       time-lock-minutes: 10           # sem nova máxima por este tempo → fecha a mercado
       time-lock-max-minutes: 60       # teto da prorrogação (desde o fim do tempo original)
       time-lock-step-pct: 10.0        # nova máxima conta quando passa a anterior em pelo menos esta %
+      # Proteção de lucro por mercado (página Risco, parte 2, 16/10): com lucro de protect-trigger-usd, o stop vai para
+      # garantir protect-lock-usd (só a favor; precisa do EA 2.2). Vale também para posições já abertas.
+      protect-enabled: false
+      protect-trigger-usd: 3.0        # lucro que dispara a proteção
+      protect-lock-usd: 0.20          # lucro que o stop passa a garantir
+      protect-markets: [metals, crypto, indices, energy]
 
     # ===== ORÇAMENTO POR MERCADO =====
     markets:

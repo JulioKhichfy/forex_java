@@ -7,7 +7,7 @@ import { ProbBar } from './prob-bar';
 import { Tip } from './tip';
 import { Brt } from '../brt';
 import { HELP } from '../help';
-import { MarketState } from '../market';
+import { MARKETS, MarketState } from '../market';
 import { MyTrades } from './my-trades';
 
 @Component({
@@ -147,6 +147,8 @@ import { MyTrades } from './my-trades';
               Trailing: @if (m.trailEnabled) { <b class="up">ligado</b> — zero a zero com US$ {{ m.trailStartUsd | number: '1.2-2' }} de lucro,
                 depois segue o preço a US$ {{ m.trailDistanceUsd | number: '1.2-2' }}, de US$ {{ m.trailStepUsd | number: '1.2-2' }} em
                 US$ {{ m.trailStepUsd | number: '1.2-2' }} } @else { <b>desligado</b> }
+              · Proteção de lucro: @if (m.protectEnabled) { <b class="up">ligada</b> — lucro ≥ US$ {{ m.protectTriggerUsd | number: '1.2-2' }}
+                → garante US$ {{ m.protectLockUsd | number: '1.2-2' }} ({{ marketNames(m.protectMarkets) }}) } @else { <b>desligada</b> }
               · Stop/alvo em US$ nas ordens novas: @if (m.enabled) { <b class="up">ligado</b> (US$ {{ m.stopUsd | number: '1.2-2' }} /
                 US$ {{ m.takeUsd | number: '1.2-2' }}) } @else { <b>desligado</b> (vale o ATR) }
             </p>
@@ -263,6 +265,7 @@ export class Operar implements OnInit, OnDestroy {
     'Perda do dia': HELP['maxDailyLossPct'] ?? '',
     'Perda da semana': HELP['maxWeeklyLossPct'] ?? '',
     'Nível de margem': HELP['minMarginLevelPct'] ?? '',
+    'Sessão até a saída por tempo': HELP['sessionMarginMinutes'] ?? '',
     'Spread (gate 3)': HELP['maxSpreadRatio'] ?? '',
     'Fora de blackout (gate 2)': HELP['blackoutBeforeMinutes'] ?? '',
     'Símbolo': 'O símbolo precisa ter a especificação da corretora (vem do MT5) para o risco ser calculado.',
@@ -390,6 +393,10 @@ export class Operar implements OnInit, OnDestroy {
       next: () => { this.lockSaving.set(false); this.load(); },
       error: (e) => { this.lockSaving.set(false); alert(e?.error?.message ?? 'não consegui mudar'); },
     });
+  }
+
+  protected marketNames(codes: string[] | undefined): string {
+    return (codes ?? []).map((c) => MARKETS.find((m) => m.code === c)?.label ?? c).join(", ");
   }
 
   protected usd(v: number): string {

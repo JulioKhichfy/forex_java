@@ -140,6 +140,16 @@ public class TradeRepository {
                 .param("t", ticket).query(Long.class).single() > 0;
     }
 
+    /** Mudança de stop recusada há pouco (mercado fechado: 15 min; outra recusa: 1 min) — o trailing espera. */
+    public boolean modifyRecentlyRejected(long ticket) {
+        return jdbc().sql("""
+                        SELECT count(*) FROM order_request WHERE action = 'MODIFY' AND ticket = :t AND status = 'REJECTED'
+                           AND done_at > now() - CASE WHEN message ILIKE '%market closed%' THEN INTERVAL '15 minutes'
+                                                      ELSE INTERVAL '1 minute' END
+                        """)
+                .param("t", ticket).query(Long.class).single() > 0;
+    }
+
     /**
      * Saída por tempo vencida de uma posição.
      *
@@ -167,7 +177,12 @@ public class TradeRepository {
                                              AND (c.status IN ('PENDING', 'FILLED')
                                                   -- entregue e sem resposta do EA: depois de vencido, pede de novo
                                                   -- (15/10: um CLOSE SENT sem resposta deixou a posição aberta 2,5 h)
-                                                  OR (c.status = 'SENT' AND c.expires_at > now() - INTERVAL '30 seconds')))
+                                                  OR (c.status = 'SENT' AND c.expires_at > now() - INTERVAL '30 seconds')
+                                                  -- recusado: espera antes de pedir de novo (16/10: "market closed" na
+                                                  -- sexta virou um pedido a cada 5 s no fim de semana)
+                                                  OR (c.status = 'REJECTED' AND c.done_at > now() - CASE
+                                                        WHEN c.message ILIKE '%market closed%' THEN INTERVAL '15 minutes'
+                                                        ELSE INTERVAL '1 minute' END)))
                         """)
                 .query((rs, i) -> new DueExit(rs.getLong("ticket"), instant(rs, "time_lock_until"),
                         rs.getString("lock_status"))).list();

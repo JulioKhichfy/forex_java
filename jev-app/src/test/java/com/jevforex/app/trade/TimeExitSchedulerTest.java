@@ -11,7 +11,7 @@ class TimeExitSchedulerTest {
 
     /** Prorrogação ligada: lucro mínimo US$ 0,30, garante 50%, busca +50%, janela 10 min, teto 60, passo 10%. */
     private static final RiskSettings.MoneyExits M = new RiskSettings.MoneyExits(false, 5.0, 10.0, false, null, null, null,
-            true, 0.30, 50.0, 50.0, 10, 60, 10.0);
+            true, 0.30, 50.0, 50.0, 10, 60, 10.0, null, null, null, null);
 
     // ouro 0,01 lote: 1,0 de preço = US$ 1; passo 0,001
     private static final double PER = 1.0, TICK = 0.001, MIN = 0.01;

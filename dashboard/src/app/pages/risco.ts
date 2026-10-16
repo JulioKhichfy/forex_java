@@ -47,6 +47,7 @@ const ORDER_FIELDS: Field[] = [
   { key: 'blackoutAfterMinutes', label: 'Blackout depois de evento alto (min)', kind: 'min', step: 1 },
   { key: 'maxSpreadRatio', label: 'Spread máximo (× o típico do horário)', kind: 'num', step: 0.25 },
   { key: 'minMarginLevelPct', label: 'Nível de margem mínimo (%)', kind: 'pct', step: 50 },
+  { key: 'sessionMarginMinutes', label: 'Folga antes do fim da sessão (min)', kind: 'int', step: 5 },
 ];
 
 const EXIT_FIELDS: Field[] = [
@@ -290,6 +291,7 @@ export class Risco implements OnInit {
       case 'blackoutAfterMinutes': return 'o sistema decide 2 min depois do evento: menos que 2 aqui libera essa entrada';
       case 'maxSpreadRatio': return `spread típico de 8 pontos → aceita até ${(8 * o.maxSpreadRatio).toFixed(0)}`;
       case 'minMarginLevelPct': return `a Exness costuma fechar posições com nível muito baixo; ${o.minMarginLevelPct}% é folga`;
+      case 'sessionMarginMinutes': return `sem entrada se a saída por tempo cair a menos de ${o.sessionMarginMinutes} min do fim da sessão (EA 2.5)`;
     }
     return e ? '' : '';
   }

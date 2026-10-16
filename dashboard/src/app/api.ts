@@ -249,6 +249,10 @@ export interface MoneyExits {
   timeLockMinutes: number;
   timeLockMaxMinutes: number;
   timeLockStepPct: number;
+  protectEnabled: boolean;
+  protectTriggerUsd: number;
+  protectLockUsd: number;
+  protectMarkets: string[];
 }
 
 export interface TradeState {

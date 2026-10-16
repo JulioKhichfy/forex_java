@@ -26,9 +26,9 @@ class RiskEditorTest {
         var fx = new RiskSettings.MarketRisk(true, 5.0, 10.0, 2, 1.0);
         var idx = new RiskSettings.MarketRisk(true, 4.0, 8.0, 1, 0.0);
         return new RiskSettings(global, Map.of(Market.FX, fx, Market.INDICES, idx), new RiskSettings.Exits(1.5, 2.0),
-                new RiskSettings.Orders(0.01, 0.03, 60, 20, 30, 30, 90, 10, 2, 2.0, 300),
+                new RiskSettings.Orders(0.01, 0.03, 60, 20, 30, 30, 90, 10, 2, 2.0, 300, 5),
                 Map.of(),
-                new RiskSettings.MoneyExits(true, 3.0, 6.0, true, 2.0, 1.5, 0.25, true, 0.5, 60.0, 40.0, 10, 45, 20.0));
+                new RiskSettings.MoneyExits(true, 3.0, 6.0, true, 2.0, 1.5, 0.25, true, 0.5, 60.0, 40.0, 10, 45, 20.0, true, 3.0, 0.2, java.util.List.of("metals", "energy")));
     }
 
     @Test

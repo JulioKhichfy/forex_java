@@ -180,6 +180,7 @@ public class OrderService {
         Double ask = quote == null ? null : quote.path("ask").asDouble();
         Integer spread = quote == null ? null : quote.path("spread").asInt();
         Double ref = quote == null ? null : "BUY".equals(side) ? ask : bid;
+        checks.add(sessionCheck(quote, now, closeAfter, o));
 
         String market = inst.market().code();
         PredictionRepository.Prediction pred = predictions.latest(market).stream()
@@ -413,6 +414,34 @@ public class OrderService {
         }
         repo.setSetting(SETTING_LOT, String.format(Locale.ROOT, "%.2f", lot));
         return lot;
+    }
+
+    /**
+     * A posição precisa poder fechar por tempo DENTRO da sessão do símbolo (16/10/2026: aberta às 20:02 de sexta com
+     * saída em 60 min, ficou para o fim de semana e a corretora recusou cada fechamento). O EA 2.5 manda, em cada
+     * cotação, quando a sessão de negociação atual termina ({@code session_end}, UTC; vazio = mercado fechado agora).
+     * EA anterior (sem o campo): passa, avisando. Sem saída por tempo: só SL/TP, passa.
+     */
+    static Check sessionCheck(JsonNode quote, Instant now, int closeAfterMinutes, RiskSettings.Orders o) {
+        String gate = "Sessão até a saída por tempo";
+        if (closeAfterMinutes <= 0) return new Check(gate, true, "sem saída por tempo (só SL/TP)", "—");
+        if (quote == null || !quote.has("session_end")) {
+            return new Check(gate, true, "sem horário da sessão (EA anterior à 2.5)", "não conferido");
+        }
+        String end = quote.path("session_end").asText("");
+        Instant exit = now.plus(Duration.ofMinutes(closeAfterMinutes));
+        String limit = "saída por tempo ≥ " + o.sessionMarginMinutes() + " min antes do fim da sessão";
+        if (end.isBlank()) return new Check(gate, false, "mercado fechado agora", limit);
+        Instant sessionEnd;
+        try {
+            sessionEnd = Instant.parse(end);
+        } catch (RuntimeException e) {
+            return new Check(gate, false, "horário da sessão ilegível: " + end, limit);
+        }
+        boolean ok = !exit.plus(Duration.ofMinutes(o.sessionMarginMinutes())).isAfter(sessionEnd);
+        java.time.format.DateTimeFormatter f = java.time.format.DateTimeFormatter.ofPattern("EEE HH:mm", new Locale("pt", "BR"))
+                .withZone(ZoneOffset.UTC);
+        return new Check(gate, ok, "sai " + f.format(exit) + " UTC · sessão até " + f.format(sessionEnd) + " UTC", limit);
     }
 
     // ------------------------------------------------------------------ apoio

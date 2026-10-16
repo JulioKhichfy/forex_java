@@ -56,6 +56,11 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
   MODIFY com stop E alvo (Flyway V12, `tp_price`; EA 2.4); dinâmica: a cada nova máxima (+`step-pct`) stop/alvo andam e a janela de
   `time-lock-minutes` renova; sem nova máxima, no teto (`time-lock-max-minutes`) ou se o EA recusar o início, fecha a mercado.
   CLOSE entregue (SENT) sem resposta do EA deixa de valer depois de vencido (um deixou posição aberta 2,5 h).
+  Proteção de lucro por mercado (`money.protect-*`, 16/10): com lucro de `protect-trigger-usd` o stop vai garantir
+  `protect-lock-usd` nos `protect-markets` (TrailingService; com o trailing ligado, vale o stop que protege mais).
+  Sessão (16/10): o EA 2.5 manda `session_end` em cada cotação; a trava "Sessão até a saída por tempo" (também na roleta)
+  recusa entrada cuja saída cai depois do fim da sessão − `orders.session-margin-minutes`. CLOSE/MODIFY recusado: espera 1 min
+  ("market closed": 15 min) antes de pedir de novo.
 - **Perfis prontos** (`risk.presets` no application.yml, 15/10): Ultra conservador → Ultra arrojado; um clique na página Risco
   substitui global (inclusive a perda do dia/semana), exits, mercados e campos de orders (`RiskEditor.withPreset`). A página
   Risco tem 3 partes: perfis, stop/alvo em US$ + trailing (`POST /api/risk/money`, só esse bloco) e ajuste fino.
@@ -85,7 +90,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5; `news/`: GDELT (GKG) e SEC EDGAR |
 | jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
 | dashboard | Angular 20 (Hoje, Radar, Previsões, Operar, Roleta russa, Stop em US$, Risco, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
-| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.4 (executor com 3 chaves; OPEN, CLOSE, MODIFY com stop e alvo), `install.ps1` |
+| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.5 (executor com 3 chaves; OPEN, CLOSE, MODIFY com stop e alvo; fim da sessão por símbolo), `install.ps1` |
 
 ## Comandos
 ```

@@ -61,7 +61,7 @@ class LivePredictionServiceTest {
 
     @Test
     void saidaPorTempo_doMercadoOuPadrao() {
-        var orders = new com.jevforex.core.risk.RiskSettings.Orders(0.01, 0.05, 60, 20, 30, 30, 90, 10, 2, 2.0, 300);
+        var orders = new com.jevforex.core.risk.RiskSettings.Orders(0.01, 0.05, 60, 20, 30, 30, 90, 10, 2, 2.0, 300, null);
         var ouro = new com.jevforex.core.risk.RiskSettings.MarketRisk(true, 5, 10, 1, 1.0, 15, 1.5, null);
         assertEquals(15, ouro.closeAfter(orders));
         var global = new com.jevforex.core.risk.RiskSettings.Exits(4.0, 7.0);

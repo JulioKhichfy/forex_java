@@ -139,8 +139,8 @@ import { MyTrades } from './my-trades';
     <section class="panel bt" style="margin-top:16px">
       <h3>Backtest das previsões <tip text="E se cada previsão já resolvida do período tivesse virado uma ordem no lado mais provável (compra se P(alta) > P(queda), senão venda), com o stop, o alvo e a saída no horizonte do placar, já com o spread? O resultado em US$ usa o lote escolhido (ou o mínimo do símbolo) e a perda no stop de hoje; com o stop em US$ ligado, 1 R = esse valor." /></h3>
       <div class="row2">
-        <label class="small">Pares <select [(ngModel)]="bt.scope"><option value="all">todos do mercado</option>
-          <option value="one" [disabled]="!selected()">{{ selected() ?? 'selecione um par' }}</option></select></label>
+        <label class="small">Símbolo <select [(ngModel)]="bt.symbol"><option value="">todos do mercado</option>
+          @for (s of symbols(); track s) { <option [value]="s">{{ s }}</option> }</select></label>
         <label class="small">Período <select [(ngModel)]="bt.period">@for (p of periods; track p.v) { <option [value]="p.v">{{ p.l }}</option> }</select></label>
         <label class="small">Horizonte <select [(ngModel)]="bt.horizon"><option [ngValue]="15">15 min</option><option [ngValue]="60">60 min</option></select></label>
         <label class="small">Modelo <select [(ngModel)]="bt.model">@for (m of models; track m) { <option [value]="m">{{ m }} · {{ names[m] }}</option> }</select></label>
@@ -288,7 +288,7 @@ export class Previsoes implements OnInit, OnDestroy {
   // ------------------------------------------------------------------ backtest
   protected periods = [{ v: '1h', l: 'última hora' }, { v: 'today', l: 'hoje (UTC)' }, { v: '24h', l: '24 h' },
     { v: '48h', l: '48 h' }, { v: '7d', l: '7 dias' }, { v: '30d', l: '30 dias' }];
-  protected bt = { scope: 'all', period: 'today', horizon: 60, model: 'B', lot: 0.01, side: 'all', minProb: 0, skipFlat: true };
+  protected bt = { symbol: '', period: 'today', horizon: 60, model: 'B', lot: 0.01, side: 'all', minProb: 0, skipFlat: true };
   protected btResult = signal<BacktestResult | null>(null);
   protected btBusy = signal(false);
   protected btError = signal<string | null>(null);
@@ -296,7 +296,7 @@ export class Previsoes implements OnInit, OnDestroy {
   protected runBacktest(): void {
     this.btBusy.set(true);
     this.btError.set(null);
-    this.api.backtest({ market: this.marketState.market(), symbol: this.bt.scope === 'one' ? this.selected() : null,
+    this.api.backtest({ market: this.marketState.market(), symbol: this.bt.symbol || null,
       period: this.bt.period, horizon: this.bt.horizon, model: this.bt.model, lot: this.bt.lot, side: this.bt.side,
       minProb: this.bt.minProb / 100, skipFlat: this.bt.skipFlat }).subscribe({
       next: (r) => { this.btResult.set(r); this.btBusy.set(false); },
@@ -305,7 +305,14 @@ export class Previsoes implements OnInit, OnDestroy {
   }
 
   constructor() {
-    effect(() => { this.marketState.market(); this.selected.set(null); this.history.set([]); this.load(); });
+    effect(() => {
+      this.marketState.market();
+      this.selected.set(null);
+      this.history.set([]);
+      this.bt.symbol = '';   // a lista de símbolos é do mercado novo
+      this.btResult.set(null);
+      this.load();
+    });
   }
 
   ngOnInit(): void {

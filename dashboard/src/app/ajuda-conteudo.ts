@@ -358,7 +358,7 @@ export const SECOES: Secao[] = [
       },
       {
         titulo: 'Backtest das previsões',
-        html: `E se cada previsão já resolvida tivesse virado uma ordem? Escolha os pares (todos do mercado ou o selecionado),
+        html: `E se cada previsão já resolvida tivesse virado uma ordem? Escolha o símbolo (todos do mercado ou qualquer um dele, no seletor),
           o <b>período</b> (última hora, hoje, 24 h, 48 h, 7 ou 30 dias), o <b>horizonte</b> (15 ou 60 min), o <b>modelo</b>, o
           <b>lote</b>, a direção, a P mínima e se pula as previsões com LATERAL mais provável (como a roleta de tendência), e clique
           <b>Rodar backtest</b>. Cada previsão vira uma operação no lado mais provável, com o stop, o alvo e a saída no horizonte
@@ -439,6 +439,7 @@ export const SECOES: Secao[] = [
             { termo: 'Risco aberto total', texto: 'O risco de todas as posições abertas + esta cabe no limite (todas precisam ter stop).' },
             { termo: 'Exposição líquida a USD', texto: 'No forex, a soma do risco na direção do dólar cabe no limite.' },
             { termo: 'Perda do dia / da semana', texto: 'A queda do patrimônio desde 00:00 UTC (dia) e desde segunda 00:00 UTC (semana) está abaixo dos limites de perda do perfil de risco (página Risco, seção 1).' },
+            { termo: 'Sessão até a saída por tempo', texto: 'A saída por tempo precisa cair dentro da sessão do símbolo (com a folga da página Risco): sem isso, a posição ficaria presa no fechamento (sexta à noite, ou o fechamento diário das ações) e a corretora recusaria o fechamento. Vale também na roleta. O EA 2.5 informa o fim da sessão; com o EA antigo, a trava passa avisando.' },
             { termo: 'Nível de margem', texto: 'Acima do mínimo (folga antes do stop-out da corretora).' },
             { termo: 'Spread (gate 3)', texto: 'O spread agora é no máximo N vezes o típico daquele horário.' },
             { termo: 'Fora de blackout (gate 2)', texto: 'Nenhum evento de importância ALTA da moeda entre N minutos antes e N minutos depois de agora.' },
@@ -598,6 +599,15 @@ export const SECOES: Secao[] = [
           também para as posições que já estavam abertas. <b>Precisa do EA JevExecutor 2.2</b> (rode
           <code>mql5\\install.ps1</code> e recarregue o EA no gráfico); com o EA antigo nada é movido e o servidor avisa no
           log. Na página Operar, os pedidos aparecem como ordens <b>MODIFY</b>.`,
+      },
+      {
+        titulo: 'Proteção de lucro por mercado',
+        html: `Com <b>“Proteger lucro”</b> ligado, nos mercados marcados (padrão: ouro, bitcoin, índices e energia), quando o
+          lucro de uma posição passa de <b>“Quando o lucro passar de”</b> (padrão US$ 3), o servidor pede ao EA para levar o
+          stop à entrada mais <b>“O stop garante”</b> (padrão US$ 0,20; na venda, à entrada menos esse valor). A partir daí o
+          pior resultado da posição é esse lucro, salvo gap ou slippage. Confere a cada 5 s, só move a favor e vale também
+          para as posições já abertas. Independe do trailing: com os dois ligados, vale o stop que protege mais. Se a
+          corretora não aceitar o stop tão perto do preço, espera o lucro crescer. Precisa do EA JevExecutor 2.2 ou mais novo.`,
       },
       {
         titulo: 'Prorrogação com lucro na saída por tempo',
@@ -982,7 +992,7 @@ export const GLOSSARIO_NOMES: Record<string, string> = {
   defaultLot: 'Lote padrão', maxLot: 'Lote máximo', closeAfterMinutes: 'Saída por tempo', deviationPoints: 'Desvio máximo',
   validitySeconds: 'Validade da ordem', quoteMaxAgeSeconds: 'Idade máxima da cotação', atrMaxAgeMinutes: 'Idade máxima do ATR',
   blackoutBeforeMinutes: 'Blackout antes do evento', blackoutAfterMinutes: 'Blackout depois do evento',
-  maxSpreadRatio: 'Spread máximo', minMarginLevelPct: 'Nível de margem mínimo', stopAtr: 'Stop (× ATR)', targetR: 'Alvo (× stop)',
+  maxSpreadRatio: 'Spread máximo', minMarginLevelPct: 'Nível de margem mínimo', sessionMarginMinutes: 'Folga antes do fim da sessão', stopAtr: 'Stop (× ATR)', targetR: 'Alvo (× stop)',
   marketEnabled: 'Mercado ativo', riskPerTradePct: 'Risco-alvo por operação', marketMaxOpenRiskPct: 'Risco aberto do mercado',
   marketMaxPositions: 'Posições do mercado', marketCloseAfter: 'Saída por tempo do mercado', marketStopAtr: 'Stop do mercado',
   marketTargetR: 'Alvo do mercado', regraOuro: 'Regra do ouro', usdWeight: 'Peso no USD', lossProfile: 'Trava de perda',

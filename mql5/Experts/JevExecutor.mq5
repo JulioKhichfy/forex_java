@@ -10,6 +10,7 @@
 //|    BLOCK (sem entradas novas) e FLATTEN (fecha tudo deste EA)     |
 //|  - move o stop de posições abertas (trailing: MODIFY, v2.2)       |
 //|  - move stop E alvo (prorrogação com lucro: MODIFY com alvo, 2.4) |
+//|  - informa o fim da sessão de cada símbolo (session_end, 2.5)     |
 //|  - reporta cada execução (POST /api/ea/execution) e envia         |
 //|    heartbeat com saldo, margem, cotações e posições               |
 //|                                                                  |
@@ -24,7 +25,7 @@
 //| Expert Advisors → "Permitir WebRequest…" → http://127.0.0.1:8080  |
 //+------------------------------------------------------------------+
 #property copyright   "Jev Forex"
-#property version     "2.40"
+#property version     "2.50"
 #property description "Jev Forex — executor das ordens aprovadas no dashboard, com SL/TP no servidor."
 
 #include <Trade/Trade.mqh>
@@ -46,7 +47,7 @@ input string InpSymbols6         = "UKOIL,USOIL,XNGUSD";       // Cotações: en
 input int    InpPollSeconds      = 1;                       // Busca de ordens (s)
 input int    InpHeartbeatSeconds = 5;                       // Heartbeat (s)
 
-#define EA_VERSION "JevExecutor/2.4"
+#define EA_VERSION "JevExecutor/2.5"
 #define MAX_SEEN   500
 
 CTrade   g_trade;
@@ -488,6 +489,53 @@ void ReportExecution(const string id, const string status, const ulong ticket, c
   }
 
 //+------------------------------------------------------------------+
+//| Fim da sessão de negociação em que o símbolo está agora (horário   |
+//| do servidor); sessões emendadas (meia-noite) contam como uma só.   |
+//| 0 = fora de sessão (mercado fechado agora).                        |
+//+------------------------------------------------------------------+
+datetime SessionEnd(const string broker)
+  {
+   datetime now = TimeTradeServer();
+   MqlDateTime d;
+   TimeToStruct(now, d);
+   datetime dayStart = now - (d.hour * 3600 + d.min * 60 + d.sec);
+   datetime end = 0;
+   for(int k = 0; k < 8; k++)
+     {
+      datetime ds = dayStart + k * 86400;
+      MqlDateTime dd;
+      TimeToStruct(ds, dd);
+      bool extended = false;
+      for(uint i = 0; i < 10; i++)
+        {
+         datetime from, to;
+         if(!SymbolInfoSessionTrade(broker, (ENUM_DAY_OF_WEEK)dd.day_of_week, i, from, to))
+            break;
+         datetime a = (datetime)((long)ds + (long)from), b = (datetime)((long)ds + (long)to);
+         if(end == 0)
+           {
+            if(now >= a && now < b)
+              {
+               end = b;
+               extended = true;
+              }
+           }
+         else
+            if(a <= end + 120 && b > end)
+              {
+               end = b;      // a sessão seguinte emenda nesta (ex.: 24:00 → 00:00)
+               extended = true;
+              }
+        }
+      if(end == 0 && k == 0)
+         return 0;           // fora de sessão agora
+      if(end != 0 && !extended && k > 0)
+         break;              // um dia sem emenda: a sessão acaba em "end"
+     }
+   return end;
+  }
+
+//+------------------------------------------------------------------+
 string QuotesJson()
   {
    string out = "";
@@ -500,10 +548,12 @@ string QuotesJson()
       int digits = (int)SymbolInfoInteger(broker, SYMBOL_DIGITS);
       if(out != "")
          out += ",";
-      out += StringFormat("{\"symbol\":\"%s\",\"bid\":%s,\"ask\":%s,\"spread\":%I64d,\"time\":\"%s\"}",
+      datetime se = SessionEnd(broker);
+      out += StringFormat("{\"symbol\":\"%s\",\"bid\":%s,\"ask\":%s,\"spread\":%I64d,\"time\":\"%s\",\"session_end\":\"%s\"}",
                           g_symbols[i], DoubleToString(t.bid, digits), DoubleToString(t.ask, digits),
                           SymbolInfoInteger(broker, SYMBOL_SPREAD),
-                          JevIsoUtc((datetime)(t.time - JevServerOffsetSeconds())));
+                          JevIsoUtc((datetime)(t.time - JevServerOffsetSeconds())),
+                          se == 0 ? "" : JevIsoUtc((datetime)(se - JevServerOffsetSeconds())));
      }
    return "[" + out + "]";
   }
