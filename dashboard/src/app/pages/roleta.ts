@@ -30,7 +30,8 @@ const PULLBACK_STUDY: Record<string, Record<number, number>> = {
   imports: [DatePipe, DecimalPipe, Tip, Brt],
   template: `
     <div class="notice danger">
-      <b>Roleta = ordens automáticas sem as travas de risco por ordem.</b> Com um mercado ligado, cada previsão nova vira
+      <b>Roleta = ordens automáticas sem parte das travas de risco por ordem</b> (teto e alvo de risco, exposição ao dólar,
+      margem, spread e blackout; posições, um por par, mercado ligado e risco aberto valem). Com um mercado ligado, cada previsão nova vira
       uma ordem em cada símbolo e fecha sozinha no horizonte escolhido. <b>Tendência</b>: o lado mais provável, pulando
       LATERAL. <b>Pullback</b> (teste): só em LATERAL, contra a banda de Bollinger. Só param as entradas: o botão <b>Parar roleta russa</b>, o <b>BLOCK</b> da página Operar e o
       limite de <b>perda do dia/semana</b> (que para todas as roletas). Confira em cada mercado o que esta regra deu nas
@@ -300,7 +301,7 @@ export class Roleta implements OnInit, OnDestroy {
       + `(${sim.n} operações, soma ${sim.sum_r.toFixed(0)} R).` : 'TENDÊNCIA: ainda não há previsões resolvidas para esta regra.';
     const simText = f.strategy === 'pullback' ? pull : f.strategy === 'both' ? `${trend}\n\n${pull}` : trend;
     const text = `Ligar a roleta de ${label} em ${s.mode}?\n\n${MODEL_NAMES[f.model] ?? f.model}, ${f.horizon} min, lote `
-      + `${f.lot ?? 'mínimo de cada símbolo'}.\nCada previsão nova vira uma ordem por símbolo, sem as travas de risco por ordem.\n\n${simText}`;
+      + `${f.lot ?? 'mínimo de cada símbolo'}.\nCada previsão nova vira uma ordem por símbolo (respeitando posições, um por par, mercado ligado e risco aberto).\n\n${simText}`;
     if (f.strategy !== 'trend' && !this.serverHasStrategy()) {
       this.error.set('O servidor em execução é anterior ao pullback: reinicie-o antes de ligar esta estratégia.');
       return;

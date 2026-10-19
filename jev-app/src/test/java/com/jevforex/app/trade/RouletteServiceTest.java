@@ -71,9 +71,10 @@ class RouletteServiceTest {
         for (String gate : OrderService.ROULETTE_WAIVED) {
             assertTrue(src.contains("new Check(\"" + gate + "\""), "trava inexistente no OrderService: " + gate);
         }
-        // o operador escolheu manter o disjuntor de perda; as técnicas nunca saem
+        // o operador escolheu manter o disjuntor de perda; as técnicas nunca saem; desde 19/10, posições, par, mercado e risco aberto
         for (String kept : List.of("Perda do dia", "Perda da semana", "EA conectado", "Modo × conta", "BLOCK / FLATTEN",
-                "Cotação", "ATR (última previsão)", "Lote")) {
+                "Cotação", "ATR (última previsão)", "Lote", "Posições abertas",
+                "Posições no mercado", "Par livre", "Mercado habilitado", "Risco aberto total", "Risco aberto no mercado")) {
             assertFalse(OrderService.ROULETTE_WAIVED.contains(kept), kept);
             assertTrue(src.contains("new Check(\"" + kept + "\""), "trava mantida não encontrada: " + kept);
         }

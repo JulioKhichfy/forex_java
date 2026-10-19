@@ -44,9 +44,14 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
   o IP por minutos com poucos pedidos). O bronze `gdelt_gkg` guarda só o filtrado (`news.gdelt`: sites + temas/palavras)
   em `.jsonl.gz`; o original é público e permanente (URL no meta) — mudar o filtro = reprocessar de lá. Point-in-time:
   lote + `available-lag-minutes` (o carimbo do lote vem ~7 min à frente da publicação: é conservador). EDGAR exige
-  contato no User-Agent (`EDGAR_USER_AGENT`, nunca no git); o horário vale pelo `-index-headers` (Nova York → UTC).- **Roleta** (`RouletteService`, decisão do operador em 14/10/2026): ordens automáticas por mercado que IGNORAM as
-  travas de risco por ordem (`OrderService.ROULETTE_WAIVED`); valem as técnicas, o BLOCK e a perda do dia/semana
-  (que para todas). Não estender essa exceção a outras ordens sem o operador pedir.
+  contato no User-Agent (`EDGAR_USER_AGENT`, nunca no git); o horário vale pelo `-index-headers` (Nova York → UTC).
+- **Roleta** (`RouletteService`, decisão do operador em 14/10/2026): ordens automáticas por mercado que IGNORAM parte das
+  travas de risco por ordem (`OrderService.ROULETTE_WAIVED`: teto/alvo de risco, USD, margem, spread, blackout); valem as
+  técnicas, o BLOCK, a perda do dia/semana (que para todas) e, desde 19/10, posições, par livre, mercado habilitado e
+  risco aberto. Não estender essa exceção a outras ordens sem o operador pedir.
+  Travas (revisão de 19/10): conta (3.1) e mercado (3.4) separados — "Posições abertas"/"Risco aberto total" contam a
+  conta; "Posições no mercado"/"Risco aberto no mercado" só o mercado; "Risco-alvo do mercado" aplica risk-per-trade-pct
+  e min-lot-policy; exposição a USD conta ouro/bitcoin/etc. pelo usd-weight. A página Risco mostra o que a roleta ignora.
   Estratégias: `trend` (lado mais provável, pula LATERAL), `both` (as duas: LATERAL → pullback, resto → trend; placar por perna) e `pullback` (teste do operador, 14/10: só em LATERAL,
   contra a banda de Bollinger M15 do radar; E[R] fora da amostra negativo, ~0 no ouro). Placar separado (Flyway V10).
 - **Stop em US$ e trailing** (`trading.risk.money`, página "Stop em US$", 14/10): ligado, toda ordem nova sai com stop/alvo em

@@ -133,6 +133,12 @@ public class TradeRepository {
                 .param("a", action).query(Long.class).single();
     }
 
+    /** Ordens abertas de um mercado (aceitas e ainda não concluídas pelo EA). */
+    public long openOrders(String action, String market) {
+        return jdbc().sql("SELECT count(*) FROM order_request WHERE action = :a AND market = :m AND status IN ('PENDING', 'SENT')")
+                .param("a", action).param("m", market).query(Long.class).single();
+    }
+
     /** Pedido de mudança de stop ainda em andamento para a posição (o trailing não empilha pedidos). */
     public boolean pendingModify(long ticket) {
         return jdbc().sql("SELECT count(*) FROM order_request WHERE action = 'MODIFY' AND ticket = :t "

@@ -22,32 +22,34 @@ interface Field {
   label: string;
   kind: 'pct' | 'usd' | 'int' | 'num' | 'lot' | 'min' | 'sec' | 'pts' | 'policy';
   step?: number;
+  /** O que a Roleta russa faz com este campo (ela ignora as travas de risco por ordem, escolha do operador em 14/10). */
+  rl?: string;
 }
 
 const GLOBAL_FIELDS: Field[] = [
-  { key: 'maxRiskPerTradePct', label: 'Teto de perda por operação (%)', kind: 'pct', step: 0.5 },
-  { key: 'maxRiskPerTradeUsd', label: 'Teto de perda por operação (US$)', kind: 'usd', step: 0.5 },
-  { key: 'maxOpenRiskPct', label: 'Risco aberto somado (%)', kind: 'pct', step: 0.5 },
-  { key: 'maxDailyLossPct', label: 'Perda máxima no dia (%) — perfil Padrão', kind: 'pct', step: 1 },
-  { key: 'maxWeeklyLossPct', label: 'Perda máxima na semana (%) — perfil Padrão', kind: 'pct', step: 1 },
-  { key: 'maxPositions', label: 'Posições abertas ao mesmo tempo', kind: 'int', step: 1 },
-  { key: 'maxUsdNetExposurePct', label: 'Exposição líquida ao dólar (%)', kind: 'pct', step: 1 },
-  { key: 'minLotPolicy', label: 'Política do lote mínimo', kind: 'policy' },
+  { key: 'maxRiskPerTradePct', label: 'Teto de perda por operação (%)', kind: 'pct', step: 0.5, rl: 'ignora' },
+  { key: 'maxRiskPerTradeUsd', label: 'Teto de perda por operação (US$)', kind: 'usd', step: 0.5, rl: 'ignora' },
+  { key: 'maxOpenRiskPct', label: 'Risco aberto somado (%)', kind: 'pct', step: 0.5, rl: 'respeita' },
+  { key: 'maxDailyLossPct', label: 'Perda máxima no dia (%) — perfil Padrão', kind: 'pct', step: 1, rl: 'respeita' },
+  { key: 'maxWeeklyLossPct', label: 'Perda máxima na semana (%) — perfil Padrão', kind: 'pct', step: 1, rl: 'respeita' },
+  { key: 'maxPositions', label: 'Posições abertas ao mesmo tempo', kind: 'int', step: 1, rl: 'respeita' },
+  { key: 'maxUsdNetExposurePct', label: 'Exposição líquida ao dólar (%)', kind: 'pct', step: 1, rl: 'ignora' },
+  { key: 'minLotPolicy', label: 'Política do lote mínimo', kind: 'policy', rl: 'ignora' },
 ];
 
 const ORDER_FIELDS: Field[] = [
-  { key: 'defaultLot', label: 'Lote padrão do tíquete', kind: 'lot', step: 0.01 },
-  { key: 'maxLot', label: 'Lote máximo por ordem', kind: 'lot', step: 0.01 },
-  { key: 'closeAfterMinutes', label: 'Saída por tempo (min)', kind: 'min', step: 5 },
-  { key: 'deviationPoints', label: 'Desvio máximo na execução (pontos)', kind: 'pts', step: 1 },
-  { key: 'validitySeconds', label: 'Validade da ordem (s)', kind: 'sec', step: 5 },
-  { key: 'quoteMaxAgeSeconds', label: 'Idade máxima da cotação (s)', kind: 'sec', step: 5 },
-  { key: 'atrMaxAgeMinutes', label: 'Idade máxima do ATR (min)', kind: 'min', step: 5 },
-  { key: 'blackoutBeforeMinutes', label: 'Blackout antes de evento alto (min)', kind: 'min', step: 1 },
-  { key: 'blackoutAfterMinutes', label: 'Blackout depois de evento alto (min)', kind: 'min', step: 1 },
-  { key: 'maxSpreadRatio', label: 'Spread máximo (× o típico do horário)', kind: 'num', step: 0.25 },
-  { key: 'minMarginLevelPct', label: 'Nível de margem mínimo (%)', kind: 'pct', step: 50 },
-  { key: 'sessionMarginMinutes', label: 'Folga antes do fim da sessão (min)', kind: 'int', step: 5 },
+  { key: 'defaultLot', label: 'Lote padrão do tíquete', kind: 'lot', step: 0.01, rl: 'usa o lote dela' },
+  { key: 'maxLot', label: 'Lote máximo por ordem', kind: 'lot', step: 0.01, rl: 'respeita' },
+  { key: 'closeAfterMinutes', label: 'Saída por tempo (min)', kind: 'min', step: 5, rl: 'usa o horizonte dela' },
+  { key: 'deviationPoints', label: 'Desvio máximo na execução (pontos)', kind: 'pts', step: 1, rl: 'respeita' },
+  { key: 'validitySeconds', label: 'Validade da ordem (s)', kind: 'sec', step: 5, rl: 'respeita' },
+  { key: 'quoteMaxAgeSeconds', label: 'Idade máxima da cotação (s)', kind: 'sec', step: 5, rl: 'respeita' },
+  { key: 'atrMaxAgeMinutes', label: 'Idade máxima do ATR (min)', kind: 'min', step: 5, rl: 'respeita' },
+  { key: 'blackoutBeforeMinutes', label: 'Blackout antes de evento alto (min)', kind: 'min', step: 1, rl: 'ignora' },
+  { key: 'blackoutAfterMinutes', label: 'Blackout depois de evento alto (min)', kind: 'min', step: 1, rl: 'ignora' },
+  { key: 'maxSpreadRatio', label: 'Spread máximo (× o típico do horário)', kind: 'num', step: 0.25, rl: 'ignora' },
+  { key: 'minMarginLevelPct', label: 'Nível de margem mínimo (%)', kind: 'pct', step: 50, rl: 'ignora' },
+  { key: 'sessionMarginMinutes', label: 'Folga antes do fim da sessão (min)', kind: 'int', step: 5, rl: 'respeita' },
 ];
 
 const EXIT_FIELDS: Field[] = [
@@ -96,7 +98,7 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
       <section class="panel">
         <h3>3.1 · Limites da conta inteira <tip text="Valem somando todos os mercados (forex, índices, ações). Uma ordem só passa se respeitar todos." /></h3>
         <div class="table-wrap"><table>
-          <tr><th>Regra</th><th>Valor</th><th>Na prática, com o saldo atual <tip text="O mesmo limite convertido em dinheiro, usando o saldo informado pelo EA." /></th><th>Salvo</th></tr>
+          <tr><th>Regra</th><th>Valor</th><th>Na prática, com o saldo atual <tip text="O mesmo limite convertido em dinheiro, usando o saldo informado pelo EA." /></th><th>Salvo</th><th>Na roleta <tip key="roletaCampos" /></th></tr>
           @for (f of globalFields; track f.key) {
             <tr [class.changed]="changed('global', f.key)">
               <td>{{ f.label }} <tip [key]="f.key" /></td>
@@ -112,6 +114,7 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
               </td>
               <td class="small">{{ globalHint(f.key) }}</td>
               <td class="small muted mono">{{ saved()?.global?.[f.key] }}</td>
+              <td><span class="badge" [class.high]="f.rl === 'ignora'" [class.ok]="f.rl === 'respeita'">{{ f.rl }}</span></td>
             </tr>
           }
         </table></div>
@@ -120,13 +123,14 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
       <section class="panel" style="margin-top:16px">
         <h3>3.2 · Travas de cada ordem enviada ao MT5 <tip text="Conferidas no clique e de novo no envio. O dashboard só escolhe o lote, entre o lote mínimo da corretora e o lote máximo daqui." /></h3>
         <div class="table-wrap"><table>
-          <tr><th>Trava</th><th>Valor</th><th>Na prática</th><th>Salvo</th></tr>
+          <tr><th>Trava</th><th>Valor</th><th>Na prática</th><th>Salvo</th><th>Na roleta <tip key="roletaCampos" /></th></tr>
           @for (f of orderFields; track f.key) {
             <tr [class.changed]="changed('orders', f.key)">
               <td>{{ f.label }} <tip [key]="f.key" /></td>
               <td><input type="number" [(ngModel)]="d.orders[f.key]" [step]="f.step ?? 1" min="0" /></td>
               <td class="small">{{ orderHint(f.key) }}</td>
               <td class="small muted mono">{{ saved()?.orders?.[f.key] }}</td>
+              <td><span class="badge" [class.high]="f.rl === 'ignora'" [class.ok]="f.rl === 'respeita'">{{ f.rl }}</span></td>
             </tr>
           }
         </table></div>
@@ -150,7 +154,8 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
       </div>
 
       <section class="panel" style="margin-top:16px">
-        <h3>3.4 · Orçamento por mercado <tip text="Além dos limites da conta inteira, cada mercado tem o próprio orçamento. Vale o mais restritivo." /></h3>
+        <h3>3.4 · Orçamento por mercado <tip text="Além dos limites da conta inteira, cada mercado tem o próprio orçamento: posições e risco aberto contam só as posições DESTE mercado; a conta inteira tem os seus na seção 3.1. Uma ordem precisa passar nos dois." /></h3>
+        <p class="small muted">Na roleta: respeita Ativo, Risco aberto, Posições, Stop e Alvo; ignora Risco-alvo e Peso no USD; a saída por tempo é o horizonte escolhido nela.</p>
         <div class="table-wrap"><table>
           <tr><th>Mercado</th><th>Ativo <tip key="marketEnabled" /></th><th>Risco-alvo por operação (%) <tip key="riskPerTradePct" /></th>
             <th>Risco aberto (%) <tip key="marketMaxOpenRiskPct" /></th><th>Posições <tip key="marketMaxPositions" /></th>

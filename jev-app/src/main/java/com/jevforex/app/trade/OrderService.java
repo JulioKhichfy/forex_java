@@ -111,19 +111,23 @@ public class OrderService {
     }
 
     /**
-     * Ordem da Roleta (pedido do operador, 14/10/2026): as travas de RISCO deixam de bloquear e ficam registradas como
-     * "ignorada na roleta". Continuam valendo as técnicas (EA conectado, modo × conta, BLOCK/FLATTEN, cotação, ATR,
-     * lote) e o disjuntor de perda do dia e da semana. A saída por tempo é o horizonte escolhido na roleta.
+     * Ordem da Roleta (pedido do operador, 14/10/2026): parte das travas de RISCO ({@link #ROULETTE_WAIVED}) deixa de
+     * bloquear e fica registrada como "ignorada na roleta". Continuam valendo as técnicas (EA conectado, modo × conta,
+     * BLOCK/FLATTEN, cotação, ATR, lote, sessão), o disjuntor de perda do dia e da semana e, desde 19/10, posições,
+     * par livre, mercado habilitado e risco aberto. A saída por tempo é o horizonte escolhido na roleta.
      *
      * @param predictionId a previsão que originou a ordem (auditoria)
      */
     public record Roulette(int closeAfterMinutes, long predictionId) {
     }
 
-    /** Travas que a Roleta registra mas não deixa bloquear (o operador escolheu manter só a perda do dia/semana). */
-    static final java.util.Set<String> ROULETTE_WAIVED = java.util.Set.of("Mercado habilitado", "Risco da ordem",
-            "Posições abertas", "Par livre", "Risco aberto total", "Exposição líquida a USD", "Nível de margem",
-            "Spread (gate 3)", "Fora de blackout (gate 2)");
+    /**
+     * Travas que a Roleta registra mas não deixa bloquear. 14/10/2026: o operador escolheu manter só a perda do
+     * dia/semana; 19/10/2026: passou a respeitar também posições abertas (conta e mercado), par livre, mercado
+     * habilitado e risco aberto (conta e mercado) — com 7 posições abertas com limite 5.
+     */
+    static final java.util.Set<String> ROULETTE_WAIVED = java.util.Set.of("Risco da ordem", "Risco-alvo do mercado",
+            "Exposição líquida a USD", "Nível de margem", "Spread (gate 3)", "Fora de blackout (gate 2)");
 
     public Preview preview(String symbol, String side, Double requestedLot) {
         return preview(symbol, side, requestedLot, null);
@@ -215,15 +219,34 @@ public class OrderService {
                 riskUsd == null ? "sem stop" : usd(riskUsd) + pct(riskUsd, balance),
                 "≤ " + usd(cap) + " (teto por trade)"));
 
+        // risco-alvo do mercado e política do lote mínimo (19/10/2026: antes, risk-per-trade-pct e min-lot-policy
+        // não eram conferidos nas ordens; só o teto valia)
+        double target = balance == null ? 0 : balance * mr.riskPerTradePct() / 100;
+        boolean atMinLot = Math.abs(lot - inst.minLot()) < 1e-9;
+        boolean upToCap = atMinLot && riskHolder.get().global().minLotPolicy() == RiskSettings.MinLotPolicy.ALLOW_UP_TO_CAP;
+        boolean targetOk = riskUsd != null && balance != null && (riskUsd <= target + 1e-9 || (upToCap && riskUsd <= cap + 1e-9));
+        checks.add(new Check("Risco-alvo do mercado", targetOk,
+                riskUsd == null ? "sem stop" : usd(riskUsd) + pct(riskUsd, balance)
+                        + (riskUsd > target + 1e-9 && targetOk ? " · lote mínimo acima do alvo, dentro do teto" : ""),
+                "≤ " + usd(target) + " (" + fmt(mr.riskPerTradePct(), 1) + "% do mercado)"
+                        + (upToCap ? "; lote mínimo até o teto (ALLOW_UP_TO_CAP)" : atMinLot ? "; lote mínimo acima = não opera (SKIP)" : "")));
+
         // ------------------------------------------------------------ carteira
+        // 19/10/2026: o limite de posições e o risco aberto DO MERCADO contavam a conta inteira (o menor dos dois limites
+        // sobre todas as posições); agora a conta e cada mercado têm a própria trava
         List<TradeRepository.Position> positions = repo.positions();
-        long open = positions.size() + repo.openOrders("OPEN");
-        int maxPos = Math.min(riskHolder.get().global().maxPositions(), mr.maxPositions());
-        checks.add(new Check("Posições abertas", open < maxPos, String.valueOf(open), "< " + maxPos));
+        long pendingOpen = repo.openOrders("OPEN");
+        long open = positions.size() + pendingOpen;
+        int maxPos = riskHolder.get().global().maxPositions();
+        checks.add(new Check("Posições abertas", open < maxPos, String.valueOf(open), "< " + maxPos + " na conta"));
+        long openMarket = positions.stream().filter(p -> marketOf(p.symbol()).equals(market)).count()
+                + repo.openOrders("OPEN", market);
+        checks.add(new Check("Posições no mercado", openMarket < mr.maxPositions(), String.valueOf(openMarket),
+                "< " + mr.maxPositions() + " em " + market));
         boolean samePair = positions.stream().anyMatch(p -> p.symbol().equals(symbol));
         checks.add(new Check("Par livre", !samePair, samePair ? "já há posição em " + symbol : "livre",
                 "sem posição no mesmo par"));
-        double openRisk = 0;
+        double openRisk = 0, openRiskMarket = 0;
         boolean allWithStop = true;
         double usdNet = 0;
         for (TradeRepository.Position p : positions) {
@@ -234,14 +257,20 @@ public class OrderService {
             }
             double r = pi.lossPerLot(Math.abs(p.openPrice() - p.sl())) * p.volume();
             openRisk += r;
-            if (pi.market() == Market.FX) usdNet += usdSign(p.symbol(), p.side()) * r;
+            if (pi.market() == inst.market()) openRiskMarket += r;
+            usdNet += usdSign(p.symbol(), p.side()) * r * usdWeight(pi.market());
         }
-        double newOpen = openRisk + (riskUsd == null ? 0 : riskUsd);
-        double openCap = balance == null ? 0 : balance * Math.min(riskHolder.get().global().maxOpenRiskPct(), mr.maxOpenRiskPct()) / 100;
-        checks.add(new Check("Risco aberto total", allWithStop && balance != null && newOpen <= openCap + 1e-9,
-                allWithStop ? usd(newOpen) + pct(newOpen, balance) : "posição sem stop na conta", "≤ " + usd(openCap)));
-        int sign = inst.market() == Market.FX ? usdSign(symbol, side) : 0;   // exposição a USD: só no forex
-        double usdAfter = Math.abs(usdNet + sign * (riskUsd == null ? 0 : riskUsd) * mr.usdWeight());
+        double newRisk = riskUsd == null ? 0 : riskUsd;
+        double openCap = balance == null ? 0 : balance * riskHolder.get().global().maxOpenRiskPct() / 100;
+        checks.add(new Check("Risco aberto total", allWithStop && balance != null && openRisk + newRisk <= openCap + 1e-9,
+                allWithStop ? usd(openRisk + newRisk) + pct(openRisk + newRisk, balance) : "posição sem stop na conta",
+                "≤ " + usd(openCap) + " na conta"));
+        double marketCap = balance == null ? 0 : balance * mr.maxOpenRiskPct() / 100;
+        checks.add(new Check("Risco aberto no mercado", balance != null && openRiskMarket + newRisk <= marketCap + 1e-9,
+                usd(openRiskMarket + newRisk) + pct(openRiskMarket + newRisk, balance), "≤ " + usd(marketCap) + " em " + market));
+        // exposição a USD: cada posição pelo peso do mercado dela (ouro, bitcoin, petróleo: comprar = vender dólar)
+        int sign = usdSign(symbol, side);
+        double usdAfter = Math.abs(usdNet + sign * newRisk * mr.usdWeight());
         double usdCap = balance == null ? 0 : balance * riskHolder.get().global().maxUsdNetExposurePct() / 100;
         checks.add(new Check("Exposição líquida a USD", balance != null && usdAfter <= usdCap + 1e-9,
                 usd(usdAfter), "≤ " + usd(usdCap)));
@@ -532,6 +561,12 @@ public class OrderService {
     }
 
     /** +1 se a posição ganha com o USD subindo, −1 se perde, 0 se o par não tem USD. */
+    /** Peso do mercado na exposição líquida a USD (trading.risk.markets.<m>.usd-weight; sem configuração: forex 1, resto 0). */
+    private double usdWeight(Market m) {
+        RiskSettings.MarketRisk r = riskHolder.get().markets().get(m);
+        return r == null ? (m == Market.FX ? 1.0 : 0.0) : r.usdWeight();
+    }
+
     static int usdSign(String symbol, String side) {
         int s = "BUY".equals(side) ? 1 : -1;
         if (symbol.startsWith("USD")) return s;

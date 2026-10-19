@@ -54,6 +54,7 @@ export const HELP: Record<string, string> = {
   blackoutBeforeMinutes: 'Gate 2: sem entrada nova nos N minutos ANTES de um evento de importância alta da moeda (o preço salta e o spread abre).',
   blackoutAfterMinutes: 'Gate 2: … nem nos N minutos DEPOIS do evento.',
   maxSpreadRatio: 'Gate 3: o spread atual pode ser no máximo N vezes o spread típico daquele horário (mediana dos últimos 20 dias).',
+  roletaCampos: 'A Roleta russa ignora parte das travas de risco por ordem (escolha do operador): teto e alvo de risco da ordem, exposição ao dólar, margem, spread e blackout. Respeita as técnicas (EA, cotação, ATR, lote, sessão), a perda do dia/semana (que para tudo) e, desde 19/10, o limite de posições (conta e mercado), um por par, mercado ligado e risco aberto.',
   sessionMarginMinutes: 'Sem entrada se a saída por tempo cair depois do fim da sessão do símbolo (ou a menos destes minutos dele). Evita posição presa no fim de semana ou no fechamento diário das ações. O EA 2.5 informa quando a sessão de cada símbolo termina.',
   minMarginLevelPct: 'Sem entrada nova se o nível de margem (patrimônio ÷ margem) estiver abaixo disso. 300% = folga grande antes do stop-out.',
 
