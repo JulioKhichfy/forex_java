@@ -405,12 +405,87 @@ public class OrderService {
      * bloqueado por BLOCK.
      */
     public synchronized long modify(TradeRepository.Position pos, double slPrice, Double tpPrice, String why) {
+        return modify(pos, slPrice, tpPrice, why, null);
+    }
+
+    private long modify(TradeRepository.Position pos, double slPrice, Double tpPrice, String why, String mode) {
         Instant now = Instant.now();
         return repo.insertOrder(new TradeRepository.Order(null, marketOf(pos.symbol()), pos.symbol(), "MODIFY", pos.side(),
                 pos.volume(), null, null, null, null, null, riskHolder.get().orders().deviationPoints(), null,
                 pos.ticket(), null, "[]", trading.mode() == TradingProperties.Mode.SHADOW ? "SHADOW" : "PENDING", why,
                 null, pos.account(), now, now.plusSeconds(riskHolder.get().orders().validitySeconds()), null, null,
-                slPrice, tpPrice));
+                slPrice, tpPrice, mode));
+    }
+
+    /** Resultado da edição de stop/alvo pelo dashboard: a ordem MODIFY gravada ou (orderId null) o motivo da recusa. */
+    public record StopEdit(Long orderId, String message, Double slUsd, Double tpUsd) {
+    }
+
+    /**
+     * Edição manual de stop e alvo de uma posição aberta (página Operar, pedido do operador em 20/10/2026). O stop pode
+     * se afastar, mas a perda nele não passa do teto por operação (página Risco); stop e alvo do lado certo e além da
+     * distância mínima da corretora; o stop nunca é removido (falhar fechado). {@code tp} null = mantém o alvo atual.
+     * Precisa do EA 2.6 (MODIFY MANUAL). Como fechar, proteger não é bloqueado por BLOCK.
+     */
+    public synchronized StopEdit editStops(long ticket, Double sl, Double tp) {
+        TradeRepository.Position pos = repo.positions().stream().filter(p -> p.ticket() == ticket).findFirst().orElse(null);
+        if (pos == null) return refuse("A posição " + ticket + " não está aberta nesta conta.");
+        if (sl == null || !(sl > 0)) return refuse("O stop é obrigatório: toda posição fica com stop no servidor da corretora.");
+        Optional<TradeRepository.Account> acc = repo.latestAccount();
+        long silence = acc.map(a -> a.reportedAt() == null ? Long.MAX_VALUE
+                : Duration.between(a.reportedAt(), Instant.now()).toSeconds()).orElse(Long.MAX_VALUE);
+        if (silence > EA_MAX_SILENCE_SECONDS) return refuse("O EA não mandou heartbeat nos últimos " + EA_MAX_SILENCE_SECONDS + " s.");
+        JsonNode detail = read(acc.get().detailJson());
+        if (!eaAtLeast(detail.path("ea_version").asText(""), 2, 6)) {
+            return refuse("O EA conectado (" + detail.path("ea_version").asText("versão desconhecida") + ") não edita stop e alvo: "
+                    + "precisa da 2.6 (rode mql5\\install.ps1 e recarregue o JevExecutor).");
+        }
+        JsonNode quote = null;
+        for (JsonNode q : detail.path("quotes")) if (pos.symbol().equals(q.path("symbol").asText())) quote = q;
+        if (quote == null) return refuse("Sem cotação de " + pos.symbol() + " no heartbeat do EA.");
+        double bid = quote.path("bid").asDouble(), ask = quote.path("ask").asDouble();
+        Instrument inst = instrument(pos.symbol());
+        if (inst == null) return refuse("Sem especificação de " + pos.symbol() + ".");
+        Mt5Parsers.InstrumentSpec sp = spec(pos.symbol());
+        double point = sp == null ? inst.tickSize() : sp.point();
+        double minDist = (sp == null || sp.stopsLevel() == null ? 0 : sp.stopsLevel()) * point + point;
+        boolean buy = "BUY".equals(pos.side());
+        Double target = tp != null ? tp : pos.tp() != null && pos.tp() > 0 ? pos.tp() : null;
+        if (target == null || !(target > 0)) return refuse("Informe o alvo (a posição está sem alvo).");
+        double slP = onTick(sl, inst.tickSize()), tpP = onTick(target, inst.tickSize());
+        if (buy && slP > bid - minDist) return refuse(String.format(Locale.ROOT, "Compra: o stop precisa ficar abaixo de %s (bid %s menos a distância mínima da corretora).", fmt(bid - minDist, 6), fmt(bid, 6)));
+        if (!buy && slP < ask + minDist) return refuse(String.format(Locale.ROOT, "Venda: o stop precisa ficar acima de %s (ask %s mais a distância mínima da corretora).", fmt(ask + minDist, 6), fmt(ask, 6)));
+        if (buy && tpP < bid + minDist) return refuse(String.format(Locale.ROOT, "Compra: o alvo precisa ficar acima de %s.", fmt(bid + minDist, 6)));
+        if (!buy && tpP > ask - minDist) return refuse(String.format(Locale.ROOT, "Venda: o alvo precisa ficar abaixo de %s.", fmt(ask - minDist, 6)));
+        double perPrice = inst.lossPerLot(1.0) * pos.volume();
+        double slUsd = (buy ? slP - pos.openPrice() : pos.openPrice() - slP) * perPrice;   // negativo = perda no stop
+        double tpUsd = (buy ? tpP - pos.openPrice() : pos.openPrice() - tpP) * perPrice;
+        Double balance = acc.get().balance();
+        double cap = balance == null ? 0 : riskHolder.get().global().maxRiskPerTradeMoney(balance);
+        if (-slUsd > cap + 1e-9) {
+            return refuse(String.format(Locale.ROOT, "A perda no novo stop (US$ %.2f) passa do teto por operação (US$ %.2f, página Risco).", -slUsd, cap));
+        }
+        String why = String.format(Locale.ROOT, "editado no dashboard: stop %s (%s US$ %.2f), alvo %s (+US$ %.2f)",
+                fmt(slP, 6), slUsd >= 0 ? "garante" : "perde", Math.abs(slUsd), fmt(tpP, 6), tpUsd);
+        long id = modify(pos, slP, tpP, why, "MANUAL");
+        return new StopEdit(id, why, slUsd, tpUsd);
+    }
+
+    private static StopEdit refuse(String why) {
+        return new StopEdit(null, why, null, null);
+    }
+
+    /** O heartbeat traz "JevExecutor/2.6": versão ≥ major.minor. */
+    static boolean eaAtLeast(String version, int wantMajor, int wantMinor) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("/(\\d+)\\.(\\d+)").matcher(version == null ? "" : version);
+        if (!m.find()) return false;
+        int major = Integer.parseInt(m.group(1)), minor = Integer.parseInt(m.group(2));
+        return major > wantMajor || (major == wantMajor && minor >= wantMinor);
+    }
+
+    private static double onTick(double price, double tick) {
+        if (!(tick > 0)) return price;
+        return java.math.BigDecimal.valueOf(Math.round(price / tick)).multiply(java.math.BigDecimal.valueOf(tick)).doubleValue();
     }
 
     /** Fecha uma posição (botão no dashboard ou saída por tempo). Fechar nunca é bloqueado por BLOCK. */

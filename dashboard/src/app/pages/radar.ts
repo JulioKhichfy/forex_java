@@ -1,6 +1,7 @@
 import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Api, CalendarItem, LatestPredictions, NewsItem, Prediction, ScanAlert, ScanSnapshot, ScanSymbol, ScanTf } from '../api';
+import { RouterLink } from '@angular/router';
 import { Tip } from './tip';
 import { Brt } from '../brt';
 import { MarketState } from '../market';
@@ -29,6 +30,7 @@ const KINDS: { code: string; label: string; help: string }[] = [
   { code: 'STREAK', label: 'Sequência', help: 'radarStreak' },
   { code: 'EMA', label: 'Médias', help: 'radarEma' },
   { code: 'BREAKOUT', label: 'Rompimento', help: 'radarBreakout' },
+  { code: 'TRES_TOPOS', label: 'Três topos', help: 'radarTresTopos' },
   { code: 'RANGE', label: 'Amplitude', help: 'radarRange' },
   { code: 'GAP', label: 'Gap', help: 'radarGap' },
   { code: 'SPREAD', label: 'Spread', help: 'radarSpread' },
@@ -43,7 +45,7 @@ const STALE_MIN = 10;
 
 @Component({
   selector: 'page-radar',
-  imports: [DatePipe, DecimalPipe, Tip, Brt],
+  imports: [DatePipe, DecimalPipe, Tip, Brt, RouterLink],
   template: `
     <div class="notice">
       <b>Radar = o que o preço está fazendo agora, não sinal.</b> Nenhum destes alertas foi validado como entrada: a volta
@@ -105,7 +107,8 @@ const STALE_MIN = 10;
               </td>
               <td class="nowrap"><span class="badge" [class.buy]="a.dir === 'up'" [class.sell]="a.dir === 'down'">{{ label(a.kind) }}</span></td>
               <td class="small">{{ a.tf }}</td>
-              <td>@if (a.url) { <a [href]="a.url" target="_blank" rel="noopener">{{ a.text }}</a> } @else { {{ a.text }} }</td>
+              <td>@if (a.url) { <a [href]="a.url" target="_blank" rel="noopener">{{ a.text }}</a> } @else { {{ a.text }} }
+                @if (a.kind === 'TRES_TOPOS' && a.symbol) { <a class="sellbtn" routerLink="/operar" [queryParams]="{ symbol: a.symbol, side: 'SELL' }" title="Abre a página Operar com a venda calculada: todas as travas valem. Teste 2022–26: vender no três topos deu E[R] negativo.">Vender</a> }</td>
               <td class="nowrap sev" [title]="sevTitle(a.severity)">{{ dots(a.severity) }}</td>
             </tr>
           } @empty {
@@ -287,7 +290,8 @@ const STALE_MIN = 10;
                 <tr>
                   <td class="nowrap small mono" [brt]="a.at">{{ a.at | date: 'dd/MM HH:mm' : 'UTC' }}</td>
                   <td><span class="badge" [class.buy]="a.dir === 'up'" [class.sell]="a.dir === 'down'">{{ label(a.kind) }}</span></td>
-                  <td>{{ a.text }}</td>
+                  <td>{{ a.text }}
+                    @if (a.kind === 'TRES_TOPOS') { <a class="sellbtn" routerLink="/operar" [queryParams]="{ symbol: s.symbol, side: 'SELL' }">Vender</a> }</td>
                   <td class="sev">{{ dots(a.severity) }}</td>
                 </tr>
               } @empty {
@@ -300,6 +304,7 @@ const STALE_MIN = 10;
     }
   `,
   styles: `
+    a.sellbtn { margin-left: 8px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--down); color: var(--down); font-size: 12px; white-space: nowrap; }
     .bar { display: grid; gap: 8px; }
     .status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .status button { margin-left: auto; }

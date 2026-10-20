@@ -103,6 +103,7 @@ public final class Scanner {
             moves.add(move("24h", m1, 1440, atrOf(states, Tf.D1), null, 0));
         }
         Day day = day(in.bars().getOrDefault(Tf.D1, List.of()), price, atrOf(states, Tf.D1), now, moves, alerts);
+        for (Tf tf : List.of(Tf.M5, Tf.M15)) tripleTop(tf, in.bars().getOrDefault(tf, List.of()), alerts);
         if (last != null) gaps(m1, atrOf(states, Tf.H1), alerts);
 
         Double spreadRatio = in.spreadNow() == null || in.spreadTypical() == null || in.spreadTypical() <= 0 ? null
@@ -116,6 +117,31 @@ public final class Scanner {
                 .thenComparing(Alert::at, Comparator.nullsLast(Comparator.reverseOrder())));
         return new Result(in.symbol(), in.currencies(), last == null ? null : utc(last.t()), price, in.spreadNow(),
                 spreadRatio, moves, List.copyOf(states.values()), day, alerts);
+    }
+
+    /**
+     * Três topos (pedido do operador em 20/10/2026): alerta de venda clássica. Testado em 2022–26 com E[R] negativo —
+     * o texto diz isso. value = linha de pescoço.
+     */
+    private static void tripleTop(Tf tf, List<Bar> all, List<Alert> alerts) {
+        TripleTop.Pattern p = TripleTop.latest(all);
+        if (p == null) return;
+        List<Bar> closed = all.stream().filter(Bar::closed).toList();
+        // quando aconteceu: o fechamento abaixo do pescoço ou, sem ele, o 3º topo (fim da barra)
+        int ago = p.broken() ? p.brokeAgo() : p.barsAgo();
+        LocalDateTime at = closed.get(closed.size() - 1 - ago).t().plusMinutes(tf.minutes);
+        String text = p.broken()
+                ? f("Três topos: fechou abaixo do pescoço %s há %d barra(s) · topo %s · alvo clássico %s "
+                        + "(teste 2022–26: vender aqui deu E[R] negativo)", price(p.neck()), p.brokeAgo(), price(p.top()),
+                        price(p.neck() - p.height()))
+                : f("Três topos formados (topo %s): a venda clássica espera fechar abaixo do pescoço %s "
+                        + "(teste 2022–26: E[R] negativo)", price(p.top()), price(p.neck()));
+        alerts.add(new Alert("TRES_TOPOS", tf.name(), p.broken() ? 3 : 2, "down", text, p.neck(), at));
+    }
+
+    /** Preço com as casas que o número pede (5 no forex, 2–3 em ouro e índices). */
+    private static String price(double v) {
+        return f(v >= 1000 ? "%.2f" : v >= 10 ? "%.3f" : "%.5f", v);
     }
 
     private static Double atrOf(Map<Tf, TfState> states, Tf tf) {

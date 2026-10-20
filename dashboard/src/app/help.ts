@@ -55,6 +55,7 @@ export const HELP: Record<string, string> = {
   blackoutAfterMinutes: 'Gate 2: … nem nos N minutos DEPOIS do evento.',
   maxSpreadRatio: 'Gate 3: o spread atual pode ser no máximo N vezes o spread típico daquele horário (mediana dos últimos 20 dias).',
   roletaCampos: 'A Roleta russa ignora parte das travas de risco por ordem (escolha do operador): teto e alvo de risco da ordem, exposição ao dólar, margem, spread e blackout. Respeita as técnicas (EA, cotação, ATR, lote, sessão), a perda do dia/semana (que para tudo) e, desde 19/10, o limite de posições (conta e mercado), um por par, mercado ligado e risco aberto.',
+  radarTresTopos: 'Três topos em M5 ou M15: três máximas na mesma altura (até 0,5 ATR de diferença) depois de uma alta, com a linha de pescoço na menor mínima entre elas. Forte (●●●) = já fechou abaixo do pescoço. O botão Vender abre a página Operar com a venda calculada (todas as travas valem). Teste de 20/10/2026 em 2022–26, todos os mercados, com spread: vender no padrão deu E[R] negativo em tudo (ouro M5 −0,07 R; forex M15 −0,18 R), igual ou pior que vender num momento qualquer.',
   sessionMarginMinutes: 'Sem entrada se a saída por tempo cair depois do fim da sessão do símbolo (ou a menos destes minutos dele). Evita posição presa no fim de semana ou no fechamento diário das ações. O EA 2.5 informa quando a sessão de cada símbolo termina.',
   minMarginLevelPct: 'Sem entrada nova se o nível de margem (patrimônio ÷ margem) estiver abaixo disso. 300% = folga grande antes do stop-out.',
 

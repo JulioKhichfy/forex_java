@@ -55,6 +55,22 @@ class OutcomesTest {
             assertEquals((1.1005 - 1.1001) / 0.0015, r(sql, "o", "AUDUSD", "r_buy"), 1e-9);
             assertEquals((1.1000 - 1.1006) / 0.0015, r(sql, "o", "AUDUSD", "r_sell"), 1e-9);
             assertEquals((1.1010 - 1.1001) / 0.0015, r(sql, "late", "AUDUSD", "r_buy"), 1e-9);
+
+            // laboratório: a grade de saídas numa passada dá o mesmo que cada saída separada
+            sql.execute("CREATE TEMP TABLE exits AS SELECT * FROM (VALUES (1.0, 1.0), (1.5, 1.5), (2.0, 3.0)) v(stop_atr, target_r)");
+            String moments = "SELECT symbol, moment_utc, atr, entry_t AS want_in FROM read_parquet('"
+                    + LakeSql.slashes(labels) + "/**/*.parquet', hive_partitioning = true) WHERE horizon_min = 15";
+            Outcomes.createGrid(sql, moments, "g", 15);
+            for (double[] ex : new double[][]{{1.0, 1.0}, {1.5, 1.5}, {2.0, 3.0}}) {
+                Outcomes.createFrom(sql, moments, "one", 15, ex[0], ex[1]);
+                for (String s : List.of("EURUSD", "GBPUSD", "AUDUSD")) {
+                    for (String col : List.of("r_buy", "r_sell")) {
+                        double grid = sql.query("SELECT " + col + " FROM g WHERE symbol = '" + s + "' AND stop_atr = " + ex[0]
+                                + " AND target_r = " + ex[1], rs -> rs.getDouble(1)).get(0);
+                        assertEquals(r(sql, "one", s, col), grid, 1e-9, s + " " + col + " stop " + ex[0] + " alvo " + ex[1]);
+                    }
+                }
+            }
         }
     }
 

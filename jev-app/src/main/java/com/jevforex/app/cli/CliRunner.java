@@ -112,6 +112,8 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
     private final com.jevforex.collect.news.GdeltCollector gdelt;
     private final com.jevforex.collect.news.EdgarCollector edgar;
     private final com.jevforex.collect.news.NewsProperties newsProps;
+    private final com.jevforex.app.live.PredictionRepository predictionRepo;
+    private final com.jevforex.app.trade.OrderService orders;
 
     public CliRunner(JevClient jev, QuestionSetRegistry questionSets, JevCallRepository jevCalls,
                      RawDocumentRepository documents, FeedCollector collector, LakeStorage lake,
@@ -122,7 +124,10 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                      ArchiveCollector archiveCollector, JevScorer jevScorer, JevSignalExporter jevSignalExporter,
                      LivePredictionService livePredictions, PredictionResolver predictionResolver,
                      com.jevforex.app.live.ScannerService scanner, com.jevforex.collect.news.GdeltCollector gdelt,
-                     com.jevforex.collect.news.EdgarCollector edgar, com.jevforex.collect.news.NewsProperties newsProps) {
+                     com.jevforex.collect.news.EdgarCollector edgar, com.jevforex.collect.news.NewsProperties newsProps,
+                     com.jevforex.app.live.PredictionRepository predictionRepo, com.jevforex.app.trade.OrderService orders) {
+        this.predictionRepo = predictionRepo;
+        this.orders = orders;
         this.scanner = scanner;
         this.gdelt = gdelt;
         this.edgar = edgar;
@@ -177,6 +182,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.PROMOTE -> promote(args);
                 case Commands.PREDICT_NOW -> predictNow(args);
                 case Commands.SCAN -> scan(args);
+                case Commands.LAB -> lab(args);
                 case Commands.BACKFILL_NEWS -> backfillNews(args);
                 case Commands.COLLECT_NEWS_ONCE -> collectNewsOnce();
                 case Commands.RESOLVE_PREDICTIONS -> System.out.println("Placar: " + predictionResolver.resolve()
@@ -560,6 +566,73 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
         } else {
             System.out.println("EDGAR: sem contato da SEC (defina EDGAR_USER_AGENT=\"Nome email@dominio\")");
         }
+    }
+
+    // ------------------------------------------------------------------ laboratório de configuração
+
+    /**
+     * Laboratório (pedido do operador em 19/10/2026): grade de entradas e saídas sobre as previsões fora da amostra e
+     * as ao vivo; grava reports/lab/market=&lt;m&gt;/latest.json, que a página Laboratório mostra.
+     */
+    private void lab(ApplicationArguments args) throws java.io.IOException {
+        String market = com.jevforex.core.Market.fromCode(opt(args, "market", "fx")).code();
+        java.time.LocalDate split = java.time.LocalDate.parse(opt(args, "split", "2025-07-01"));
+        int minTrades = Integer.parseInt(opt(args, "min-trades", "30"));
+        FeatureConfig cfg = featureProps.toConfig();
+        RiskSettings.Exits exits = risk.exitsFor(com.jevforex.core.Market.fromCode(market));
+        java.time.Instant liveFrom = java.time.Instant.parse("2026-10-01T00:00:00Z");
+        List<com.jevforex.app.live.PredictionRepository.Prediction> hist = predictionRepo.history(market, null, liveFrom, 500_000);
+        List<com.jevforex.ml.RiskLab.LivePrediction> live = new java.util.ArrayList<>();
+        for (var p : hist) {
+            if (p.atr() == null || p.momentUtc().isAfter(java.time.Instant.now().minus(java.time.Duration.ofMinutes(p.horizonMin() + 5)))) continue;
+            live.add(new com.jevforex.ml.RiskLab.LivePrediction(p.symbol(), p.momentUtc(), p.kind(), p.model(), p.horizonMin(),
+                    p.pDown(), p.pFlat(), p.pUp(), p.atr()));
+        }
+        System.out.printf(Locale.ROOT, "Laboratório %s: %d previsões ao vivo passadas, saídas de hoje stop %.2f ATR / alvo %.2f R%n",
+                market, live.size(), exits.stopAtr(), exits.targetR());
+        com.jevforex.ml.RiskLab.Report r;
+        try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb-lab"), silver.duckdbMemory())) {
+            r = new com.jevforex.ml.RiskLab(lake.root(), market, experimentProps.symbolsOf(market), cfg.fset(), split,
+                    cfg.entryDelayMinutes(), minTrades, exits.stopAtr(), exits.targetR()).run(sql, live);
+        }
+        // US$ por 1 ATR com o lote mínimo, por símbolo (ATR mediano das previsões ao vivo): a página converte R em US$
+        Map<String, Double> usdPerAtr = new java.util.TreeMap<>();
+        Map<String, List<Double>> atrs = new java.util.HashMap<>();
+        for (var p : hist) if (p.atr() != null && p.atr() > 0) atrs.computeIfAbsent(p.symbol(), k -> new java.util.ArrayList<>()).add(p.atr());
+        atrs.forEach((s, l) -> {
+            com.jevforex.core.Instrument inst = orders.instrument(s);
+            if (inst == null) return;
+            java.util.Collections.sort(l);
+            usdPerAtr.put(s, inst.lossPerLot(l.get(l.size() / 2)) * inst.minLot());
+        });
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("report", r);
+        out.put("usd_per_atr_min_lot", usdPerAtr);
+        out.put("current_exits", exits);
+        Path dir = lake.root().resolve("reports/lab/market=" + market);
+        java.nio.file.Files.createDirectories(dir);
+        String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(out);
+        java.nio.file.Files.writeString(dir.resolve("latest.json"), json);
+        java.nio.file.Files.writeString(dir.resolve(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+                .withZone(java.time.ZoneOffset.UTC).format(r.builtAt()) + ".json"), json);
+        System.out.printf(Locale.ROOT, "%d configurações em %.0f s · walk-forward %s · cofre %s%n", r.configs(), r.seconds(),
+                r.wfRun(), r.lockboxRun());
+        System.out.printf(Locale.ROOT, "Sobrevivência: %d de %d das melhores na escolha seguiram positivas na confirmação%n",
+                r.survivors(), r.survivalOf());
+        System.out.printf(Locale.ROOT, "Taxa de base: %d de %d configurações positivas na escolha seguiram positivas%n", r.baseSurvivors(), r.baseOf());
+        for (var row : r.top().subList(0, Math.min(5, r.top().size()))) System.out.println("  " + labRow(row));
+        System.out.println(r.recommended() == null ? "Recomendação: nenhuma configuração passou (não operar este mercado)."
+                : "Recomendação: " + labRow(r.recommended()));
+        System.out.println("Gravado em " + dir.resolve("latest.json"));
+    }
+
+    private static String labRow(com.jevforex.ml.RiskLab.Row row) {
+        var c = row.config();
+        java.util.function.Function<com.jevforex.ml.RiskLab.Stats, String> f = s -> s == null ? "—"
+                : String.format(Locale.ROOT, "%+.3f R (%d)", s.er(), s.n());
+        return String.format(Locale.ROOT, "%s %dmin %s P≥%.2f m≥%.2f%s stop %.1f alvo %.1f · escolha %s · confirmação %s · ao vivo %s",
+                c.model(), c.horizon(), c.kind(), c.pMin(), c.mMin(), c.skipFlat() ? " pula LATERAL" : "", c.stopAtr(),
+                c.targetR(), f.apply(row.choose()), f.apply(row.confirm()), f.apply(row.live()));
     }
 
     // ------------------------------------------------------------------ features (gold)

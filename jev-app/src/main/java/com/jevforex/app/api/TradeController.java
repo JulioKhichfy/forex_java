@@ -29,6 +29,7 @@ import java.util.Map;
  * POST /api/trade/preview          {symbol, side, lot?} → travas, stop/alvo e risco em US$, sem enviar nada
  * POST /api/trade/orders           {symbol, side, lot?} → confere de novo e grava para o EA (ou recusa)
  * POST /api/trade/close/{ticket}   fecha uma posição
+ * POST /api/trade/stops/{ticket}   {sl, tp?} edita stop e alvo de uma posição aberta (EA 2.6)
  * POST /api/trade/flatten          fecha tudo e liga o BLOCK
  * POST /api/trade/block?on=true    liga/desliga entradas novas
  * POST /api/trade/lot?value=0.01   lote do tíquete (até trading.risk.orders.max-lot)
@@ -148,6 +149,16 @@ public class TradeController {
         return Map.of("blocked", on);
     }
 
+
+    public record StopsRequest(Double sl, Double tp) {
+    }
+
+    /** Edição manual de stop e alvo de uma posição aberta (EA 2.6); 409 com o motivo quando recusada. */
+    @PostMapping("/stops/{ticket}")
+    public ResponseEntity<OrderService.StopEdit> stops(@PathVariable long ticket, @RequestBody StopsRequest r) {
+        OrderService.StopEdit e = orders.editStops(ticket, r.sl(), r.tp());
+        return e.orderId() == null ? ResponseEntity.status(409).body(e) : ResponseEntity.ok(e);
+    }
 
     @PostMapping("/time-lock")
     public Map<String, Object> timeLock(@RequestParam boolean on) {

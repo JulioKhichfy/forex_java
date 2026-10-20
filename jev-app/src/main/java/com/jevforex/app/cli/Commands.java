@@ -27,12 +27,13 @@ public final class Commands {
     public static final String SCAN = "scan";
     public static final String BACKFILL_NEWS = "backfill-news";
     public static final String COLLECT_NEWS_ONCE = "collect-news-once";
+    public static final String LAB = "lab";
 
     private static final Set<String> ALL = Set.of(HELP, PING, RISK, ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS,
             NORMALIZE, FEATURES, TRAIN, BACKFILL_BIS, BACKFILL_ARCHIVES, JEV_SCORE, JEV_SIGNALS, TRAIN_CHAMPION, PROMOTE,
-            PREDICT_NOW, RESOLVE_PREDICTIONS, RETRAIN_STUDY, SCAN, BACKFILL_NEWS, COLLECT_NEWS_ONCE);
+            PREDICT_NOW, RESOLVE_PREDICTIONS, RETRAIN_STUDY, SCAN, BACKFILL_NEWS, COLLECT_NEWS_ONCE, LAB);
     private static final Set<String> NEED_DB = Set.of(ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS, BACKFILL_ARCHIVES,
-            JEV_SCORE, JEV_SIGNALS, PREDICT_NOW, RESOLVE_PREDICTIONS);
+            JEV_SCORE, JEV_SIGNALS, PREDICT_NOW, RESOLVE_PREDICTIONS, LAB);
 
     private Commands() {
     }
@@ -89,6 +90,9 @@ public final class Commands {
                                                 histórico de manchetes do GDELT (GKG, filtrado) para o bronze; retoma
                   backfill-news --source=edgar  documentos da SEC das ações (precisa de EDGAR_USER_AGENT)
                   collect-news-once             uma rodada ao vivo de GDELT e EDGAR
+                  lab --market=metals [--split=2025-07-01] [--min-trades=30]
+                                                laboratório: que entrada/saída teria dado mais resultado (escolhe no
+                                                walk-forward até --split, confirma no resto + cofre + ao vivo)
                   ask --qset=cb-text-v1 <fonte> [opções]
                        fontes:  --text="..." | --file=caminho.txt | --latest | --doc=<id>
                        opções:  --issuer="Federal Reserve" --currency=USD --previous="resumo anterior"

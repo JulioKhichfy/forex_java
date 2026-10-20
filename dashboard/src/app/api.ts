@@ -519,6 +519,10 @@ export class Api {
   }
 
 
+  editStops(ticket: number, sl: number, tp: number | null): Observable<{ orderId: number | null; message: string; slUsd: number | null; tpUsd: number | null }> {
+    return this.http.post<{ orderId: number | null; message: string; slUsd: number | null; tpUsd: number | null }>(`/api/trade/stops/${ticket}`, { sl, tp });
+  }
+
   setTimeLock(on: boolean): Observable<{ money: MoneyExits }> {
     return this.http.post<{ money: MoneyExits }>(`/api/trade/time-lock?on=${on}`, {});
   }

@@ -1,8 +1,8 @@
 import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
-import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, OrderPreview, PositionDetail, Prediction, Submit, TradeState } from '../api';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, OrderPreview, Position, PositionDetail, Prediction, Submit, TradeState } from '../api';
 import { ProbBar } from './prob-bar';
 import { Tip } from './tip';
 import { Brt } from '../brt';
@@ -63,6 +63,9 @@ import { MyTrades } from './my-trades';
 
         <section class="panel">
           <h3>Nova ordem</h3>
+          @if (fromRadar(); as fr) {
+            <p class="small warn-text">{{ fr }} (três topos). Confira as travas e confirme; o teste de 2022–26 deu E[R] negativo para vender neste padrão.</p>
+          }
           <div class="ticket">
             <label>Par
               <select [(ngModel)]="symbol" (ngModelChange)="resetPreview()">
@@ -176,9 +179,22 @@ import { MyTrades } from './my-trades';
               <td class="small">{{ originText(d) }}</td>
               <td class="mono" [class.warn]="d?.timeLockUntil">{{ remaining(d) }}</td>
               <td class="small mono" [brt]="p.openTime">{{ p.openTime | date: 'dd/MM HH:mm' : 'UTC' }}</td>
-              <td><button (click)="close(p.ticket)">Fechar</button></td>
+              <td class="nowrap"><button (click)="startEdit(p)">Editar</button> <button (click)="close(p.ticket)">Fechar</button></td>
             </tr>
             <tr class="sub"><td></td><td colspan="11" class="small muted">{{ detailText(d) }}</td></tr>
+            @if (editing() === p.ticket) {
+              <tr class="edit"><td></td><td colspan="11">
+                <div class="editbox">
+                  <label class="small">Stop (SL) <input type="number" [step]="priceStep(p.symbol)" [(ngModel)]="editSl" /></label>
+                  <label class="small">Alvo (TP) <input type="number" [step]="priceStep(p.symbol)" [(ngModel)]="editTp" /></label>
+                  <span class="small mono">{{ editPreview(p, d) }}</span>
+                  <button class="primary" (click)="saveEdit(p)" [disabled]="editSaving()">{{ editSaving() ? 'Enviando…' : 'Aplicar no servidor' }}</button>
+                  <button (click)="editing.set(null)">Cancelar</button>
+                  <tip text="O EA move o stop e o alvo no servidor da corretora (precisa do JevExecutor 2.6). O stop pode se afastar, mas a perda nele não pode passar do teto por operação da página Risco; não dá para tirar o stop. Com o trailing ou a proteção ligados, eles continuam podendo subir o stop depois." />
+                </div>
+                @if (editMsg(); as m) { <p class="small" [class.down]="m.error" [class.up]="!m.error">{{ m.text }}</p> }
+              </td></tr>
+            }
           } @empty {
             <tr><td colspan="12" class="muted">Nenhuma posição aberta.</td></tr>
           }
@@ -233,11 +249,18 @@ import { MyTrades } from './my-trades';
     .positions tr.main td { border-bottom: none; }
     .positions tr.sub td { padding-top: 0; }
     td.warn { color: var(--warn, #d97706); }
+    .warn-text { color: var(--warn, #d97706); }
+    .editbox { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .editbox input { width: 120px; }
   `,
 })
 export class Operar implements OnInit, OnDestroy {
   private api = inject(Api);
   private marketState = inject(MarketState);
+  private route = inject(ActivatedRoute);
+  /** Vindo do Radar (botão Vender do três topos): calcula a ordem assim que os símbolos chegarem. */
+  private pendingSide: 'BUY' | 'SELL' | null = null;
+  protected fromRadar = signal<string | null>(null);
   protected names = MODEL_NAMES;
   protected models = MODEL_ORDER;
   protected state = signal<TradeState | null>(null);
@@ -246,6 +269,12 @@ export class Operar implements OnInit, OnDestroy {
   protected result = signal<Submit | null>(null);
   protected sending = signal(false);
   protected lockSaving = signal(false);
+  /** Edição de stop/alvo de uma posição (ticket em edição). */
+  protected editing = signal<number | null>(null);
+  protected editSl: number | null = null;
+  protected editTp: number | null = null;
+  protected editSaving = signal(false);
+  protected editMsg = signal<{ text: string; error: boolean } | null>(null);
   /** Relógio de 1 s para a contagem até a saída por tempo. */
   protected now = signal(Date.now());
   private clock?: ReturnType<typeof setInterval>;
@@ -279,6 +308,13 @@ export class Operar implements OnInit, OnDestroy {
   private timer?: ReturnType<typeof setInterval>;
 
   constructor() {
+    const q = this.route.snapshot.queryParamMap;
+    const sym = q.get('symbol'), side = q.get('side');
+    if (sym && (side === 'BUY' || side === 'SELL')) {
+      this.symbol = sym;
+      this.pendingSide = side;
+      this.fromRadar.set(` de ${sym} aberta pelo Radar`);
+    }
     effect(() => {
       const m = this.marketState.market();
       const list = this.state()?.symbols_by_market?.[m] ?? [];
@@ -395,6 +431,45 @@ export class Operar implements OnInit, OnDestroy {
     });
   }
 
+  protected startEdit(p: Position): void {
+    this.editing.set(p.ticket);
+    this.editSl = p.sl;
+    this.editTp = p.tp;
+    this.editMsg.set(null);
+  }
+
+  protected priceStep(symbol: string): number {
+    return symbol.endsWith('JPY') ? 0.001 : symbol.length === 6 && !symbol.startsWith('X') ? 0.00001 : 0.01;
+  }
+
+  /** US$ por 1,0 de preço desta posição, deduzido do resultado no stop de agora (vem do servidor). */
+  private perPrice(p: Position, d: PositionDetail | undefined): number | null {
+    if (!d || d.slUsd == null || p.sl == null || p.sl === p.openPrice) return null;
+    const sign = p.side === 'BUY' ? 1 : -1;
+    return d.slUsd / (sign * (p.sl - p.openPrice));
+  }
+
+  protected editPreview(p: Position, d: PositionDetail | undefined): string {
+    const k = this.perPrice(p, d);
+    if (k === null || this.editSl == null) return '';
+    const sign = p.side === 'BUY' ? 1 : -1;
+    const sl = sign * (this.editSl - p.openPrice) * k;
+    const tp = this.editTp == null ? null : sign * (this.editTp - p.openPrice) * k;
+    return `no stop: ${sl >= 0 ? 'garante +' : 'perde '}US$ ${Math.abs(sl).toFixed(2)}`
+      + (tp === null ? '' : ` · no alvo: ${tp >= 0 ? '+' : '−'}US$ ${Math.abs(tp).toFixed(2)}`);
+  }
+
+  protected saveEdit(p: Position): void {
+    if (this.editSl == null) { this.editMsg.set({ text: 'Informe o stop.', error: true }); return; }
+    const real = this.state()?.mode === 'LIVE';
+    if (!confirm(`${p.symbol} #${p.ticket}: stop ${this.editSl} e alvo ${this.editTp ?? '(mantém)'}?` + (real ? '\n\nCONTA REAL.' : ''))) return;
+    this.editSaving.set(true);
+    this.api.editStops(p.ticket, this.editSl, this.editTp).subscribe({
+      next: (r) => { this.editSaving.set(false); this.editMsg.set({ text: `Enviado ao EA (ordem #${r.orderId}): ${r.message}`, error: false }); this.load(); },
+      error: (e) => { this.editSaving.set(false); this.editMsg.set({ text: e?.error?.message ?? 'não consegui enviar', error: true }); },
+    });
+  }
+
   protected marketNames(codes: string[] | undefined): string {
     return (codes ?? []).map((c) => MARKETS.find((m) => m.code === c)?.label ?? c).join(", ");
   }
@@ -454,6 +529,11 @@ export class Operar implements OnInit, OnDestroy {
       next: (s) => {
         this.state.set(s);
         if (!this.lotLoaded) { this.lot = s.lot; this.lotLoaded = true; }
+        const side = this.pendingSide;
+        if (side && (s.symbols_by_market?.[this.marketState.market()] ?? []).includes(this.symbol)) {
+          this.pendingSide = null;
+          this.calc(side);
+        }
       },
       error: () => this.state.set(null),
     });

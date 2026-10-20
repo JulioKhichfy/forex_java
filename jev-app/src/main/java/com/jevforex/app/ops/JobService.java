@@ -48,6 +48,10 @@ public class JobService {
                 List.of(List.of("normalize"))));
         add(new JobDef("features", "Recalcular features", "silver → gold (features e labels)",
                 List.of(List.of("features"))));
+        add(new JobDef("laboratorio", "Laboratório de configuração",
+                "para cada mercado: a grade de entradas e saídas escolhida no walk-forward e confirmada no resto + cofre "
+                        + "+ ao vivo (página Laboratório; ~25 min)",
+                List.of(List.of("lab"))));
         add(new JobDef("coletar", "Coletar notícias agora", "uma coleta dos feeds dos bancos centrais",
                 List.of(List.of("collect-once"))));
         add(new JobDef("placar", "Atualizar placar", "dá o resultado às previsões com o horizonte vencido",
@@ -85,11 +89,18 @@ public class JobService {
      * normalize uma vez só (reconstrói o silver de todos os mercados).
      */
     List<List<String>> commandsOf(JobDef def) {
+        return commandsOf(def, null);
+    }
+
+    /** {@code market} != null: os comandos por mercado rodam só nele (ex.: o laboratório de um mercado). */
+    List<List<String>> commandsOf(JobDef def, String market) {
         List<List<String>> out = new ArrayList<>();
         for (List<String> cmd : def.commands()) {
             String c = cmd.get(0);
-            if (c.equals("features") || c.equals("train-champion")) {
-                for (String m : experiment.marketList()) out.add(List.of(c, "--market=" + m));
+            if (c.equals("features") || c.equals("train-champion") || c.equals("lab")) {
+                for (String m : experiment.marketList()) {
+                    if (market == null || market.equals(m)) out.add(List.of(c, "--market=" + m));
+                }
             } else {
                 out.add(cmd);
             }
@@ -105,8 +116,15 @@ public class JobService {
     }
 
     public synchronized Status start(String name) {
+        return start(name, null);
+    }
+
+    public synchronized Status start(String name, String market) {
         JobDef def = JOBS.get(name);
         if (def == null) throw new IllegalArgumentException("Tarefa desconhecida: " + name + " " + JOBS.keySet());
+        if (market != null && !experiment.marketList().contains(market)) {
+            throw new IllegalArgumentException("Mercado sem modelo: " + market + " " + experiment.marketList());
+        }
         if (current != null && current.running()) {
             throw new IllegalStateException("Já há uma tarefa rodando: " + current.label());
         }
@@ -114,18 +132,19 @@ public class JobService {
                 + "-" + name;
         Path logFile = lake.root().resolve("reports/jobs").resolve(id + ".log");
         lines.clear();
-        current = new Status(id, name, def.label(), Instant.now(), null, null, null, true, List.of(), logFile.toString());
-        Thread t = new Thread(() -> run(def, id, logFile), "job-" + name);
+        current = new Status(id, name, def.label() + (market == null ? "" : " (" + market + ")"), Instant.now(), null, null,
+                null, true, List.of(), logFile.toString());
+        Thread t = new Thread(() -> run(def, market, id, logFile), "job-" + name);
         t.setDaemon(true);
         t.start();
         return status();
     }
 
-    private void run(JobDef def, String id, Path logFile) {
+    private void run(JobDef def, String market, String id, Path logFile) {
         int exit = 0;
         try {
             Files.createDirectories(logFile.getParent());
-            for (List<String> cmd : commandsOf(def)) {
+            for (List<String> cmd : commandsOf(def, market)) {
                 update(String.join(" ", cmd), null, true);
                 exit = exec(cmd, logFile);
                 if (exit != 0) {

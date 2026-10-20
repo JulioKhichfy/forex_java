@@ -66,6 +66,8 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
   Sessão (16/10): o EA 2.5 manda `session_end` em cada cotação; a trava "Sessão até a saída por tempo" (também na roleta)
   recusa entrada cuja saída cai depois do fim da sessão − `orders.session-margin-minutes`. CLOSE/MODIFY recusado: espera 1 min
   ("market closed": 15 min) antes de pedir de novo.
+  Edição manual de stop/alvo na página Operar (20/10, `OrderService.editStops`, Flyway V13 `modify_mode`=MANUAL, EA 2.6):
+  o stop pode se afastar até o teto por operação; nunca sem stop; lado certo e distância mínima da corretora.
 - **Perfis prontos** (`risk.presets` no application.yml, 15/10): Ultra conservador → Ultra arrojado; um clique na página Risco
   substitui global (inclusive a perda do dia/semana), exits, mercados e campos de orders (`RiskEditor.withPreset`). A página
   Risco tem 3 partes: perfis, stop/alvo em US$ + trailing (`POST /api/risk/money`, só esse bloco) e ajuste fino.
@@ -91,11 +93,11 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-lake | LakeStorage em disco local (bronze/silver/gold), LakeSql (DuckDB embarcado) |
 | jev-normalize | bronze → silver em Parquet: Candle/Calendar/Document/NewsNormalizer, WeeklyOpenCheck, DocumentText (HTML/PDF), Chunker (sem Spring) |
 | jev-features | silver → gold: FeatureBuilder (momentos de decisão, features A/B, labels 15/60 min), FeatureConfig; `scan/`: radar (ScanLoader incremental, Scanner: RSI, Bollinger, volume, ATR, alertas) (sem Spring) |
-| jev-ml | walk-forward: Dataset, Outcomes (stop/alvo/tempo no M1), Gbm (Smile), Metrics, ExperimentRunner (modo cofre), ReportWriter, ModelStore (versões em produção) (sem Spring) |
+| jev-ml | walk-forward: Dataset, Outcomes (stop/alvo/tempo no M1), Gbm (Smile), Metrics, ExperimentRunner (modo cofre), ReportWriter, ModelStore (versões em produção), RiskLab (laboratório de configuração) (sem Spring) |
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5; `news/`: GDELT (GKG) e SEC EDGAR |
 | jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
-| dashboard | Angular 20 (Hoje, Radar, Previsões, Operar, Roleta russa, Stop em US$, Risco, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
-| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.5 (executor com 3 chaves; OPEN, CLOSE, MODIFY com stop e alvo; fim da sessão por símbolo), `install.ps1` |
+| dashboard | Angular 20 (Hoje, Radar, Previsões, Operar, Roleta russa, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
+| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.6 (executor com 3 chaves; OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo), `install.ps1` |
 
 ## Comandos
 ```
@@ -112,6 +114,7 @@ java -Xmx8g -jar jev-app/target/jev-app.jar train [--horizon=60]  # walk-forward
 java -Xmx8g -jar jev-app/target/jev-app.jar train-champion       # modelos de produção (A, E, B) → models/market=fx/<versão>
 java -jar jev-app/target/jev-app.jar promote --version=<v> | predict-now [--at=2026-10-09T15:00] | resolve-predictions
 java -jar jev-app/target/jev-app.jar scan [--market=fx|all] [--json]   # radar no terminal (o mesmo de /api/scanner)
+java -Xmx3g -jar jev-app/target/jev-app.jar lab --market=metals [--split=2025-07-01]   # laboratório → reports/lab/market=…/latest.json
 # índices/ações: features --market=indices · train --market=indices [--open-lockbox] · train-champion --market=indices
 cd dashboard && npm install && npx ng build   # dashboard (dev: npx ng serve, com proxy para :8080)
 node tools/capturar-ajuda.mjs                 # capturas da aba Ajuda (servidor no ar; ficam fora do git: repo público)
@@ -204,6 +207,15 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             roulette_entry). DEMO e LIVE (LIVE pede digitar LIVE). Antes de construir, o placar ao vivo mostrava E[R] da
             regra negativo no forex (−0,15/−0,27) e nas ações, ~+0,05 nos índices a 60 min pulando LATERAL; a página
             mostra esse simulado e o resultado real ao lado de cada botão
+      - [x] 9e Laboratório de configuração (pedido do operador, 19/10): `RiskLab` testa ~5 mil combinações (modelo,
+            15/60, momento, P mín., margem mín., pular LATERAL, stop 1/1,5/2 ATR, alvo 1/1,5/2) nas previsões fora da
+            amostra (walk-forward + cofre) e ao vivo, saídas re-simuladas no M1 (`Outcomes.createGrid`, uma passada por
+            horizonte). Escolhe até 2025-06 e só recomenda o que também for positivo na confirmação (2025-07 + cofre);
+            mostra a sobrevivência do ranking. Só recomenda (decisão do operador). Tarefa "laboratorio" (um mercado pela página)
+      - [x] 9f três topos (pedido do operador, 20/10): teste em M5/M15, 2022–26, todos os mercados — venda negativa em
+            tudo (melhor: rompimento + saída estrutural, ouro M5 −0,07 R), igual ou pior que vender sem padrão. Por
+            decisão do operador virou alerta no Radar (`scan/TripleTop`, a mesma definição do teste) com botão Vender que
+            abre a página Operar com a venda calculada (todas as travas)
 - [ ] Passo 10 — notícias além dos bancos centrais (pedido do operador, 14/10)
       - [x] 10a coleta: GDELT GKG (histórico desde 2021-10 + ao vivo a cada 15 min; ~1.800 de ~140 mil notícias/dia
             passam no filtro; ~1 MB/dia no bronze) e SEC EDGAR (8-K/10-Q/10-K das 6 ações; espera EDGAR_USER_AGENT).

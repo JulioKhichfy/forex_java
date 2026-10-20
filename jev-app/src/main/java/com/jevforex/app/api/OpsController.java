@@ -20,7 +20,8 @@ import java.util.Map;
  *
  * <pre>
  * GET  /api/ops/jobs                 tarefas disponíveis e a execução atual/última (com o fim do log)
- * POST /api/ops/jobs/{nome}          inicia uma tarefa (uma por vez)
+ * POST /api/ops/jobs/{nome}[?market=metals]   inicia uma tarefa (uma por vez; market = só esse mercado)
+ * GET  /api/ops/lab?market=metals    relatório do laboratório de configuração (reports/lab/market=…/latest.json)
  * POST /api/ops/promote?version=…    coloca uma versão de modelo em produção (decisão do operador)
  * </pre>
  */
@@ -46,12 +47,21 @@ public class OpsController {
     }
 
     @PostMapping("/jobs/{name}")
-    public ResponseEntity<Object> start(@PathVariable String name) {
+    public ResponseEntity<Object> start(@PathVariable String name, @RequestParam(required = false) String market) {
         try {
-            return ResponseEntity.ok(jobs.start(name));
+            return ResponseEntity.ok(jobs.start(name, market));
         } catch (IllegalStateException | IllegalArgumentException e) {
             return ResponseEntity.status(409).body(Map.of("message", e.getMessage()));
         }
+    }
+
+    /** Laboratório de configuração de um mercado: o JSON que o comando lab gravou (404 = ainda não rodou). */
+    @GetMapping(value = "/lab", produces = "application/json")
+    public ResponseEntity<String> lab(@RequestParam String market) throws java.io.IOException {
+        String m = com.jevforex.core.Market.fromCode(market).code();
+        java.nio.file.Path f = lake.root().resolve("reports/lab/market=" + m).resolve("latest.json");
+        if (!java.nio.file.Files.exists(f)) return ResponseEntity.status(404).body("{\"message\":\"sem laboratório de " + m + "\"}");
+        return ResponseEntity.ok(java.nio.file.Files.readString(f));
     }
 
     @PostMapping("/promote")

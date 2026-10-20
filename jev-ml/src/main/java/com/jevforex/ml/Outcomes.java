@@ -72,6 +72,52 @@ public final class Outcomes {
     }
 
     /**
+     * Como {@link #createFrom}, mas para várias saídas de uma vez (laboratório): a temp table {@code exits}(stop_atr,
+     * target_r) entra no cruzamento e o M1 é percorrido uma vez só. Cria {@code name}(symbol, moment_utc, stop_atr,
+     * target_r, r_buy, r_sell). Mesmas regras conservadoras do createFrom.
+     */
+    public static void createGrid(LakeSql sql, String momentsSql, String name, int horizon) {
+        if (!name.matches("[a-z_0-9]+")) throw new IllegalArgumentException("nome inválido: " + name);
+        sql.execute(String.format(Locale.ROOT, """
+                CREATE OR REPLACE TEMP TABLE %1$s AS
+                WITH lab AS (%2$s),
+                en AS (
+                    SELECT lab.symbol, lab.moment_utc, lab.atr, p.point, e.t AS t_in,
+                           e.open AS bid_in, e.open + e.spread_points * p.point AS ask_in, e.t + to_minutes(%3$d) AS t_out
+                      FROM lab JOIN pto p USING (symbol)
+                      ASOF JOIN m1o e ON e.symbol = lab.symbol AND lab.want_in <= e.t
+                     WHERE e.t - lab.want_in <= INTERVAL 5 MINUTE),
+                bars AS (
+                    SELECT en.symbol, en.moment_utc, b.t, b.open, b.high, b.low, b.spread_points * en.point AS spr
+                      FROM en JOIN m1o b ON b.symbol = en.symbol AND b.t >= en.t_in AND b.t < en.t_out),
+                lv AS (
+                    SELECT en.*, x.stop_atr, x.target_r,
+                           ask_in - x.stop_atr * atr AS b_stop, ask_in + x.stop_atr * x.target_r * atr AS b_tp,
+                           bid_in + x.stop_atr * atr AS s_stop, bid_in - x.stop_atr * x.target_r * atr AS s_tp
+                      FROM en CROSS JOIN exits x),
+                path AS (
+                    SELECT lv.symbol, lv.moment_utc, lv.stop_atr, lv.target_r,
+                           arg_min(CASE WHEN b.low <= lv.b_stop THEN least(b.open, lv.b_stop) ELSE lv.b_tp END, b.t)
+                               FILTER (WHERE b.low <= lv.b_stop OR b.high >= lv.b_tp) AS b_fill,
+                           arg_min(CASE WHEN b.high + b.spr >= lv.s_stop THEN greatest(b.open + b.spr, lv.s_stop) ELSE lv.s_tp END, b.t)
+                               FILTER (WHERE b.high + b.spr >= lv.s_stop OR b.low + b.spr <= lv.s_tp) AS s_fill
+                      FROM lv JOIN bars b USING (symbol, moment_utc)
+                     GROUP BY lv.symbol, lv.moment_utc, lv.stop_atr, lv.target_r),
+                ex AS (
+                    SELECT en.symbol, en.moment_utc, en.atr, en.bid_in, en.ask_in,
+                           x.open AS bid_out, x.open + x.spread_points * en.point AS ask_out
+                      FROM en ASOF JOIN m1o x ON x.symbol = en.symbol AND en.t_out <= x.t
+                     WHERE x.t - en.t_out <= INTERVAL 5 MINUTE)
+                SELECT ex.symbol, ex.moment_utc, x.stop_atr, x.target_r,
+                       (coalesce(pa.b_fill, ex.bid_out) - ex.ask_in) / (x.stop_atr * ex.atr) AS r_buy,
+                       (ex.bid_in - coalesce(pa.s_fill, ex.ask_out)) / (x.stop_atr * ex.atr) AS r_sell
+                  FROM ex CROSS JOIN exits x
+                  LEFT JOIN path pa ON pa.symbol = ex.symbol AND pa.moment_utc = ex.moment_utc
+                                   AND pa.stop_atr = x.stop_atr AND pa.target_r = x.target_r
+                """, name, momentsSql, horizon));
+    }
+
+    /**
      * Cria a temp table {@code name}(symbol, moment_utc, r_buy, r_sell, y_buy, y_sell) — precisa de m1o e pto.
      *
      * @param momentsSql SELECT com symbol, moment_utc, atr (preço) e want_in (a partir de quando entra)

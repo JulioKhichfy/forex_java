@@ -33,7 +33,17 @@ public class TradeRepository {
                         Double slDistance, Double tpDistance, Double refPrice, Double atr, Double riskUsd,
                         Integer deviationPts, Instant closeAfterUtc, Long ticket, Long predictionId, String checksJson,
                         String status, String message, Double fillPrice, Long account, Instant createdAt,
-                        Instant expiresAt, Instant sentAt, Instant doneAt, Double slPrice, Double tpPrice) {
+                        Instant expiresAt, Instant sentAt, Instant doneAt, Double slPrice, Double tpPrice, String modifyMode) {
+
+        public Order(Long id, String market, String symbol, String action, String side, Double volume,
+                     Double slDistance, Double tpDistance, Double refPrice, Double atr, Double riskUsd,
+                     Integer deviationPts, Instant closeAfterUtc, Long ticket, Long predictionId, String checksJson,
+                     String status, String message, Double fillPrice, Long account, Instant createdAt,
+                     Instant expiresAt, Instant sentAt, Instant doneAt, Double slPrice, Double tpPrice) {
+            this(id, market, symbol, action, side, volume, slDistance, tpDistance, refPrice, atr, riskUsd, deviationPts,
+                    closeAfterUtc, ticket, predictionId, checksJson, status, message, fillPrice, account, createdAt,
+                    expiresAt, sentAt, doneAt, slPrice, tpPrice, null);
+        }
 
         public Order(Long id, String market, String symbol, String action, String side, Double volume,
                      Double slDistance, Double tpDistance, Double refPrice, Double atr, Double riskUsd,
@@ -42,7 +52,7 @@ public class TradeRepository {
                      Instant expiresAt, Instant sentAt, Instant doneAt) {
             this(id, market, symbol, action, side, volume, slDistance, tpDistance, refPrice, atr, riskUsd, deviationPts,
                     closeAfterUtc, ticket, predictionId, checksJson, status, message, fillPrice, account, createdAt,
-                    expiresAt, sentAt, doneAt, null, null);
+                    expiresAt, sentAt, doneAt, null, null, null);
         }
     }
 
@@ -50,10 +60,10 @@ public class TradeRepository {
         return jdbc().sql("""
                         INSERT INTO order_request (market, symbol, action, side, volume, sl_distance, tp_distance, ref_price, atr, risk_usd,
                                                    deviation_pts, close_after_utc, ticket, prediction_id, checks, status,
-                                                   message, account, expires_at, sl_price, tp_price)
+                                                   message, account, expires_at, sl_price, tp_price, modify_mode)
                         VALUES (:market, :symbol, :action, :side, :volume, :sl, :tp, :ref, :atr, :risk, :dev, :closeAfter,
                                 :ticket, :pred, CAST(:checks AS jsonb), :status, :message, :account, :expires, :slPrice,
-                                :tpPrice)
+                                :tpPrice, :mode)
                         RETURNING id
                         """)
                 .param("market", o.market())
@@ -77,6 +87,7 @@ public class TradeRepository {
                 .param("expires", ts(o.expiresAt()), Types.TIMESTAMP)
                 .param("slPrice", o.slPrice(), Types.DOUBLE)
                 .param("tpPrice", o.tpPrice(), Types.DOUBLE)
+                .param("mode", o.modifyMode(), Types.VARCHAR)
                 .query(Long.class).single();
     }
 
@@ -427,7 +438,7 @@ public class TradeRepository {
                 rs.getString("checks"), rs.getString("status"), rs.getString("message"),
                 (Double) rs.getObject("fill_price"), (Long) rs.getObject("account"), instant(rs, "created_at"),
                 instant(rs, "expires_at"), instant(rs, "sent_at"), instant(rs, "done_at"), (Double) rs.getObject("sl_price"),
-                (Double) rs.getObject("tp_price"));
+                (Double) rs.getObject("tp_price"), rs.getString("modify_mode"));
     }
 
     private static Instant instant(ResultSet rs, String col) throws SQLException {

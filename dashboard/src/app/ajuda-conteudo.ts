@@ -76,7 +76,7 @@ export const SECOES: Secao[] = [
         tabela: {
           colunas: ['Elemento', 'O que faz'],
           linhas: [
-            { termo: 'Hoje · Radar · Previsões · Operar · Roleta russa · Risco · Modelos · Saúde · Ajuda', texto: 'As páginas. Cada uma tem uma seção nesta ajuda.' },
+            { termo: 'Hoje · Radar · Previsões · Operar · Roleta russa · Risco · Laboratório · Modelos · Saúde · Ajuda', texto: 'As páginas. Cada uma tem uma seção nesta ajuda.' },
             { termo: 'Forex · Índices · Ações · Ouro · Bitcoin · Energia', texto: 'O mercado que as páginas Hoje, Radar, Previsões, Operar e Modelos mostram. A escolha fica guardada no navegador. Forex = 7 pares principais; Índices = US30, US500, USTEC, DE30, UK100, JP225 e outros; Ações = AAPL, MSFT, NVDA, META, GOOGL, INTC, SPCX; Ouro = XAUUSD; Bitcoin = BTCUSD; Energia = UKOIL (Brent), USOIL (WTI) e XNGUSD (gás natural).' },
             { termo: 'modo SHADOW / DEMO / LIVE', texto: '<b>SHADOW</b>: as ordens são conferidas e registradas, mas não vão para o MT5. <b>DEMO</b>: vão só para conta demo. <b>LIVE</b>: conta real (selo em laranja). O modo é escolhido ao subir o servidor (<code>--trading.mode=demo</code>).' },
             { termo: 'Relógio (UTC)', texto: 'Hora do servidor em UTC; com o mouse, Brasília. Se aparecer “API fora do ar”, o servidor (java -jar jev-app.jar) não está respondendo.' },
@@ -244,6 +244,7 @@ export const SECOES: Secao[] = [
             { termo: 'Sequência', texto: '6 ou mais barras seguidas fechando na mesma direção (M15/H1), 5 ou mais (H4/D1).' },
             { termo: 'Médias', texto: 'A média exponencial de 20 cruzou a de 50 nas últimas 3 barras do H1 ou H4.' },
             { termo: 'Rompimento', texto: 'Preço acima da máxima (abaixo da mínima) do dia anterior; notável se passar da máxima/mínima de 20 dias.' },
+            { termo: 'Três topos', texto: 'Em M5 ou M15: três máximas na mesma altura (até 0,5 ATR) depois de uma alta de 2 ATR, com a linha de pescoço na menor mínima entre elas e altura de pelo menos 1 ATR. Notável = formado (a venda clássica espera fechar abaixo do pescoço); forte = já fechou abaixo. O botão <b>Vender</b> abre a página Operar com a venda calculada, com todas as travas. <b>Testado em 20/10/2026</b> (2022–26, todos os mercados, com spread): vender no padrão deu E[R] negativo em tudo, igual ou pior que vender num momento qualquer.' },
             { termo: 'Amplitude', texto: 'O dia já andou (máxima − mínima) 1,5× ou mais a média dos últimos 20 dias.' },
             { termo: 'Gap', texto: 'Reabertura com salto de 1 ATR (H1) ou mais depois de 30 min ou mais sem barras, nas últimas 24 h.' },
             { termo: 'Spread', texto: 'Spread 2× ou mais o típico do horário: entrar agora custa caro (e acima do limite da página Risco a ordem é recusada).' },
@@ -467,6 +468,7 @@ export const SECOES: Secao[] = [
             { termo: 'Origem', texto: 'Roleta · tendência (lado mais provável), Roleta · pullback (LATERAL, contra a banda de Bollinger; com o %B da entrada) ou Manual; o modelo, o horizonte e a probabilidade do lado na hora da entrada.' },
             { termo: 'Fecha em', texto: 'Contagem até a saída por tempo (minutos:segundos). “(prorrogada)” = é o fim da prorrogação com lucro. “só SL/TP” = ordem sem saída por tempo.' },
             { termo: 'Desde (UTC)', texto: 'Quando abriu.' },
+            { termo: 'Editar', texto: 'Abre os campos de stop (SL) e alvo (TP) com quanto cada um dá em US$. “Aplicar no servidor” manda o EA mover os dois na corretora (JevExecutor 2.6). O stop pode se afastar, mas a perda nele não passa do teto por operação da página Risco; não dá para tirar o stop; stop e alvo precisam ficar do lado certo e além da distância mínima da corretora. O pedido aparece em Ordens recentes como “mover stop”. Trailing e proteção, se ligados, continuam podendo subir o stop.' },
             { termo: 'Fechar', texto: 'Manda o EA fechar agora (fechar nunca é bloqueado pelo BLOCK).' },
           ],
         },
@@ -503,6 +505,54 @@ export const SECOES: Secao[] = [
         },
       },
       { html: 'A página se atualiza sozinha a cada 5 segundos.' },
+    ],
+  },
+
+  // ======================================================================== laboratório
+  {
+    id: 'laboratorio',
+    titulo: 'Página Laboratório',
+    resumo: 'Que regra de entrada e de saída teria dado mais resultado num mercado, escolhida num período e confirmada noutro.',
+    blocos: [
+      {
+        titulo: 'Como funciona',
+        html: `Escolha o mercado no topo e clique em <b>Rodar o laboratório deste mercado</b> (1 a 7 min; roda como as tarefas
+          da página Saúde). O laboratório testa milhares de combinações — modelo (Preço, Eventos, Eventos + Preço), horizonte
+          (15 ou 60 min), momento (todos, só depois de evento, só na hora cheia), probabilidade mínima do lado, margem mínima
+          entre alta e queda, pular LATERAL, stop (1; 1,5; 2 ATR) e alvo (1; 1,5; 2 × o stop) — sobre as previsões <b>fora
+          da amostra</b>: cada mês previsto por um modelo que não tinha visto aquele mês (walk-forward), mais o cofre e as
+          previsões ao vivo já passadas. Cada saída é simulada minuto a minuto no M1, com o spread.`,
+      },
+      {
+        titulo: 'Escolha, confirmação e ao vivo (por que não "o melhor dos últimos dias")',
+        html: `Testando milhares de combinações, alguma sempre parece ótima por acaso. Por isso a combinação é <b>escolhida</b>
+          num período (o começo do walk-forward) e só é <b>recomendada</b> se também for positiva no período de
+          <b>confirmação</b> (o resto do walk-forward + o cofre), que não participou da escolha, com pelo menos 20
+          operações. O <b>ao vivo</b> é a terceira conferência, só mostrada. A tabela <b>As melhores na escolha</b> mostra em
+          verde as que se mantiveram e em vermelho as que não: se quase todas ficam vermelhas, o ranking é ruído e o mercado
+          não tem regra que funcione. <b>Sobrevivência</b> resume isso; a taxa entre todas as positivas é a comparação justa,
+          porque as melhores costumam ser variações da mesma regra.`,
+      },
+      {
+        titulo: 'O que a página mostra',
+        tabela: {
+          colunas: ['Elemento', 'Significado'],
+          linhas: [
+            { termo: 'Configuração recomendada', texto: 'A regra, e por período: operações (e por mês), E[R], acerto, profit factor, pior queda acumulada em R e o equivalente em US$ com o lote mínimo (1 R pelo ATR mediano dos símbolos).' },
+            { termo: 'Evidência forte / moderada / fraca', texto: 'Pela fração das combinações positivas na escolha que seguiram positivas na confirmação e pelo número de operações: fraca (abaixo de 30%) = provavelmente sorte; moderada = uma família de regra com pouca amostra; forte = 50% ou mais com 50+ operações em cada período.' },
+            { termo: 'Avisos', texto: 'Menos de 50 operações num período, ao vivo ainda sem operações ou negativo, menos de 2 operações por mês.' },
+            { termo: 'Como seguir', texto: 'O que mudar na página Risco (stop, alvo, saída por tempo do mercado) e a regra de entrada. A roleta não filtra por probabilidade: ela entra em toda previsão.' },
+            { termo: 'Nenhuma configuração passou', texto: 'Nenhuma combinação positiva na escolha se manteve na confirmação: a recomendação é não operar o mercado.' },
+            { termo: 'A roleta de hoje', texto: 'A regra da roleta (modelo B, toda previsão, pula LATERAL, saídas de hoje) nos mesmos períodos, para comparar.' },
+          ],
+        },
+      },
+      {
+        titulo: 'Limites',
+        html: `É o passado: mercado muda. Poucas operações (o normal das regras filtradas) deixam muita margem para sorte.
+          Não considera slippage nem o atraso real do clique. A página só recomenda: nada muda no sistema até você mudar
+          na página Risco.`,
+      },
     ],
   },
 

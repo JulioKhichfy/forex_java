@@ -37,6 +37,14 @@ class SessionCheckTest {
     }
 
     @Test
+    void versaoDoEa_paraEditarStopEAlvo() {
+        assertTrue(OrderService.eaAtLeast("JevExecutor/2.6", 2, 6));
+        assertTrue(OrderService.eaAtLeast("JevExecutor/3.0", 2, 6));
+        assertFalse(OrderService.eaAtLeast("JevExecutor/2.5", 2, 6));
+        assertFalse(OrderService.eaAtLeast("", 2, 6));
+    }
+
+    @Test
     void eaAntigo_semOCampo_passaAvisando() {
         var c = OrderService.sessionCheck(quote(null), SEXTA_2002, 60, O);
         assertTrue(c.ok());

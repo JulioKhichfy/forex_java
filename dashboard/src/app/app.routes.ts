@@ -9,6 +9,7 @@ import { Ajuda } from './pages/ajuda';
 import { Radar } from './pages/radar';
 import { Roleta } from './pages/roleta';
 import { StopDolar } from './pages/stop-dolar';
+import { Laboratorio } from './pages/laboratorio';
 
 export const routes: Routes = [
   { path: '', component: Hoje, title: 'Hoje · Jev Forex' },
@@ -18,6 +19,7 @@ export const routes: Routes = [
   { path: 'roleta', component: Roleta, title: 'Roleta russa · Jev Forex' },
   { path: 'stop-dolar', component: StopDolar, title: 'Stop em US$ · Jev Forex' },
   { path: 'risco', component: Risco, title: 'Risco · Jev Forex' },
+  { path: 'laboratorio', component: Laboratorio, title: 'Laboratório · Jev Forex' },
   { path: 'modelos', component: Modelos, title: 'Modelos · Jev Forex' },
   { path: 'saude', component: Saude, title: 'Saúde · Jev Forex' },
   { path: 'ajuda', component: Ajuda, title: 'Ajuda · Jev Forex' },
