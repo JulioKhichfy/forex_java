@@ -52,6 +52,10 @@ public class JobService {
                 "para cada mercado: a grade de entradas e saídas escolhida no walk-forward e confirmada no resto + cofre "
                         + "+ ao vivo (página Laboratório; ~25 min)",
                 List.of(List.of("lab"))));
+        add(new JobDef("mapa-eventos", "Mapa de eventos",
+                "para cada mercado: quanto o preço andou depois de cada divulgação e para que lado, conforme a surpresa "
+                        + "(página Eventos; menos de 1 min por mercado)",
+                List.of(List.of("events-map"))));
         add(new JobDef("coletar", "Coletar notícias agora", "uma coleta dos feeds dos bancos centrais",
                 List.of(List.of("collect-once"))));
         add(new JobDef("placar", "Atualizar placar", "dá o resultado às previsões com o horizonte vencido",
@@ -97,7 +101,7 @@ public class JobService {
         List<List<String>> out = new ArrayList<>();
         for (List<String> cmd : def.commands()) {
             String c = cmd.get(0);
-            if (c.equals("features") || c.equals("train-champion") || c.equals("lab")) {
+            if (c.equals("features") || c.equals("train-champion") || c.equals("lab") || c.equals("events-map")) {
                 for (String m : experiment.marketList()) {
                     if (market == null || market.equals(m)) out.add(List.of(c, "--market=" + m));
                 }

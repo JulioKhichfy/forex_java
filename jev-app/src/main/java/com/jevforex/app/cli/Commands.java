@@ -28,10 +28,11 @@ public final class Commands {
     public static final String BACKFILL_NEWS = "backfill-news";
     public static final String COLLECT_NEWS_ONCE = "collect-news-once";
     public static final String LAB = "lab";
+    public static final String EVENTS_MAP = "events-map";
 
     private static final Set<String> ALL = Set.of(HELP, PING, RISK, ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS,
             NORMALIZE, FEATURES, TRAIN, BACKFILL_BIS, BACKFILL_ARCHIVES, JEV_SCORE, JEV_SIGNALS, TRAIN_CHAMPION, PROMOTE,
-            PREDICT_NOW, RESOLVE_PREDICTIONS, RETRAIN_STUDY, SCAN, BACKFILL_NEWS, COLLECT_NEWS_ONCE, LAB);
+            PREDICT_NOW, RESOLVE_PREDICTIONS, RETRAIN_STUDY, SCAN, BACKFILL_NEWS, COLLECT_NEWS_ONCE, LAB, EVENTS_MAP);
     private static final Set<String> NEED_DB = Set.of(ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS, BACKFILL_ARCHIVES,
             JEV_SCORE, JEV_SIGNALS, PREDICT_NOW, RESOLVE_PREDICTIONS, LAB);
 
@@ -93,6 +94,8 @@ public final class Commands {
                   lab --market=metals [--split=2025-07-01] [--min-trades=30]
                                                 laboratório: que entrada/saída teria dado mais resultado (escolhe no
                                                 walk-forward até --split, confirma no resto + cofre + ao vivo)
+                  events-map --market=metals   mapa de eventos: movimento e direção depois de cada divulgação
+                                                (desde 2022) → reports/events/market=…/latest.json
                   ask --qset=cb-text-v1 <fonte> [opções]
                        fontes:  --text="..." | --file=caminho.txt | --latest | --doc=<id>
                        opções:  --issuer="Federal Reserve" --currency=USD --previous="resumo anterior"

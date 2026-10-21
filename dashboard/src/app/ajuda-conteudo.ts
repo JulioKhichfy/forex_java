@@ -518,6 +518,31 @@ export const SECOES: Secao[] = [
     ],
   },
 
+  // ======================================================================== eventos
+  {
+    id: 'eventos',
+    titulo: 'Página Eventos (mapa de eventos)',
+    resumo: 'O que cada divulgação costumou fazer com o preço de cada símbolo desde 2022: quanto andou e para que lado, conforme o número veio acima ou abaixo do esperado.',
+    blocos: [
+      {
+        titulo: 'Como ler',
+        html: `Para cada tipo de divulgação de importância alta ou moderada e cada símbolo afetado (no forex, os pares com
+          a moeda; nos outros mercados, a moeda de lucro: ouro, bitcoin, petróleo e índices dos EUA em USD, DE30 em EUR…):
+          <ul><li><b>Anda 15/60 min</b>: o tamanho médio do movimento depois da divulgação, em ATR (o ATR das 14 barras de
+          15 min antes). Inclui o salto do primeiro minuto.</li>
+          <li><b>Acima / abaixo do esperado</b>: a partir de <b>2 min depois</b> (quando dá para entrar) até +15 min, em que
+          % das vezes subiu, quantos casos e o movimento médio. Verde = subiu em 65%+; vermelho = caiu em 65%+.</li>
+          <li><b>Depende da surpresa</b>: a diferença entre as duas. O selo <b>forte</b> (ou <b>média</b>) diz que a
+          diferença resiste ao acaso; sem selo, pode ser sorte — com ~1.000 combinações, algumas parecem fortes à toa.</li>
+          <li><b>Spread</b>: o custo de 1 spread na hora, em ATR. Precisa ser bem menor que o movimento.</li>
+          <li><b>+N junto</b>: outras divulgações no mesmo minuto (CPI cheio, núcleo, mensal e anual saem juntos): o
+          movimento é do conjunto, não dá para separar o efeito de cada uma.</li></ul>
+          No topo, <b>Próximos eventos (48 h)</b> cruza o calendário com esse histórico. É descritivo, não regra validada.
+          <b>Atualizar o mapa deste mercado</b> refaz a conta (segundos no ouro, até 7 min nos índices).`,
+      },
+    ],
+  },
+
   // ======================================================================== laboratório
   {
     id: 'laboratorio',

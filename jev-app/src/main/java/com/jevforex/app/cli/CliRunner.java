@@ -183,6 +183,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.PREDICT_NOW -> predictNow(args);
                 case Commands.SCAN -> scan(args);
                 case Commands.LAB -> lab(args);
+                case Commands.EVENTS_MAP -> eventsMap(args);
                 case Commands.BACKFILL_NEWS -> backfillNews(args);
                 case Commands.COLLECT_NEWS_ONCE -> collectNewsOnce();
                 case Commands.RESOLVE_PREDICTIONS -> System.out.println("Placar: " + predictionResolver.resolve()
@@ -623,6 +624,25 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
         for (var row : r.top().subList(0, Math.min(5, r.top().size()))) System.out.println("  " + labRow(row));
         System.out.println(r.recommended() == null ? "Recomendação: nenhuma configuração passou (não operar este mercado)."
                 : "Recomendação: " + labRow(r.recommended()));
+        System.out.println("Gravado em " + dir.resolve("latest.json"));
+    }
+
+    /** Mapa de eventos (20/10/2026): reports/events/market=&lt;m&gt;/latest.json, que a página Eventos mostra. */
+    private void eventsMap(ApplicationArguments args) throws java.io.IOException {
+        String market = com.jevforex.core.Market.fromCode(opt(args, "market", "fx")).code();
+        com.jevforex.features.EventMap.Report r;
+        try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb-events"), silver.duckdbMemory())) {
+            r = new com.jevforex.features.EventMap(lake.root(), market, experimentProps.symbolsOf(market)).run(sql);
+        }
+        Path dir = lake.root().resolve("reports/events/market=" + market);
+        java.nio.file.Files.createDirectories(dir);
+        java.nio.file.Files.writeString(dir.resolve("latest.json"), mapper.writerWithDefaultPrettyPrinter().writeValueAsString(r));
+        System.out.printf(Locale.ROOT, "Mapa de eventos %s: %d divulgações, %d pares evento × símbolo, %d linhas (%.0f s)%n",
+                market, r.events(), r.pairs(), r.rows().size(), r.seconds());
+        for (var row : r.rows().subList(0, Math.min(8, r.rows().size()))) {
+            System.out.printf(Locale.ROOT, "  %-40s %s %-8s n=%3d  |15 min| %.2f ATR%n",
+                    row.name() == null ? row.eventCode() : row.name(), row.currency(), row.symbol(), row.n(), row.abs15());
+        }
         System.out.println("Gravado em " + dir.resolve("latest.json"));
     }
 

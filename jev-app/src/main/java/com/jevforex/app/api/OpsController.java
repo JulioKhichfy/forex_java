@@ -64,6 +64,15 @@ public class OpsController {
         return ResponseEntity.ok(java.nio.file.Files.readString(f));
     }
 
+    /** Mapa de eventos de um mercado: o JSON que o comando events-map gravou (404 = ainda não rodou). */
+    @GetMapping(value = "/events", produces = "application/json")
+    public ResponseEntity<String> events(@RequestParam String market) throws java.io.IOException {
+        String m = com.jevforex.core.Market.fromCode(market).code();
+        java.nio.file.Path f = lake.root().resolve("reports/events/market=" + m).resolve("latest.json");
+        if (!java.nio.file.Files.exists(f)) return ResponseEntity.status(404).body("{\"message\":\"sem mapa de eventos de " + m + "\"}");
+        return ResponseEntity.ok(java.nio.file.Files.readString(f));
+    }
+
     @PostMapping("/promote")
     public ModelStore.Champion promote(@RequestParam String version, @RequestParam(defaultValue = "fx") String market) {
         return new ModelStore(lake.root(), market).promote(version, "promovida pelo dashboard");

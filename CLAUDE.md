@@ -96,7 +96,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-ml | walk-forward: Dataset, Outcomes (stop/alvo/tempo no M1), Gbm (Smile), Metrics, ExperimentRunner (modo cofre), ReportWriter, ModelStore (versões em produção), RiskLab (laboratório de configuração) (sem Spring) |
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5; `news/`: GDELT (GKG) e SEC EDGAR |
 | jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
-| dashboard | Angular 20 (Hoje, Radar, Previsões, Operar, Roleta russa, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
+| dashboard | Angular 20 (Hoje, Radar, Previsões, Eventos, Operar, Roleta russa, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
 | mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.7 (executor com 3 chaves; OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo; reporta o fechamento de toda posição que abriu, mesmo manual), `install.ps1` |
 
 ## Comandos
@@ -220,6 +220,10 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             margem ≥ 0,10, só evento; saídas em `trading.risk.markets.indices` e nos perfis: stop 1 ATR, alvo 2×, 60 min);
             vigia global de sinais no dashboard (`signal-watch.ts`, GET /api/predictions/signals: faixa, bipe e notificação
             em qualquer página); a página Roleta recomenda parar a roleta e usar os sinais
+      - [x] 9h mapa de eventos (20/10): `EventMap` (jev-features) — por divulgação alta/moderada desde 2022 × símbolo
+            afetado: movimento em ATR em 15/60 min e lado a partir de +2 min conforme a surpresa (real × previsto);
+            comando `events-map`, tarefa "mapa-eventos", página Eventos (próximos eventos × histórico, selo de força
+            estatística z ≥ 3,3 por causa das ~1.000 comparações). Descritivo, não regra validada
 - [ ] Passo 10 — notícias além dos bancos centrais (pedido do operador, 14/10)
       - [x] 10a coleta: GDELT GKG (histórico desde 2021-10 + ao vivo a cada 15 min; ~1.800 de ~140 mil notícias/dia
             passam no filtro; ~1 MB/dia no bronze) e SEC EDGAR (8-K/10-Q/10-K das 6 ações; espera EDGAR_USER_AGENT).
