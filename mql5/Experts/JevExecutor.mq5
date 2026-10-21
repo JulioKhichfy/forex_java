@@ -12,6 +12,7 @@
 //|  - move stop E alvo (prorrogação com lucro: MODIFY com alvo, 2.4) |
 //|  - informa o fim da sessão de cada símbolo (session_end, 2.5)     |
 //|  - edição manual de stop e alvo pelo dashboard (MODIFY MANUAL, 2.6)|
+//|  - reporta o fechamento de toda posição que abriu, mesmo à mão (2.7)|
 //|  - reporta cada execução (POST /api/ea/execution) e envia         |
 //|    heartbeat com saldo, margem, cotações e posições               |
 //|                                                                  |
@@ -26,7 +27,7 @@
 //| Expert Advisors → "Permitir WebRequest…" → http://127.0.0.1:8080  |
 //+------------------------------------------------------------------+
 #property copyright   "Jev Forex"
-#property version     "2.60"
+#property version     "2.70"
 #property description "Jev Forex — executor das ordens aprovadas no dashboard, com SL/TP no servidor."
 
 #include <Trade/Trade.mqh>
@@ -48,7 +49,7 @@ input string InpSymbols6         = "UKOIL,USOIL,XNGUSD";       // Cotações: en
 input int    InpPollSeconds      = 1;                       // Busca de ordens (s)
 input int    InpHeartbeatSeconds = 5;                       // Heartbeat (s)
 
-#define EA_VERSION "JevExecutor/2.6"
+#define EA_VERSION "JevExecutor/2.7"
 #define MAX_SEEN   500
 
 CTrade   g_trade;
@@ -592,29 +593,50 @@ string PositionsJson(int &count)
   }
 
 //+------------------------------------------------------------------+
-//| Fechamentos dos últimos 7 dias deste EA (magic): inclui os que o  |
-//| SERVIDOR fez (SL/TP), que o sistema não vê pela fila de ordens.   |
+//| Fechamentos dos últimos 7 dias das posições que ESTE EA abriu      |
+//| (entrada com o magic dele), qualquer que seja quem fechou: o      |
+//| servidor (SL/TP), o EA, o operador à mão no MT5/celular (magic 0) |
+//| ou a corretora (stop out). 2.7: antes só os com o magic do EA.    |
 //+------------------------------------------------------------------+
 string DealsJson()
   {
    datetime to = TimeTradeServer() + 60, from = to - 7 * 86400;
    if(!HistorySelect(from, to))
       return "[]";
+   // posições abertas por este EA (o negócio de entrada tem o magic dele)
+   long ours[];
+   for(int i = 0; i < HistoryDealsTotal(); i++)
+     {
+      ulong d = HistoryDealGetTicket(i);
+      if(d == 0 || HistoryDealGetInteger(d, DEAL_MAGIC) != InpMagic || HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_IN)
+         continue;
+      int k = ArraySize(ours);
+      ArrayResize(ours, k + 1);
+      ours[k] = HistoryDealGetInteger(d, DEAL_POSITION_ID);
+     }
    string out = "";
    int count = 0;
    for(int i = HistoryDealsTotal() - 1; i >= 0 && count < 100; i--)
      {
       ulong d = HistoryDealGetTicket(i);
-      if(d == 0 || HistoryDealGetInteger(d, DEAL_MAGIC) != InpMagic)
+      if(d == 0)
          continue;
       long entry = HistoryDealGetInteger(d, DEAL_ENTRY);
       if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY)
+         continue;
+      bool mine = HistoryDealGetInteger(d, DEAL_MAGIC) == InpMagic;
+      long pos = HistoryDealGetInteger(d, DEAL_POSITION_ID);
+      for(int j = 0; j < ArraySize(ours) && !mine; j++)
+         if(ours[j] == pos)
+            mine = true;
+      if(!mine)
          continue;
       string broker = HistoryDealGetString(d, DEAL_SYMBOL);
       int digits = (int)SymbolInfoInteger(broker, SYMBOL_DIGITS);
       long reason = HistoryDealGetInteger(d, DEAL_REASON);
       string why = reason == DEAL_REASON_SL ? "SL" : reason == DEAL_REASON_TP ? "TP"
-                   : reason == DEAL_REASON_EXPERT ? "EA" : reason == DEAL_REASON_SO ? "STOP_OUT" : "MANUAL";
+                   : reason == DEAL_REASON_EXPERT ? "EA" : reason == DEAL_REASON_SO ? "STOP_OUT"
+                   : reason == DEAL_REASON_MOBILE ? "MANUAL_CELULAR" : reason == DEAL_REASON_WEB ? "MANUAL_WEB" : "MANUAL";
       if(out != "")
          out += ",";
       out += StringFormat("{\"deal\":%I64u,\"position\":%I64d,\"symbol\":\"%s\",\"type\":\"%s\",\"volume\":%s,"

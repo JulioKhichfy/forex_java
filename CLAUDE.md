@@ -97,7 +97,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5; `news/`: GDELT (GKG) e SEC EDGAR |
 | jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
 | dashboard | Angular 20 (Hoje, Radar, Previsões, Operar, Roleta russa, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
-| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.6 (executor com 3 chaves; OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo), `install.ps1` |
+| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.7 (executor com 3 chaves; OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo; reporta o fechamento de toda posição que abriu, mesmo manual), `install.ps1` |
 
 ## Comandos
 ```

@@ -27,7 +27,7 @@ interface Performance {
 }
 
 const REASONS: Record<string, string> = {
-  SL: 'stop (servidor)', TP: 'alvo (servidor)', EA: 'botão / saída por tempo', MANUAL: 'manual no MT5', STOP_OUT: 'stop-out da corretora',
+  SL: 'stop (servidor)', TP: 'alvo (servidor)', EA: 'botão / saída por tempo', MANUAL: 'manual no MT5', MANUAL_CELULAR: 'manual no celular', MANUAL_WEB: 'manual no terminal web', STOP_OUT: 'stop-out da corretora',
 };
 
 /** Placar das operações do operador: o que de fato aconteceu com o dinheiro (inclui SL/TP feitos pela corretora). */
