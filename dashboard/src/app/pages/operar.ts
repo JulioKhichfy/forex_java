@@ -30,7 +30,8 @@ import { MyTrades } from './my-trades';
           @if (s.account; as a) {
             <table>
               <tr><td>Conta</td><td class="mono">{{ a.account }} · {{ a.server }} <span class="badge"
-                [class.warn]="a.tradeMode === 'REAL'">{{ a.tradeMode }}</span></td></tr>
+                [class.warn]="a.tradeMode === 'REAL'">{{ a.tradeMode }}</span>
+                @if (a.currency?.toUpperCase() === 'USC') { <span class="badge" title="Conta cent: o MT5 mostra em centavos (USC); aqui tudo está convertido para US$.">cent · valores em US$</span> }</td></tr>
               <tr><td>Saldo / patrimônio <tip key="patrimonio" /></td><td class="mono">US$ {{ a.balance | number: '1.2-2' }} /
                 US$ {{ a.equity | number: '1.2-2' }}</td></tr>
               <tr><td>Margem <tip key="margem" /></td><td class="mono">{{ marginText() }}</td></tr>
@@ -350,7 +351,8 @@ export class Operar implements OnInit, OnDestroy {
   protected marginText(): string {
     const d = this.detail();
     if (!d['margin']) return 'sem margem em uso';
-    return `US$ ${Number(d['margin']).toFixed(2)} usada · nível ${Number(d['margin_level']).toFixed(0)}%`;
+    const k = this.state()?.account?.currency?.toUpperCase() === 'USC' ? 0.01 : 1;   // conta cent: o EA manda em USC
+    return `US$ ${(Number(d['margin']) * k).toFixed(2)} usada · nível ${Number(d['margin_level']).toFixed(0)}%`;
   }
 
   protected priceFormat(): string {

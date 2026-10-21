@@ -1,6 +1,6 @@
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Api, MODEL_NAMES, RouletteEntry, RouletteState } from '../api';
+import { Api, MODEL_NAMES, RouletteConfig, RouletteEntry, RouletteState } from '../api';
 import { MARKETS } from '../market';
 import { Tip } from './tip';
 import { Brt } from '../brt';
@@ -74,6 +74,9 @@ const PULLBACK_STUDY: Record<string, Record<number, number>> = {
             <p class="small">Desde <span [brt]="c!.startedAt">{{ c!.startedAt | date: 'dd/MM HH:mm' : 'UTC' }} UTC</span> ·
               {{ names[c!.model] ?? c!.model }} · <b>{{ c!.horizon }} min</b> · lote {{ c!.lot ?? 'mínimo de cada símbolo' }}
               · {{ strategyLabel(c!.strategy) }} @if (c!.strategy !== 'trend') { ({{ bandLabel(c!.band) }}) }</p>
+            @if (c!.filters; as fl) {
+              <p class="small"><b>Configuração do Laboratório</b>{{ fl.source ? ' (' + fl.source + ')' : '' }}: {{ filterText(fl) }}</p>
+            }
             <button class="stop" (click)="stop(m.code)" [disabled]="busy()">Parar roleta russa</button>
           } @else {
             <div class="form">
@@ -237,6 +240,15 @@ export class Roleta implements OnInit, OnDestroy {
 
   protected patch(market: string, p: Partial<Form>): void {
     this.forms.update((f) => ({ ...f, [market]: { ...this.form(market), ...p } }));
+  }
+
+  protected filterText(f: NonNullable<RouletteConfig['filters']>): string {
+    const kind = f.kind === 'EVENT' ? 'só depois de evento' : f.kind === 'CONTROL' ? 'só na hora cheia' : 'todos os momentos';
+    const parts = [kind];
+    if (f.pMin > 0 || f.mMin > 0) parts.push(`P ≥ ${(f.pMin * 100).toFixed(0)}%, margem ≥ ${(f.mMin * 100).toFixed(0)}`);
+    parts.push(f.skipFlat ? 'pula LATERAL' : 'opera mesmo com LATERAL');
+    if (f.stopAtr != null) parts.push(`stop ${f.stopAtr} ATR · alvo ${f.targetR}×`);
+    return parts.join(' · ');
   }
 
   protected simulated(market: string, horizon: number, model: string) {

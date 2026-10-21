@@ -58,9 +58,29 @@ class RouletteServiceTest {
         assertEquals("SELL", RouletteService.decidePullback(lateral, 0.97, 0.1).side());
     }
 
+    private static PredictionRepository.Prediction pred(String kind, double down, double flat, double up) {
+        return new PredictionRepository.Prediction(1L, "indices", "US500", Instant.now(), kind, kind, "B", 60, "v",
+                down, flat, up, "NO_TRADE", 5.0, 6000.0, 8, 10, "{}", null, null, null, null, null);
+    }
+
+    @Test
+    void filtrosDoLaboratorio_momentoPEMargem() {
+        var f = new RouletteService.Filters("EVENT", 0.50, 0.10, true, 1.0, 2.0, "Laboratório");
+        assertEquals("BUY", RouletteService.decide(pred("EVENT", 0.20, 0.25, 0.55), f).side());
+        assertNull(RouletteService.decide(pred("CONTROL", 0.20, 0.25, 0.55), f).side(), "hora cheia: fora do filtro");
+        assertNull(RouletteService.decide(pred("EVENT", 0.30, 0.25, 0.45), f).side(), "P 45% < 50%");
+        assertNull(RouletteService.decide(pred("EVENT", 0.46, 0.00, 0.54), f).side(), "margem 8 < 10");
+        assertEquals("BUY", RouletteService.decide(pred("EVENT", 0.40, 0.00, 0.60), f).side(), "margem 20");
+        // sem filtros: a roleta de sempre (pula só a LATERAL)
+        assertEquals("BUY", RouletteService.decide(pred("CONTROL", 0.30, 0.25, 0.45), null).side());
+        // pular LATERAL desligado: opera pelo lado mais provável entre alta e queda
+        var noSkip = new RouletteService.Filters("ALL", 0.0, 0.0, false, null, null, null);
+        assertEquals("SELL", RouletteService.decide(pred("CONTROL", 0.35, 0.40, 0.25), noSkip).side());
+    }
+
     @Test
     void configAntiga_semEstrategia_viraTendencia() {
-        var c = new RouletteService.Config(true, 15, "B", null, null, null, null, null, null);
+        var c = new RouletteService.Config(true, 15, "B", null, null, null, null, null, null, null);
         assertEquals("trend", c.strategy());
         assertEquals(0.1, c.band(), 1e-12);
     }

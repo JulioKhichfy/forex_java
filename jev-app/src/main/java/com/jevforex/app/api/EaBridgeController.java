@@ -145,10 +145,14 @@ public class EaBridgeController {
             // foto das posições deste sistema (magic do EA) — base das travas de carteira
             List<TradeRepository.Position> positions = new ArrayList<>();
             Instant at = instant(body, "time") == null ? Instant.now() : instant(body, "time");
+            // resultados em US$ (conta cent: o MT5 manda em USC)
+            String currency = text(body, "currency");
+            double k = com.jevforex.app.trade.AccountCurrency.toUsd(currency);
             for (JsonNode p : body.path("open")) {
                 positions.add(new TradeRepository.Position(p.path("ticket").asLong(), "fx", account,
                         p.path("symbol").asText(), p.path("side").asText(), p.path("volume").asDouble(),
-                        p.path("price").asDouble(), dbl(p, "sl"), dbl(p, "tp"), dbl(p, "profit"),
+                        p.path("price").asDouble(), dbl(p, "sl"), dbl(p, "tp"),
+                        com.jevforex.app.trade.AccountCurrency.toUsd(dbl(p, "profit"), currency),
                         p.hasNonNull("magic") ? p.path("magic").asLong() : null, instant(p, "time"), at));
             }
             trades.replacePositions(account, positions);
@@ -160,8 +164,8 @@ public class EaBridgeController {
                     if (closed == null) continue;
                     deals.add(new TradeRepository.Deal(d.path("deal").asLong(), d.path("position").asLong(), account,
                             orders.marketOf(symbol), symbol, d.path("type").asText(), d.path("volume").asDouble(),
-                            d.path("price").asDouble(), d.path("profit").asDouble(), d.path("swap").asDouble(),
-                            d.path("commission").asDouble(), d.path("reason").asText(), closed));
+                            d.path("price").asDouble(), d.path("profit").asDouble() * k, d.path("swap").asDouble() * k,
+                            d.path("commission").asDouble() * k, d.path("reason").asText(), closed));
                 }
                 trades.upsertDeals(deals);
             }

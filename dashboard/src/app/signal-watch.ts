@@ -24,7 +24,8 @@ interface SignalItem { market: string; prediction: Prediction }
         <span class="small">{{ label(s.market) }} · {{ names[p.model] ?? p.model }} {{ p.horizonMin }} min ·
           <span [brt]="p.momentUtc">{{ p.momentUtc | date: 'HH:mm' : 'UTC' }} UTC</span> ({{ age(p) }} min) ·
           P(alta) {{ p.pUp * 100 | number: '1.0-0' }}% · P(queda) {{ p.pDown * 100 | number: '1.0-0' }}%</span>
-        <span class="small">Vale enquanto for recente: entrar atrasado leva a vantagem embora.</span>
+        <span class="small">Vale enquanto for recente: entrar atrasado leva a vantagem embora. Com o sinal automático ligado
+          (página Hoje), a ordem já foi enviada sozinha: confira lá se saiu ou o motivo da recusa.</span>
         <button class="primary" (click)="open(s)">Ver e operar</button>
         <button (click)="dismiss(p.id)" title="Esconder este aviso">×</button>
       </div>

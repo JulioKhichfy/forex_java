@@ -31,6 +31,8 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 - `jev-core` não depende de Spring nem de banco.
 - Nome de símbolo **canônico** (EURUSD) em todo lugar; o sufixo da corretora (Exness: `m`) só na fronteira
   com o MT5 (`mt5.symbol-suffix`, `BrokerSymbols`). Símbolo sem o sufixo esperado é recusado.
+  Conta Standard Cent (21/10/2026, sufixo `c`, moeda USC): saldo, patrimônio, valor do tick e resultados chegam em
+  centavos e são convertidos para US$ na fronteira (`AccountCurrency`); todo o resto do sistema fica em US$.
 - O lake fica **fora** do repositório (`LAKE_ROOT`, padrão `~/FOREX_JEV/jev-lake`): `jev-lake/` no repo é código.
 - Contrato MT5 → Java: arquivos `<tipo>_<AAAAMMDDTHHMMSSZ>_<etiqueta>.csv` em `Common\Files\jev\inbox`,
   linha `#meta` + cabeçalho + linhas `;`. Colunas em `Mt5FileKind`. Mudou o formato → mude os dois lados
@@ -49,6 +51,8 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
   travas de risco por ordem (`OrderService.ROULETTE_WAIVED`: teto/alvo de risco, USD, margem, spread, blackout); valem as
   técnicas, o BLOCK, a perda do dia/semana (que para todas) e, desde 19/10, posições, par livre, mercado habilitado e
   risco aberto. Não estender essa exceção a outras ordens sem o operador pedir.
+  Roleta com a configuração do Laboratório (21/10, botão na página Laboratório): `RouletteService.Filters` — momento
+  (ALL/EVENT/CONTROL), P e margem mínimas, pular LATERAL e stop/alvo próprios (`OrderService.Roulette.stopAtr/targetR`).
   Travas (revisão de 19/10): conta (3.1) e mercado (3.4) separados — "Posições abertas"/"Risco aberto total" contam a
   conta; "Posições no mercado"/"Risco aberto no mercado" só o mercado; "Risco-alvo do mercado" aplica risk-per-trade-pct
   e min-lot-policy; exposição a USD conta ouro/bitcoin/etc. pelo usd-weight. A página Risco mostra o que a roleta ignora.
@@ -224,6 +228,10 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             afetado: movimento em ATR em 15/60 min e lado a partir de +2 min conforme a surpresa (real × previsto);
             comando `events-map`, tarefa "mapa-eventos", página Eventos (próximos eventos × histórico, selo de força
             estatística z ≥ 3,3 por causa das ~1.000 comparações). Descritivo, não regra validada
+      - [x] 9i conta cent + sinal automático do ouro (21/10): USC → US$ na fronteira (`AccountCurrency`); `AutoSignalService`
+            (Flyway V14 `auto_signal_entry`): o sinal da regra do ouro vira ordem sozinho com TODAS as travas (decisão do
+            operador), sinal de até `live.auto-max-age-seconds` (180), só nos `live.auto-markets` ([metals]); painel na
+            página Hoje (LIVE pede digitar LIVE)
 - [ ] Passo 10 — notícias além dos bancos centrais (pedido do operador, 14/10)
       - [x] 10a coleta: GDELT GKG (histórico desde 2021-10 + ao vivo a cada 15 min; ~1.800 de ~140 mil notícias/dia
             passam no filtro; ~1 MB/dia no bronze) e SEC EDGAR (8-K/10-Q/10-K das 6 ações; espera EDGAR_USER_AGENT).

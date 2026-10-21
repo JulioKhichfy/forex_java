@@ -404,27 +404,34 @@ public class TradeRepository {
     // ------------------------------------------------------------------ conta (heartbeat do EA)
 
     /** Último heartbeat do EA e o detalhe em JSON (saldo, margem, cotações). */
+    /**
+     * A conta do último heartbeat, com saldo e patrimônio JÁ EM US$ (conta cent: USC ÷ 100).
+     *
+     * @param currency a moeda da conta no MT5 (USD, USC…); o detalhe (margem) continua nela
+     */
     public record Account(long account, String server, String tradeMode, Double equity, Double balance,
-                          Instant reportedAt, String detailJson) {
+                          Instant reportedAt, String detailJson, String currency) {
     }
 
     public Optional<Account> latestAccount() {
         return jdbc().sql("""
-                        SELECT account, server, trade_mode, equity, balance, reported_at, CAST(detail AS text) AS detail
+                        SELECT account, server, trade_mode, equity, balance, currency, reported_at, CAST(detail AS text) AS detail
                           FROM heartbeat WHERE component = 'ea' ORDER BY reported_at DESC NULLS LAST, id DESC LIMIT 1
                         """)
                 .query((rs, i) -> new Account(rs.getLong("account"), rs.getString("server"),
-                        rs.getString("trade_mode"), (Double) rs.getObject("equity"), (Double) rs.getObject("balance"),
-                        instant(rs, "reported_at"), rs.getString("detail"))).optional();
+                        rs.getString("trade_mode"), AccountCurrency.toUsd((Double) rs.getObject("equity"), rs.getString("currency")),
+                        AccountCurrency.toUsd((Double) rs.getObject("balance"), rs.getString("currency")),
+                        instant(rs, "reported_at"), rs.getString("detail"), rs.getString("currency"))).optional();
     }
 
     /** Primeiro saldo reportado a partir de um instante (início do dia/semana UTC) — base da perda do período. */
     public Optional<Double> firstEquitySince(long account, Instant since) {
         return jdbc().sql("""
-                        SELECT coalesce(balance, equity) FROM heartbeat
+                        SELECT coalesce(balance, equity) * CASE WHEN upper(trim(currency)) = 'USC' THEN 0.01 ELSE 1 END
+                          FROM heartbeat
                          WHERE component = 'ea' AND account = :a AND reported_at >= :since
                          ORDER BY reported_at LIMIT 1
-                        """)
+                        """)   // em US$, como o latestAccount (conta cent: USC ÷ 100)
                 .param("a", account).param("since", ts(since), Types.TIMESTAMP)
                 .query(Double.class).optional();
     }

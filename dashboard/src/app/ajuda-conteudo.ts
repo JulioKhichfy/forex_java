@@ -100,6 +100,17 @@ export const SECOES: Secao[] = [
     blocos: [
       { imagem: { src: 'hoje-ouro', legenda: 'Hoje com o mercado Ouro: a regra própria do ouro aparece em destaque, e eventos e notícias mostram só USD.' } },
       {
+        titulo: 'Sinal automático (ouro)',
+        html: `No mercado Ouro, o quadro <b>Sinal automático</b> liga e desliga o envio sozinho: quando a regra do ouro dá
+          sinal (B a 15 min, só depois de divulgação), a ordem sai no lado do sinal com o <b>lote escolhido</b>, em segundos
+          — no histórico, entrar 5 min atrasado levava o resultado para perto de zero. <b>Todas as travas de risco
+          valem</b> (teto e alvo de risco, posições, um por símbolo, margem, spread, blackout, sessão, perda do dia e da
+          semana): o que elas recusarem aparece na tabela com o motivo. Sinal com mais de 180 s não vira ordem
+          (aparece como <b>atrasado</b>). Na conta real, ligar pede digitar LIVE. A tabela mostra cada sinal visto:
+          enviada, recusada ou atrasado, e o resultado depois que a posição fecha. Só os sinais depois de ligar contam.
+          Hoje só o ouro pode ser automático (<code>live.auto-markets</code>), a regra com mais evidência.`,
+      },
+      {
         titulo: 'Modo só sinais (aviso em qualquer página)',
         html: `Os mercados com <b>regra de sinal</b> — ouro (Eventos + Preço, 15 min) e índices (Eventos + Preço, 60 min),
           as duas regras que se sustentaram fora da amostra e no Laboratório — são vigiados o tempo todo, em qualquer página
@@ -577,6 +588,7 @@ export const SECOES: Secao[] = [
             { termo: 'Evidência forte / moderada / fraca', texto: 'Pela fração das combinações positivas na escolha que seguiram positivas na confirmação e pelo número de operações: fraca (abaixo de 30%) = provavelmente sorte; moderada = uma família de regra com pouca amostra; forte = 50% ou mais com 50+ operações em cada período.' },
             { termo: 'Avisos', texto: 'Menos de 50 operações num período, ao vivo ainda sem operações ou negativo, menos de 2 operações por mês.' },
             { termo: 'Como seguir', texto: 'O que mudar na página Risco (stop, alvo, saída por tempo do mercado) e a regra de entrada. A roleta não filtra por probabilidade: ela entra em toda previsão.' },
+            { termo: 'Ligar a roleta com esta configuração', texto: 'Liga a roleta do mercado com a regra recomendada: modelo e horizonte, só os momentos do filtro (ex.: só depois de evento), P e margem mínimas, pular LATERAL, stop e alvo próprios e saída por tempo no horizonte, com o lote escolhido. Substitui a roleta ligada no mercado; na conta real pede digitar LIVE. A roleta ignora parte das travas de risco (teto e alvo de risco, dólar, margem, spread, blackout); o stop em US$, se ligado, prevalece sobre o stop/alvo da configuração. A página Roleta mostra a configuração em uso e para a roleta.' },
             { termo: 'Nenhuma configuração passou', texto: 'Nenhuma combinação positiva na escolha se manteve na confirmação: a recomendação é não operar o mercado.' },
             { termo: 'A roleta de hoje', texto: 'A regra da roleta (modelo B, toda previsão, pula LATERAL, saídas de hoje) nos mesmos períodos, para comparar.' },
           ],

@@ -131,6 +131,8 @@ live:
   first-markets: [metals]         # previstos antes dos outros: o sinal de 15 min do ouro não espera os demais
   catch-up-minutes: 10            # momento perdido (rodada anterior calculando) é previsto depois, com o instante original
   normalize-cron: "0 30 21 * * MON-FRI"   # normalize automático às 21:30 UTC (fora das horas de controle; ~35 min)
+  auto-markets: [metals]          # sinal automático (página Hoje, 21/10): onde o sinal da regra pode virar ordem sozinho
+  auto-max-age-seconds: 180       # sinal mais velho que isso não vira ordem (no ouro, +5 min leva o E[R] a ~0)
   signal-rules:                   # regra de sinal por mercado; sem regra = gate 4 (experiment.decision)
     metals:                       # ouro: o único resultado positivo do projeto, no walk-forward E no cofre
       model: B

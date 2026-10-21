@@ -79,10 +79,37 @@ public class RouletteService {
      * @param band       pullback: distância da banda em %B (0 = só fora das bandas; 0,1 = a 10% da largura)
      */
     public record Config(boolean on, int horizon, String model, Double lot, Instant startedAt, Instant stoppedAt,
-                         String stopReason, String strategy, Double band) {
+                         String stopReason, String strategy, Double band, Filters filters) {
         public Config {
             if (strategy == null || strategy.isBlank()) strategy = "trend";
             if (band == null) band = 0.1;
+        }
+    }
+
+    /**
+     * Filtros opcionais da tendência (configuração recomendada do Laboratório, 21/10/2026). null = a roleta de sempre
+     * (toda previsão, pula LATERAL, saídas do mercado).
+     *
+     * @param kind     ALL | EVENT (só depois de divulgação) | CONTROL (só na hora cheia)
+     * @param pMin     probabilidade mínima do lado
+     * @param mMin     diferença mínima entre alta e queda
+     * @param skipFlat pula quando LATERAL é o mais provável
+     * @param stopAtr  stop próprio em ATR (null = o do mercado)
+     * @param targetR  alvo próprio em × o stop (null = o do mercado)
+     * @param source   de onde veio (ex.: "Laboratório 20/10")
+     */
+    public record Filters(String kind, Double pMin, Double mMin, Boolean skipFlat, Double stopAtr, Double targetR,
+                          String source) {
+        public Filters {
+            if (kind == null || kind.isBlank()) kind = "ALL";
+            if (pMin == null) pMin = 0.0;
+            if (mMin == null) mMin = 0.0;
+            if (skipFlat == null) skipFlat = true;
+            if (!Set.of("ALL", "EVENT", "CONTROL").contains(kind)) throw new IllegalArgumentException("Momento deve ser ALL, EVENT ou CONTROL");
+            if (pMin < 0 || pMin > 1 || mMin < 0 || mMin > 1) throw new IllegalArgumentException("P e margem mínimas vão de 0 a 1");
+            if ((stopAtr != null && !(stopAtr > 0)) || (targetR != null && !(targetR > 0))) {
+                throw new IllegalArgumentException("Stop e alvo precisam ser > 0");
+            }
         }
     }
 
@@ -92,7 +119,7 @@ public class RouletteService {
 
     public Config config(String market) {
         return repo.setting(KEY + market).map(this::parse)
-                .orElse(new Config(false, 60, "B", null, null, null, null, "trend", 0.1));
+                .orElse(new Config(false, 60, "B", null, null, null, null, "trend", 0.1, null));
     }
 
     public synchronized Config start(String market, int horizon, String model, Double lot) {
@@ -101,6 +128,11 @@ public class RouletteService {
 
     public synchronized Config start(String market, int horizon, String model, Double lot, String strategy,
                                      Double band) {
+        return start(market, horizon, model, lot, strategy, band, null);
+    }
+
+    public synchronized Config start(String market, int horizon, String model, Double lot, String strategy,
+                                     Double band, Filters filters) {
         String m = Market.fromCode(market).code();
         if (!STRATEGIES.contains(strategy)) throw new IllegalArgumentException("Estratégia deve ser trend, pullback ou both");
         if (band == null || band < 0 || band > 0.3) throw new IllegalArgumentException("Distância da banda deve ir de 0 a 0,3");
@@ -111,9 +143,11 @@ public class RouletteService {
                     "Lote %.2f fora do permitido (até %.2f, trading.risk.orders.max-lot)", lot,
                     riskHolder.get().orders().maxLot()));
         }
-        Config c = new Config(true, horizon, model, lot, Instant.now(), null, null, strategy, band);
+        if (filters != null && !"trend".equals(strategy)) throw new IllegalArgumentException("Filtros do Laboratório só na tendência");
+        Config c = new Config(true, horizon, model, lot, Instant.now(), null, null, strategy, band, filters);
         save(m, c);
-        log.info("Roleta {} LIGADA: {}, modelo {}, {} min, lote {}", m, strategy, model, horizon, lot == null ? "mínimo" : lot);
+        log.info("Roleta {} LIGADA: {}, modelo {}, {} min, lote {}{}", m, strategy, model, horizon, lot == null ? "mínimo" : lot,
+                filters == null ? "" : " · filtros " + filters);
         return c;
     }
 
@@ -122,7 +156,7 @@ public class RouletteService {
         Config c = config(m);
         if (!c.on()) return c;
         Config off = new Config(false, c.horizon(), c.model(), c.lot(), c.startedAt(), Instant.now(), reason,
-                c.strategy(), c.band());
+                c.strategy(), c.band(), c.filters());
         save(m, off);
         log.info("Roleta {} parada: {}", m, reason);
         return off;
@@ -162,15 +196,16 @@ public class RouletteService {
                 if (bands == null) bands = bands(market, now);
                 pctB = bands.get(p.symbol());
             }
-            Decision d = pullback ? decidePullback(p, pctB, c.band()) : decide(p);
+            Decision d = pullback ? decidePullback(p, pctB, c.band()) : decide(p, c.filters());
             if (d.side() == null) {
                 finish(entry, null, d.pSide(), null, "SKIPPED", d.why(), pctB);
                 continue;
             }
             Instrument inst = orders.instrument(p.symbol());
             Double lot = c.lot() != null ? c.lot() : inst == null ? null : inst.minLot();
-            OrderService.Submit s = orders.submit(p.symbol(), d.side(), lot,
-                    new OrderService.Roulette(c.horizon(), p.id()));
+            Filters f = c.filters();
+            OrderService.Submit s = orders.submit(p.symbol(), d.side(), lot, new OrderService.Roulette(c.horizon(), p.id(),
+                    f == null ? null : f.stopAtr(), f == null ? null : f.targetR()));
             if (s.orderId() != null) {
                 finish(entry, d.side(), d.pSide(), s.orderId(), "SENT", String.format(Locale.ROOT,
                         "%s %.2f · perda no stop US$ %.2f · fecha em %d min%s", d.side(), s.preview().lot(),
@@ -202,13 +237,35 @@ public class RouletteService {
 
     /** O lado mais provável entre alta e queda; pula quando LATERAL é o mais provável (escolha do operador). */
     static Decision decide(PredictionRepository.Prediction p) {
+        return decide(p, null);
+    }
+
+    /** Com os filtros do Laboratório (null = a roleta de sempre): momento, LATERAL, P e margem mínimas. */
+    static Decision decide(PredictionRepository.Prediction p, Filters f) {
         double top = Math.max(p.pUp(), p.pDown());
-        if (p.pFlat() >= top) {
+        if (f != null && !"ALL".equals(f.kind()) && !f.kind().equals(p.kind())) {
+            return new Decision(null, top, "EVENT".equals(f.kind()) ? "não é momento de divulgação (filtro: só depois de evento)"
+                    : "não é hora cheia (filtro: só na hora cheia)");
+        }
+        if (p.pFlat() >= top && (f == null || f.skipFlat())) {
             return new Decision(null, p.pFlat(), String.format(Locale.ROOT,
                     "LATERAL é o mais provável (%.0f%% × alta %.0f%% · queda %.0f%%)", 100 * p.pFlat(), 100 * p.pUp(),
                     100 * p.pDown()));
         }
-        return p.pUp() > p.pDown() ? new Decision("BUY", p.pUp(), null) : new Decision("SELL", p.pDown(), null);
+        if (p.pUp() == p.pDown()) return new Decision(null, top, "alta e queda empatadas");
+        Decision d = p.pUp() > p.pDown() ? new Decision("BUY", p.pUp(), null) : new Decision("SELL", p.pDown(), null);
+        if (f != null) {
+            double margin = Math.abs(p.pUp() - p.pDown());
+            if (d.pSide() < f.pMin()) {
+                return new Decision(null, d.pSide(), String.format(Locale.ROOT, "P do lado %.0f%% abaixo do mínimo %.0f%%",
+                        100 * d.pSide(), 100 * f.pMin()));
+            }
+            if (margin < f.mMin()) {
+                return new Decision(null, d.pSide(), String.format(Locale.ROOT, "margem %.0f abaixo do mínimo %.0f",
+                        100 * margin, 100 * f.mMin()));
+            }
+        }
+        return d;
     }
 
     /**
@@ -353,7 +410,7 @@ public class RouletteService {
         try {
             return mapper.readValue(json, Config.class);
         } catch (Exception e) {
-            return new Config(false, 60, "B", null, null, null, "estado ilegível: " + e.getMessage(), "trend", 0.1);
+            return new Config(false, 60, "B", null, null, null, "estado ilegível: " + e.getMessage(), "trend", 0.1, null);
         }
     }
 }

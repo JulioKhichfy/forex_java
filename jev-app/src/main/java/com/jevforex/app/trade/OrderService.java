@@ -118,7 +118,17 @@ public class OrderService {
      *
      * @param predictionId a previsão que originou a ordem (auditoria)
      */
-    public record Roulette(int closeAfterMinutes, long predictionId) {
+    public record Roulette(int closeAfterMinutes, long predictionId, Double stopAtr, Double targetR) {
+
+        /**
+         * @param stopAtr / targetR saídas próprias (configuração do Laboratório); null = as do mercado
+         */
+        public Roulette {
+        }
+
+        public Roulette(int closeAfterMinutes, long predictionId) {
+            this(closeAfterMinutes, predictionId, null, null);
+        }
     }
 
     /**
@@ -200,7 +210,9 @@ public class OrderService {
         boolean stepOk = Math.abs(lot / inst.lotStep() - Math.rint(lot / inst.lotStep())) < 1e-6;
         checks.add(new Check("Lote", lot >= minLot - 1e-9 && lot <= maxLot + 1e-9 && stepOk,
                 fmt(lot, 2), String.format(Locale.ROOT, "%.2f a %.2f, passo %.2f", minLot, maxLot, inst.lotStep())));
-        RiskSettings.Exits exits = mr.exits(riskHolder.get().exits());   // as do mercado (ouro: as da regra validada)
+        RiskSettings.Exits exits = roulette != null && roulette.stopAtr() != null && roulette.targetR() != null
+                ? new RiskSettings.Exits(roulette.stopAtr(), roulette.targetR())   // roleta com a configuração do Laboratório
+                : mr.exits(riskHolder.get().exits());   // as do mercado (ouro: as da regra validada)
         RiskSettings.MoneyExits money = riskHolder.get().money();
         Double slDist, tpDist;
         if (money.enabled()) {
@@ -556,6 +568,7 @@ public class OrderService {
         Mt5Parsers.InstrumentSpec s = spec(symbol);
         if (s != null) {
             double tv = s.tickValueLoss() != null && s.tickValueLoss() > 0 ? s.tickValueLoss() : s.tickValue();
+            tv *= AccountCurrency.toUsd(s.accountCurrency());   // conta cent: o MT5 dá o valor do tick em USC
             return new Instrument(symbol, Market.fromCode(s.market()), s.tickSize(), tv, s.volumeMin(),
                     s.volumeStep(), s.volumeMax(), base == null ? 0 : base.typicalStop());
         }

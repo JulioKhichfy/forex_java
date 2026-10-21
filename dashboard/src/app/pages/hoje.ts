@@ -1,6 +1,7 @@
 import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
 import { Api, CalendarItem, LatestPredictions, MODEL_NAMES, NewsItem, OrderPreview, Prediction } from '../api';
 import { catchError, concatMap, forkJoin, from, map, of } from 'rxjs';
 import { ProbBar } from './prob-bar';
@@ -30,6 +31,42 @@ import { JobsPanel } from './jobs-panel';
         </div>
         <button class="primary" (click)="previewOne(f)" [disabled]="busy()">Operar agora</button>
       </div>
+    }
+
+    @if (auto(); as a) {
+      @if (a.markets[marketState.market()]; as am) {
+        <section class="panel auto" [class.on]="am.config.on">
+          <h3>Sinal automático <tip text="Quando a regra deste mercado dá sinal, a ordem é enviada sozinha, no lado do sinal, com o lote escolhido. TODAS as travas de risco valem: o que for recusado fica registrado com o motivo. Sinal mais velho que o limite não vira ordem (entrar atrasado leva a vantagem embora)." /></h3>
+          <div class="autobar">
+            @if (am.config.on) {
+              <span class="badge ok">LIGADO</span>
+              <span class="small">lote {{ am.config.lot ?? 'mínimo' }} · desde <span [brt]="am.config.startedAt">{{ am.config.startedAt | date: 'dd/MM HH:mm' : 'UTC' }} UTC</span>
+                · sinal vale até {{ a.max_age_seconds }} s · modo {{ a.mode }}</span>
+              <button class="danger" (click)="stopAuto()">Desligar</button>
+            } @else {
+              <span class="badge">desligado</span>
+              <label class="small">Lote <input type="number" min="0.01" step="0.01" [value]="autoLot()" (input)="autoLot.set(+$any($event.target).value)" /></label>
+              <button class="primary" (click)="startAuto()">Ligar sinal automático</button>
+              @if (am.config.stopReason) { <span class="small muted">({{ am.config.stopReason }})</span> }
+            }
+          </div>
+          @if (autoEntries().length) {
+            <div class="table-wrap"><table class="small">
+              <tr><th>Quando (UTC)</th><th>Símbolo</th><th>Lado</th><th>Status</th><th>Detalhe</th><th class="right">Resultado</th></tr>
+              @for (e of autoEntries(); track e.id) {
+                <tr>
+                  <td class="mono" [brt]="e.created_at">{{ e.created_at | date: 'dd/MM HH:mm:ss' : 'UTC' }}</td>
+                  <td class="mono">{{ e.symbol }}</td>
+                  <td>@if (e.side) { <span class="badge" [class.buy]="e.side === 'BUY'" [class.sell]="e.side === 'SELL'">{{ e.side === 'BUY' ? 'COMPRA' : 'VENDA' }}</span> }</td>
+                  <td><span class="badge" [class.ok]="e.status === 'SENT'" [class.high]="e.status === 'REFUSED' || e.status === 'LATE'">{{ autoStatus(e.status) }}</span></td>
+                  <td class="muted">{{ e.message }}</td>
+                  <td class="right mono" [class.up]="(e.result ?? 0) > 0" [class.down]="(e.result ?? 0) < 0">{{ e.result === null || e.result === undefined ? '' : 'US$ ' + (e.result | number: '1.2-2') }}</td>
+                </tr>
+              }
+            </table></div>
+          } @else { <p class="small muted">Nenhum sinal visto ainda (são poucos por mês, só depois de divulgações).</p> }
+        </section>
+      }
     }
 
     <div class="grid two">
@@ -176,6 +213,9 @@ import { JobsPanel } from './jobs-panel';
     </section>
   `,
   styles: `
+    .auto.on { border-color: var(--up); }
+    .autobar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+    .autobar input { width: 70px; }
     .trade-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0 10px; }
     .trade-bar label { display: flex; align-items: center; gap: 6px; }
     .trade-bar input { width: 80px; font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border);
@@ -193,7 +233,8 @@ import { JobsPanel } from './jobs-panel';
 })
 export class Hoje implements OnInit, OnDestroy {
   private api = inject(Api);
-  private marketState = inject(MarketState);
+  protected marketState = inject(MarketState);
+  private http = inject(HttpClient);
   protected names = MODEL_NAMES;
   protected latest = signal<LatestPredictions | null>(null);
   protected events = signal<CalendarItem[]>([]);
@@ -223,6 +264,10 @@ export class Hoje implements OnInit, OnDestroy {
 
   // ------------------------------------------------------------------ operar pela previsão
   protected lot = signal(0.01);
+  /** Sinal automático (GET /api/auto-signal). */
+  protected auto = signal<any>(null);
+  protected autoLot = signal(0.01);
+  protected autoEntries = computed(() => (this.auto()?.entries ?? []).filter((e: any) => e.market === this.marketState.market()));
   protected busy = signal(false);
   protected plan = signal<{ symbol: string; side: 'BUY' | 'SELL'; preview: OrderPreview }[]>([]);
   protected results = signal<Record<string, { ok: boolean; text: string }>>({});
@@ -234,6 +279,31 @@ export class Hoje implements OnInit, OnDestroy {
     this.api.tradeState().subscribe({ next: (s) => this.lot.set(s.lot), error: () => {} });
   }
 
+  private loadAuto(): void {
+    this.http.get<any>('/api/auto-signal').subscribe({ next: (a) => this.auto.set(a), error: () => this.auto.set(null) });
+  }
+
+  protected startAuto(): void {
+    const a = this.auto();
+    const real = a?.mode === 'LIVE';
+    const market = this.marketState.market();
+    const text = `Ligar o sinal automático em ${market} com lote ${this.autoLot()}?\nCada sinal da regra vira ordem sozinho (todas as travas valem).`;
+    if (real) {
+      if (prompt(`${text}\n\nCONTA REAL: digite LIVE para confirmar.`) !== 'LIVE') return;
+    } else if (!confirm(text)) return;
+    this.http.post<any>(`/api/auto-signal/start?market=${market}&lot=${this.autoLot()}`, {}).subscribe({
+      next: () => this.loadAuto(),
+      error: (e) => alert(e?.error?.message ?? 'não consegui ligar'),
+    });
+  }
+
+  protected stopAuto(): void {
+    this.http.post<any>(`/api/auto-signal/stop?market=${this.marketState.market()}`, {}).subscribe(() => this.loadAuto());
+  }
+
+  protected autoStatus(s: string): string {
+    return ({ SENT: 'enviada', REFUSED: 'recusada', LATE: 'atrasado', SENDING: 'conferindo' } as Record<string, string>)[s] ?? s;
+  }
   protected ageMin(p: Prediction): number {
     return Math.max(0, Math.floor((Date.now() - new Date(p.momentUtc).getTime()) / 60_000));
   }
@@ -320,6 +390,7 @@ export class Hoje implements OnInit, OnDestroy {
 
   private load(): void {
     this.api.latest(this.marketState.market()).subscribe({ next: (l) => this.latest.set(l), error: () => this.latest.set(null) });
+    this.loadAuto();
   }
 
   /** Ouro, bitcoin e energia são cotados em USD: o calendário e as notícias que importam são os dos EUA. */

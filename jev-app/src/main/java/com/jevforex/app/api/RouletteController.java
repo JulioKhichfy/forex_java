@@ -19,6 +19,8 @@ import java.util.Map;
  * GET  /api/roulette?days=30                          estado de cada mercado, entradas, resultado real e o simulado
  * POST /api/roulette/start?market=fx&horizon=60&model=B[&lot=0.01][&strategy=trend|pullback&band=0.1]
  *                                                     liga (sem lot = lote mínimo de cada símbolo)
+ *      [&kind=ALL|EVENT|CONTROL&pMin=0.5&mMin=0.1&skipFlat=true&stopAtr=1&targetR=2&source=...]
+ *                                                     filtros e saídas da configuração recomendada do Laboratório
  * POST /api/roulette/stop[?market=fx]                 para um mercado (sem market = todos)
  * </pre>
  */
@@ -47,12 +49,27 @@ public class RouletteController {
     }
 
     @PostMapping("/start")
-    public RouletteService.Config start(@RequestParam String market, @RequestParam int horizon,
+    public org.springframework.http.ResponseEntity<Object> start(@RequestParam String market, @RequestParam int horizon,
                                        @RequestParam(defaultValue = "B") String model,
                                        @RequestParam(required = false) Double lot,
                                        @RequestParam(defaultValue = "trend") String strategy,
-                                       @RequestParam(defaultValue = "0.1") double band) {
-        return roulette.start(market, horizon, model, lot, strategy, band);
+                                       @RequestParam(defaultValue = "0.1") double band,
+                                       @RequestParam(required = false) String kind,
+                                       @RequestParam(required = false) Double pMin,
+                                       @RequestParam(required = false) Double mMin,
+                                       @RequestParam(required = false) Boolean skipFlat,
+                                       @RequestParam(required = false) Double stopAtr,
+                                       @RequestParam(required = false) Double targetR,
+                                       @RequestParam(required = false) String source) {
+        try {
+            boolean anyFilter = kind != null || pMin != null || mMin != null || skipFlat != null || stopAtr != null
+                    || targetR != null;
+            RouletteService.Filters f = anyFilter
+                    ? new RouletteService.Filters(kind, pMin, mMin, skipFlat, stopAtr, targetR, source) : null;
+            return org.springframework.http.ResponseEntity.ok(roulette.start(market, horizon, model, lot, strategy, band, f));
+        } catch (IllegalArgumentException e) {
+            return org.springframework.http.ResponseEntity.status(409).body(Map.of("message", e.getMessage()));
+        }
     }
 
     @PostMapping("/stop")

@@ -258,7 +258,7 @@ export interface MoneyExits {
 export interface TradeState {
   mode: string;
   account: { account: number; server: string; tradeMode: string; equity: number | null; balance: number | null;
-    reportedAt: string | null; detailJson: string | null } | null;
+    reportedAt: string | null; detailJson: string | null; currency?: string | null } | null;
   positions: Position[];
   details?: Record<string, PositionDetail>;
   money?: MoneyExits;
@@ -385,6 +385,8 @@ export interface RouletteConfig {
   stopReason: string | null;
   strategy: 'trend' | 'pullback' | 'both';
   band: number;
+  /** Filtros da configuração recomendada do Laboratório (null = a roleta de sempre). */
+  filters?: { kind: string; pMin: number; mMin: number; skipFlat: boolean; stopAtr: number | null; targetR: number | null; source: string | null } | null;
 }
 
 export interface RouletteEntry {

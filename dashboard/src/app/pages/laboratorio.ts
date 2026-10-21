@@ -97,6 +97,12 @@ const KIND: Record<string, string> = { ALL: 'todos os momentos', EVENT: 'só dep
               compare a linha "a roleta de hoje" abaixo.</li>
             <li>Com a banca de hoje, confira na página Risco se 1 R com o lote mínimo cabe no seu teto por operação.</li>
           </ul>
+          <div class="startbox">
+            <label class="small">Lote <input type="number" min="0.01" step="0.01" [value]="rlLot()" (input)="rlLot.set(+$any($event.target).value)" /></label>
+            <button class="primary" (click)="startRoulette(rec, r)" [disabled]="rlBusy()">{{ rlBusy() ? 'Ligando…' : 'Ligar a roleta com esta configuração' }}</button>
+            <tip text="Liga a roleta deste mercado com esta regra: modelo e horizonte, só os momentos do filtro, P e margem mínimas, pular LATERAL, e stop e alvo próprios (saída por tempo no horizonte). Substitui a roleta que estiver ligada neste mercado. A roleta ignora parte das travas de risco (teto e alvo de risco, exposição ao dólar, margem, spread, blackout); se quiser todas as travas, use o sinal automático. Para parar: página Roleta." />
+            @if (rlMsg(); as m) { <span class="small" [class.down]="m.error" [class.up]="!m.error">{{ m.text }}</span> }
+          </div>
         } @else {
           <h3>Nenhuma configuração passou: não operar este mercado</h3>
           <p class="small">Nenhuma das combinações positivas na escolha (com operações bastantes) se manteve positiva na confirmação.
@@ -147,6 +153,8 @@ const KIND: Record<string, string> = { ALL: 'todos os momentos', EVENT: 'só dep
     tr.hit td { background: var(--up-bg); }
     tr.miss td { background: var(--down-bg); }
     h4 { margin: 14px 0 4px; }
+    .startbox { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+    .startbox input { width: 70px; }
   `,
 })
 export class Laboratorio implements OnDestroy {
@@ -157,6 +165,9 @@ export class Laboratorio implements OnDestroy {
   protected file = signal<LabFile | null>(null);
   protected missing = signal(false);
   protected job = signal<JobStatus | null>(null);
+  protected rlLot = signal(0.01);
+  protected rlBusy = signal(false);
+  protected rlMsg = signal<{ text: string; error: boolean } | null>(null);
   private timer?: ReturnType<typeof setInterval>;
   private wasRunning = false;
 
@@ -202,6 +213,38 @@ export class Laboratorio implements OnDestroy {
     this.http.post<JobStatus>(`/api/ops/jobs/laboratorio?market=${this.marketState.market()}`, {}).subscribe({
       next: (j) => { this.job.set(j); this.wasRunning = true; },
       error: (e) => alert(e?.error?.message ?? 'não consegui iniciar'),
+    });
+  }
+
+  /** Liga a roleta do mercado com a configuração recomendada (filtros e saídas próprias). */
+  protected startRoulette(rec: LabRow, r: LabReport): void {
+    const c = rec.config;
+    const market = this.marketState.market();
+    const ev = this.evidence(r, rec);
+    this.http.get<any>('/api/roulette?days=1').subscribe({
+      next: (st) => {
+        const real = st?.mode === 'LIVE';
+        const text = `Ligar a roleta de ${this.marketLabel()} com:\n${this.ruleText(c)}\nlote ${this.rlLot()}, saída por tempo em ${c.horizon} min.\n\n`
+          + `Evidência ${ev.level}: ${ev.text}\n`
+          + 'A roleta ignora teto e alvo de risco, exposição ao dólar, margem, spread e blackout (valem posições, um por símbolo, '
+          + 'mercado ligado, risco aberto, sessão e perda do dia/semana). Se o stop em US$ estiver ligado (página Risco), ele prevalece '
+          + 'sobre o stop e o alvo desta configuração. Substitui a roleta ligada neste mercado.';
+        if (real) {
+          if (prompt(`${text}\n\nCONTA REAL: digite LIVE para confirmar.`) !== 'LIVE') return;
+        } else if (!confirm(text)) return;
+        const q = new URLSearchParams({
+          market, horizon: String(c.horizon), model: c.model, lot: String(this.rlLot()), strategy: 'trend',
+          kind: c.kind, pMin: String(c.pMin), mMin: String(c.mMin), skipFlat: String(c.skipFlat),
+          stopAtr: String(c.stopAtr), targetR: String(c.targetR),
+          source: `Laboratório ${new Date(r.builtAt).toLocaleDateString('pt-BR')}`,
+        });
+        this.rlBusy.set(true);
+        this.http.post<any>(`/api/roulette/start?${q}`, {}).subscribe({
+          next: () => { this.rlBusy.set(false); this.rlMsg.set({ text: 'Roleta ligada com esta configuração. Acompanhe na página Roleta.', error: false }); },
+          error: (e) => { this.rlBusy.set(false); this.rlMsg.set({ text: e?.error?.message ?? 'não consegui ligar (reinicie o servidor?)', error: true }); },
+        });
+      },
+      error: () => this.rlMsg.set({ text: 'roleta indisponível', error: true }),
     });
   }
 
