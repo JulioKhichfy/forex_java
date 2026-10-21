@@ -139,6 +139,13 @@ live:
       min-margin: 0.15
       events-only: true           # na hora cheia o E[R] é ~0; a vantagem está nas divulgações dos EUA
       note: "Walk-forward 2024-01 a 2026-03: 49 operações em evento, E[R] +0,23 R. Cofre (abr-set/2026, avaliado uma vez): 12 operações, +0,38 R. Cerca de 2 sinais por mês. Entrar até ~2 min depois do sinal: com +5 min o E[R] cai para perto de zero."
+    indices:                      # índices (Laboratório de 19/10/2026; saídas em trading.risk.markets.indices: stop 1 ATR, alvo 2×, 60 min)
+      model: B
+      horizon: 60
+      min-prob: 0.50
+      min-margin: 0.10
+      events-only: true
+      note: "Laboratório (19/10/2026): escolhida no walk-forward até jun/2025 com 42 operações, E[R] +0,20 R; confirmação (jul/2025 em diante + cofre) 54 operações, +0,25 R. Uma família de regra, amostra pequena (evidência moderada). Poucos sinais por mês, só depois de divulgações."
 
 # ---------------------------------------------------------------------
 #  Acervo de discursos do BIS (passo 4a) — comando backfill-bis
@@ -375,6 +382,9 @@ trading:
         max-open-risk-pct: 10.0
         max-positions: 2
         usd-weight: 0.0                # exposição a USD só conta no forex
+        close-after-minutes: 60         # saídas da regra de sinal dos índices (Laboratório 19/10: B 60 min só evento)
+        stop-atr: 1.0
+        target-r: 2.0
       stocks:                          # ações (passo 7)
         enabled: true
         risk-per-trade-pct: 5.0
@@ -431,7 +441,7 @@ risk:
         metals: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
         crypto: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 0.5 }
         energy: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 0.0 }
-        indices: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 0.0 }
+        indices: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 0.0, close-after-minutes: 60, stop-atr: 1.0, target-r: 2.0 }
         stocks: { enabled: true, risk-per-trade-pct: 2, max-open-risk-pct: 4, max-positions: 1, usd-weight: 0.0 }
     conservador:
       label: Conservador
@@ -444,7 +454,7 @@ risk:
         metals: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
         crypto: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 0.5 }
         energy: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 0.0 }
-        indices: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 0.0 }
+        indices: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 0.0, close-after-minutes: 60, stop-atr: 1.0, target-r: 2.0 }
         stocks: { enabled: true, risk-per-trade-pct: 3, max-open-risk-pct: 8, max-positions: 1, usd-weight: 0.0 }
     moderado:
       label: Moderado
@@ -457,7 +467,7 @@ risk:
         metals: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 1, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
         crypto: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 1, usd-weight: 0.5 }
         energy: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 1, usd-weight: 0.0 }
-        indices: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 2, usd-weight: 0.0 }
+        indices: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 2, usd-weight: 0.0, close-after-minutes: 60, stop-atr: 1.0, target-r: 2.0 }
         stocks: { enabled: true, risk-per-trade-pct: 5, max-open-risk-pct: 15, max-positions: 2, usd-weight: 0.0 }
     arrojado:
       label: Arrojado
@@ -470,7 +480,7 @@ risk:
         metals: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 2, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
         crypto: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 2, usd-weight: 0.5 }
         energy: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 2, usd-weight: 0.0 }
-        indices: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 3, usd-weight: 0.0 }
+        indices: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 3, usd-weight: 0.0, close-after-minutes: 60, stop-atr: 1.0, target-r: 2.0 }
         stocks: { enabled: true, risk-per-trade-pct: 10, max-open-risk-pct: 30, max-positions: 3, usd-weight: 0.0 }
     ultra-arrojado:
       label: Ultra arrojado
@@ -483,5 +493,5 @@ risk:
         metals: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 2, usd-weight: 1.0, close-after-minutes: 15, stop-atr: 1.5, target-r: 1.5 }
         crypto: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 2, usd-weight: 0.5 }
         energy: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 2, usd-weight: 0.0 }
-        indices: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 4, usd-weight: 0.0 }
+        indices: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 4, usd-weight: 0.0, close-after-minutes: 60, stop-atr: 1.0, target-r: 2.0 }
         stocks: { enabled: true, risk-per-trade-pct: 20, max-open-risk-pct: 60, max-positions: 4, usd-weight: 0.0 }

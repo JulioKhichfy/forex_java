@@ -24,6 +24,7 @@ import java.util.Map;
  *
  * <pre>
  * GET  /api/predictions/latest        a mais recente de cada par × modelo × horizonte, com a idade
+ * GET  /api/predictions/signals?minutes=15   sinais recentes das regras de sinal de TODOS os mercados (vigia global)
  * GET  /api/predictions?symbol=&hours= histórico
  * GET  /api/predictions/scoreboard    placar ao vivo por modelo (desde a versão em produção)
  * POST /api/predictions/run           prevê agora (gatilho MANUAL: aparece no painel, fora do placar)
@@ -62,6 +63,30 @@ public class PredictionController {
                 .map(t -> Duration.between(t, Instant.now()).toMinutes()).orElse(null));
         out.put("predictions", rows);
         return out;
+    }
+
+    /**
+     * Modo só sinais (20/10/2026): os sinais das regras de mercado (live.signal-rules) com até {@code minutes} minutos,
+     * de todos os mercados com regra — o dashboard avisa em qualquer página.
+     */
+    @GetMapping("/signals")
+    public Map<String, Object> signals(@RequestParam(defaultValue = "15") int minutes) {
+        Instant from = Instant.now().minus(Duration.ofMinutes(Math.min(Math.max(minutes, 1), 240)));
+        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        live.rules().forEach((market, rule) -> {
+            for (PredictionRepository.Prediction p : repo.latest(market)) {
+                if ("NO_TRADE".equals(p.signal()) || !p.model().equals(rule.model()) || p.horizonMin() != rule.horizon()
+                        || p.momentUtc().isBefore(from)) continue;
+                Map<String, Object> s = new LinkedHashMap<>();
+                s.put("market", market);
+                s.put("prediction", p);
+                out.add(s);
+            }
+        });
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("rules", live.rules());
+        res.put("signals", out);
+        return res;
     }
 
     @GetMapping

@@ -69,7 +69,7 @@ export const HELP: Record<string, string> = {
   marketCloseAfter: 'Fecha a posição deste mercado depois de N minutos, se o stop ou o alvo não vierem antes. Vazio = a saída por tempo das travas de ordem; 0 = só SL/TP. O ouro usa 15: é o horizonte com que a regra dele foi testada.',
   marketStopAtr: 'Stop deste mercado em múltiplos do ATR (volatilidade média de 15 min). Vazio = o stop da seção Saídas. O ouro usa 1,5: foi com ele que a regra do ouro deu resultado positivo fora da amostra.',
   marketTargetR: 'Alvo deste mercado em múltiplos do stop. Vazio = o alvo da seção Saídas. O ouro usa 1,5.',
-  regraOuro: 'Regra validada fora da amostra só para o ouro: modelo Eventos + Preço a 15 min, P ≥ 45% e diferença ≥ 15 pontos, apenas no momento de uma divulgação (evento + 2 min). A ordem sai sozinha em 15 min.',
+  regraOuro: 'Regra de sinal do mercado, validada fora da amostra. Ouro: Eventos + Preço a 15 min, P ≥ 45% e diferença ≥ 15 pontos, só no momento de uma divulgação (evento + 2 min); sai em 15 min. Índices (Laboratório 19/10): Eventos + Preço a 60 min, P ≥ 50% e diferença ≥ 10 pontos, só depois de divulgação; stop 1 ATR, alvo 2× o stop, sai em 60 min. Os sinais avisam em qualquer página (faixa no topo, som e notificação).',
   usdWeight: 'Quanto o risco deste mercado conta na exposição a USD (1 = tudo; 0 = nada, como índices e ações).',
   lossProfile: 'Trava de perda: com a perda do dia (ou da semana) acima destes limites, nenhuma entrada nova até 00:00 UTC (ou até segunda). Os valores vêm do perfil de risco aplicado na página Risco (seção 1, perda no dia e na semana).',
 

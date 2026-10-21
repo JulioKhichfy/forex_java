@@ -4,10 +4,11 @@ import { SlicePipe } from '@angular/common';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { Api } from './api';
 import { MARKETS, MarketState } from './market';
+import { SignalWatch } from './signal-watch';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, SlicePipe, Brt],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, SlicePipe, Brt, SignalWatch],
   templateUrl: './app.html',
   styleUrl: './app.scss',
 })

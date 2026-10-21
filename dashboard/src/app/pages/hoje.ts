@@ -220,7 +220,6 @@ export class Hoje implements OnInit, OnDestroy {
   });
   private timer?: ReturnType<typeof setInterval>;
   private slowTimer?: ReturnType<typeof setInterval>;
-  private alerted = new Set<number>();
 
   // ------------------------------------------------------------------ operar pela previsão
   protected lot = signal(0.01);
@@ -232,7 +231,6 @@ export class Hoje implements OnInit, OnDestroy {
 
   constructor() {
     effect(() => { this.marketState.market(); this.plan.set([]); this.results.set({}); this.load(); this.loadSlow(); });
-    effect(() => { const f = this.fresh(); if (f) this.notify(f); });
     this.api.tradeState().subscribe({ next: (s) => this.lot.set(s.lot), error: () => {} });
   }
 
@@ -240,26 +238,8 @@ export class Hoje implements OnInit, OnDestroy {
     return Math.max(0, Math.floor((Date.now() - new Date(p.momentUtc).getTime()) / 60_000));
   }
 
-  /** Aviso do navegador e um bipe, uma vez por previsão (o sinal do ouro vale por poucos minutos). */
-  private notify(p: Prediction): void {
-    if (this.alerted.has(p.id)) return;
-    this.alerted.add(p.id);
-    const text = `${p.signal === 'BUY' ? 'COMPRA' : 'VENDA'} ${p.symbol} · ${p.horizonMin} min`;
-    try {
-      if ('Notification' in window) {
-        if (Notification.permission === 'granted') new Notification('Jev Forex: sinal', { body: text });
-        else if (Notification.permission !== 'denied') Notification.requestPermission();
-      }
-    } catch { /* sem aviso do navegador: fica o destaque na página */ }
-    try {
-      const ctx = new AudioContext();
-      const o = ctx.createOscillator();
-      o.frequency.value = 880;
-      o.connect(ctx.destination);
-      o.start();
-      o.stop(ctx.currentTime + 0.25);
-    } catch { /* sem som */ }
-  }
+  // o aviso (bipe e notificação) é do vigia global de sinais (signal-watch.ts), em qualquer página
+
 
   protected side(p: Prediction): 'BUY' | 'SELL' {
     return p.pUp > p.pDown ? 'BUY' : 'SELL';

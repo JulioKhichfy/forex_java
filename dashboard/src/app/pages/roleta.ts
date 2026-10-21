@@ -29,6 +29,13 @@ const PULLBACK_STUDY: Record<string, Record<number, number>> = {
   selector: 'page-roleta',
   imports: [DatePipe, DecimalPipe, Tip, Brt],
   template: `
+    <div class="notice">
+      <b>Recomendação (Laboratório, 19/10): use o modo só sinais no lugar da roleta.</b> A roleta entra em toda previsão,
+      e isso deu E[R] negativo em quase todos os mercados (forex e ações sem nenhuma regra que funcione). As regras que se
+      sustentaram — ouro (B, 15 min) e índices (B, 60 min), só depois de divulgações e com probabilidade mínima — disparam
+      poucas vezes por mês e avisam em qualquer página do dashboard (faixa no topo, som e notificação). Para usar só os
+      sinais: <b>PARAR ROLETA RUSSA</b> e deixe o dashboard aberto.
+    </div>
     <div class="notice danger">
       <b>Roleta = ordens automáticas sem parte das travas de risco por ordem</b> (teto e alvo de risco, exposição ao dólar,
       margem, spread e blackout; posições, um por par, mercado ligado e risco aberto valem). Com um mercado ligado, cada previsão nova vira

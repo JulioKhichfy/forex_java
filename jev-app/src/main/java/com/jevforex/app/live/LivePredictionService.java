@@ -128,6 +128,11 @@ public class LivePredictionService {
         return LakeSql.open(lake.root().resolve("tmp").resolve("duckdb-live"), silver.duckdbMemory());
     }
 
+    /** Todas as regras de sinal (mercado → regra): os mercados do "modo só sinais". */
+    public Map<String, LiveProperties.SignalRule> rules() {
+        return props.signalRules();
+    }
+
     /** Regra de sinal do mercado (live.signal-rules) ou null = gate 4. */
     public LiveProperties.SignalRule rule(String market) {
         return props.signalRules().get(market);

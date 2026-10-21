@@ -216,6 +216,10 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             tudo (melhor: rompimento + saída estrutural, ouro M5 −0,07 R), igual ou pior que vender sem padrão. Por
             decisão do operador virou alerta no Radar (`scan/TripleTop`, a mesma definição do teste) com botão Vender que
             abre a página Operar com a venda calculada (todas as travas)
+      - [x] 9g modo só sinais (20/10): regra de sinal dos índices em `live.signal-rules.indices` (B, 60 min, P ≥ 0,50,
+            margem ≥ 0,10, só evento; saídas em `trading.risk.markets.indices` e nos perfis: stop 1 ATR, alvo 2×, 60 min);
+            vigia global de sinais no dashboard (`signal-watch.ts`, GET /api/predictions/signals: faixa, bipe e notificação
+            em qualquer página); a página Roleta recomenda parar a roleta e usar os sinais
 - [ ] Passo 10 — notícias além dos bancos centrais (pedido do operador, 14/10)
       - [x] 10a coleta: GDELT GKG (histórico desde 2021-10 + ao vivo a cada 15 min; ~1.800 de ~140 mil notícias/dia
             passam no filtro; ~1 MB/dia no bronze) e SEC EDGAR (8-K/10-Q/10-K das 6 ações; espera EDGAR_USER_AGENT).

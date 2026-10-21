@@ -100,6 +100,16 @@ export const SECOES: Secao[] = [
     blocos: [
       { imagem: { src: 'hoje-ouro', legenda: 'Hoje com o mercado Ouro: a regra própria do ouro aparece em destaque, e eventos e notícias mostram só USD.' } },
       {
+        titulo: 'Modo só sinais (aviso em qualquer página)',
+        html: `Os mercados com <b>regra de sinal</b> — ouro (Eventos + Preço, 15 min) e índices (Eventos + Preço, 60 min),
+          as duas regras que se sustentaram fora da amostra e no Laboratório — são vigiados o tempo todo, em qualquer página
+          do dashboard. Quando sai um sinal: uma <b>faixa verde (compra) ou vermelha (venda)</b> no topo, um bipe e uma
+          notificação do Windows (permita as notificações no navegador). <b>Ver e operar</b> abre a página Hoje do mercado,
+          com o botão <b>Operar agora</b> (todas as travas valem). O sinal vale por poucos minutos: a faixa some depois de
+          10 min. Os dois disparam poucas vezes por mês, só depois de divulgações. É a alternativa recomendada à roleta,
+          que entra em toda previsão e teve E[R] negativo em quase todos os mercados. Precisa do dashboard aberto.`,
+      },
+      {
         titulo: 'Aviso amarelo do topo',
         html: `Lembra que a previsão é apoio, não garantia. Nos testes fora da amostra, só o ouro mostrou vantagem
           depois dos custos; os demais mercados não. Confira o placar (Previsões) e o cofre (Modelos) antes de confiar.`,
@@ -1049,5 +1059,5 @@ export const GLOSSARIO_NOMES: Record<string, string> = {
   maxSpreadRatio: 'Spread máximo', minMarginLevelPct: 'Nível de margem mínimo', sessionMarginMinutes: 'Folga antes do fim da sessão', stopAtr: 'Stop (× ATR)', targetR: 'Alvo (× stop)',
   marketEnabled: 'Mercado ativo', riskPerTradePct: 'Risco-alvo por operação', marketMaxOpenRiskPct: 'Risco aberto do mercado',
   marketMaxPositions: 'Posições do mercado', marketCloseAfter: 'Saída por tempo do mercado', marketStopAtr: 'Stop do mercado',
-  marketTargetR: 'Alvo do mercado', regraOuro: 'Regra do ouro', usdWeight: 'Peso no USD', lossProfile: 'Trava de perda',
+  marketTargetR: 'Alvo do mercado', regraOuro: 'Regra de sinal do mercado', usdWeight: 'Peso no USD', lossProfile: 'Trava de perda',
 };
