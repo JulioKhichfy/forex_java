@@ -134,7 +134,7 @@ public class TimeExitScheduler {
             return "EA anterior à 2.4 (não move o alvo)";
         }
         oldEaWarned = false;
-        TradeRepository.Position pos = repo.positions().stream().filter(p -> p.ticket() == ticket).findFirst().orElse(null);
+        TradeRepository.Position pos = repo.ownPositions().stream().filter(p -> p.ticket() == ticket).findFirst().orElse(null);
         if (pos == null) return "posição não encontrada";
         double[] q = trailing.quotes(acc.get().detailJson()).get(pos.symbol());
         if (q == null) return "sem cotação de " + pos.symbol();

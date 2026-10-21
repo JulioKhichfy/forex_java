@@ -473,8 +473,10 @@ export const SECOES: Secao[] = [
       },
       {
         titulo: 'Posições abertas (deste sistema)',
-        html: `Só as posições abertas pelo EA deste sistema na conta conectada agora (o EA não mexe em posições abertas à mão
-          ou por outros robôs). Acima da tabela: o botão <b>“Prorrogar com lucro na saída por tempo”</b> e como estão o
+        html: `As posições da conta conectada agora. Com o EA 2.8, aparecem também as abertas <b>fora do sistema</b> (à mão
+          no MT5, no celular ou por outro robô), com o selo “fora do sistema”: elas entram nas travas (posições, um por
+          símbolo, risco aberto — sem stop, o risco é desconhecido e as entradas novas param), mas o sistema não as fecha,
+          não edita e não aplica trailing nem saída por tempo. Acima da tabela: o botão <b>“Prorrogar com lucro na saída por tempo”</b> e como estão o
           trailing e o stop em US$. Embaixo de cada posição, uma linha com o stop de entrada (em ATR ou em US$), a perda
           planejada, quantas vezes o trailing moveu o stop e se a posição foi prorrogada.`,
         tabela: {

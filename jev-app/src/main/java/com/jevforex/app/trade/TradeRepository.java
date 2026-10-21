@@ -307,6 +307,18 @@ public class TradeRepository {
         }
     }
 
+    /**
+     * Só as posições DESTE sistema (o magic do EA, que vem no heartbeat): as que ele pode fechar, editar, seguir com
+     * trailing e fechar por tempo. As de fora (abertas à mão ou por outro robô, EA 2.8) entram só nas travas.
+     */
+    public List<Position> ownPositions() {
+        Long magic = jdbc().sql("""
+                        SELECT (detail::jsonb ->> 'magic')::bigint FROM heartbeat WHERE component = 'ea'
+                         ORDER BY reported_at DESC NULLS LAST, id DESC LIMIT 1
+                        """).query(Long.class).optional().orElse(null);
+        return positions().stream().filter(p -> magic == null || p.magic() == null || p.magic().equals(magic)).toList();
+    }
+
     /** Posições da conta conectada agora (último heartbeat): a foto de outra conta (ex.: a demo) fica de fora. */
     public List<Position> positions() {
         return jdbc().sql("""

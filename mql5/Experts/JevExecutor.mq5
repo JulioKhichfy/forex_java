@@ -13,6 +13,7 @@
 //|  - informa o fim da sessão de cada símbolo (session_end, 2.5)     |
 //|  - edição manual de stop e alvo pelo dashboard (MODIFY MANUAL, 2.6)|
 //|  - reporta o fechamento de toda posição que abriu, mesmo à mão (2.7)|
+//|  - reporta também as posições de fora, marcadas (2.8)             |
 //|  - reporta cada execução (POST /api/ea/execution) e envia         |
 //|    heartbeat com saldo, margem, cotações e posições               |
 //|                                                                  |
@@ -27,7 +28,7 @@
 //| Expert Advisors → "Permitir WebRequest…" → http://127.0.0.1:8080  |
 //+------------------------------------------------------------------+
 #property copyright   "Jev Forex"
-#property version     "2.70"
+#property version     "2.80"
 #property description "Jev Forex — executor das ordens aprovadas no dashboard, com SL/TP no servidor."
 
 #include <Trade/Trade.mqh>
@@ -49,7 +50,7 @@ input string InpSymbols6         = "UKOIL,USOIL,XNGUSD";       // Cotações: en
 input int    InpPollSeconds      = 1;                       // Busca de ordens (s)
 input int    InpHeartbeatSeconds = 5;                       // Heartbeat (s)
 
-#define EA_VERSION "JevExecutor/2.7"
+#define EA_VERSION "JevExecutor/2.8"
 #define MAX_SEEN   500
 
 CTrade   g_trade;
@@ -563,6 +564,12 @@ string QuotesJson()
    return "[" + out + "]";
   }
 
+//+------------------------------------------------------------------+
+//| Todas as posições da conta (2.8): as deste EA (magic) e as de     |
+//| fora (abertas à mão ou por outro robô), marcadas "external": o    |
+//| sistema as conta nas travas, mas não mexe nelas. count = só as    |
+//| deste EA.                                                          |
+//+------------------------------------------------------------------+
 string PositionsJson(int &count)
   {
    string out = "";
@@ -570,15 +577,16 @@ string PositionsJson(int &count)
    for(int i = 0; i < PositionsTotal(); i++)
      {
       ulong ticket = PositionGetTicket(i);
-      if(ticket == 0 || PositionGetInteger(POSITION_MAGIC) != InpMagic)
+      if(ticket == 0)
          continue;
+      bool external = PositionGetInteger(POSITION_MAGIC) != InpMagic;
       string broker = PositionGetString(POSITION_SYMBOL);
       int digits = (int)SymbolInfoInteger(broker, SYMBOL_DIGITS);
       bool buy = PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY;
       if(out != "")
          out += ",";
       out += StringFormat("{\"ticket\":%I64u,\"symbol\":\"%s\",\"side\":\"%s\",\"volume\":%s,\"price\":%s,"
-                          "\"sl\":%s,\"tp\":%s,\"profit\":%s,\"magic\":%I64d,\"time\":\"%s\"}",
+                          "\"sl\":%s,\"tp\":%s,\"profit\":%s,\"magic\":%I64d,\"time\":\"%s\",\"external\":%s}",
                           ticket, Canonical(broker), buy ? "BUY" : "SELL",
                           DoubleToString(PositionGetDouble(POSITION_VOLUME), 2),
                           DoubleToString(PositionGetDouble(POSITION_PRICE_OPEN), digits),
@@ -586,8 +594,10 @@ string PositionsJson(int &count)
                           DoubleToString(PositionGetDouble(POSITION_TP), digits),
                           DoubleToString(PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP), 2),
                           PositionGetInteger(POSITION_MAGIC),
-                          JevIsoUtc((datetime)(PositionGetInteger(POSITION_TIME) - JevServerOffsetSeconds())));
-      count++;
+                          JevIsoUtc((datetime)(PositionGetInteger(POSITION_TIME) - JevServerOffsetSeconds())),
+                          external ? "true" : "false");
+      if(!external)
+         count++;
      }
    return "[" + out + "]";
   }

@@ -72,6 +72,8 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
   ("market closed": 15 min) antes de pedir de novo.
   Edição manual de stop/alvo na página Operar (20/10, `OrderService.editStops`, Flyway V13 `modify_mode`=MANUAL, EA 2.6):
   o stop pode se afastar até o teto por operação; nunca sem stop; lado certo e distância mínima da corretora.
+  Posições de fora do sistema (21/10, EA 2.8): o EA reporta todas, marcando as sem o magic dele; entram nas travas
+  (`repo.positions()`), mas fechar/editar/trailing/saída por tempo/FLATTEN só nas do sistema (`repo.ownPositions()`).
 - **Perfis prontos** (`risk.presets` no application.yml, 15/10): Ultra conservador → Ultra arrojado; um clique na página Risco
   substitui global (inclusive a perda do dia/semana), exits, mercados e campos de orders (`RiskEditor.withPreset`). A página
   Risco tem 3 partes: perfis, stop/alvo em US$ + trailing (`POST /api/risk/money`, só esse bloco) e ajuste fino.
@@ -101,7 +103,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5; `news/`: GDELT (GKG) e SEC EDGAR |
 | jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
 | dashboard | Angular 20 (Hoje, Radar, Previsões, Eventos, Operar, Roleta russa, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
-| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.7 (executor com 3 chaves; OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo; reporta o fechamento de toda posição que abriu, mesmo manual), `install.ps1` |
+| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.8 (executor com 3 chaves; OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo; reporta o fechamento de toda posição que abriu, mesmo manual; reporta também as posições de fora, marcadas), `install.ps1` |
 
 ## Comandos
 ```

@@ -260,11 +260,13 @@ public class OrderService {
                 "sem posição no mesmo par"));
         double openRisk = 0, openRiskMarket = 0;
         boolean allWithStop = true;
+        String noStop = null;   // a posição sem stop (de fora do sistema, em geral): risco desconhecido = falhar fechado
         double usdNet = 0;
         for (TradeRepository.Position p : positions) {
             Instrument pi = instrument(p.symbol());
             if (p.sl() == null || p.sl() == 0 || pi == null) {
                 allWithStop = false;
+                noStop = p.symbol() + " #" + p.ticket();
                 continue;
             }
             double r = pi.lossPerLot(Math.abs(p.openPrice() - p.sl())) * p.volume();
@@ -275,7 +277,8 @@ public class OrderService {
         double newRisk = riskUsd == null ? 0 : riskUsd;
         double openCap = balance == null ? 0 : balance * riskHolder.get().global().maxOpenRiskPct() / 100;
         checks.add(new Check("Risco aberto total", allWithStop && balance != null && openRisk + newRisk <= openCap + 1e-9,
-                allWithStop ? usd(openRisk + newRisk) + pct(openRisk + newRisk, balance) : "posição sem stop na conta",
+                allWithStop ? usd(openRisk + newRisk) + pct(openRisk + newRisk, balance)
+                        : "posição sem stop na conta (" + noStop + "): risco desconhecido",
                 "≤ " + usd(openCap) + " na conta"));
         double marketCap = balance == null ? 0 : balance * mr.maxOpenRiskPct() / 100;
         checks.add(new Check("Risco aberto no mercado", balance != null && openRiskMarket + newRisk <= marketCap + 1e-9,
@@ -440,8 +443,11 @@ public class OrderService {
      * Precisa do EA 2.6 (MODIFY MANUAL). Como fechar, proteger não é bloqueado por BLOCK.
      */
     public synchronized StopEdit editStops(long ticket, Double sl, Double tp) {
-        TradeRepository.Position pos = repo.positions().stream().filter(p -> p.ticket() == ticket).findFirst().orElse(null);
-        if (pos == null) return refuse("A posição " + ticket + " não está aberta nesta conta.");
+        TradeRepository.Position pos = repo.ownPositions().stream().filter(p -> p.ticket() == ticket).findFirst().orElse(null);
+        if (pos == null) {
+            return refuse(repo.positions().stream().anyMatch(p -> p.ticket() == ticket)
+                    ? "A posição " + ticket + " foi aberta fora do sistema: edite no MT5." : "A posição " + ticket + " não está aberta nesta conta.");
+        }
         if (sl == null || !(sl > 0)) return refuse("O stop é obrigatório: toda posição fica com stop no servidor da corretora.");
         Optional<TradeRepository.Account> acc = repo.latestAccount();
         long silence = acc.map(a -> a.reportedAt() == null ? Long.MAX_VALUE
@@ -502,8 +508,10 @@ public class OrderService {
 
     /** Fecha uma posição (botão no dashboard ou saída por tempo). Fechar nunca é bloqueado por BLOCK. */
     public synchronized long close(long ticket, String why) {
-        TradeRepository.Position pos = repo.positions().stream().filter(p -> p.ticket() == ticket).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Posição " + ticket + " não está aberta"));
+        TradeRepository.Position pos = repo.ownPositions().stream().filter(p -> p.ticket() == ticket).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(repo.positions().stream().anyMatch(p -> p.ticket() == ticket)
+                        ? "Posição " + ticket + " foi aberta fora do sistema: feche no MT5"
+                        : "Posição " + ticket + " não está aberta"));
         Instant now = Instant.now();
         return repo.insertOrder(new TradeRepository.Order(null, marketOf(pos.symbol()), pos.symbol(), "CLOSE", null, pos.volume(), null,
                 null, null, null, null, riskHolder.get().orders().deviationPoints(), null, ticket, null, "[]",

@@ -169,7 +169,9 @@ public class EaBridgeController {
                 }
                 trades.upsertDeals(deals);
             }
-            if (positions.isEmpty() && orders.flattening()) {
+            long eaMagic = body.path("magic").asLong(0);
+            boolean noneOfOurs = positions.stream().noneMatch(p -> p.magic() == null || eaMagic == 0 || p.magic() == eaMagic);
+            if (noneOfOurs && orders.flattening()) {   // as de fora (EA 2.8) não contam: o FLATTEN só fecha as deste EA
                 trades.setSetting(OrderService.SETTING_FLATTEN, "false");   // tudo fechado; o BLOCK continua ligado
                 log.info("FLATTEN concluído: nenhuma posição aberta. BLOCK continua ligado até você desligar.");
             }

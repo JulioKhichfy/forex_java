@@ -131,7 +131,7 @@ import { MyTrades } from './my-trades';
       </div>
 
       <section class="panel" style="margin-top:16px">
-        <h3>Posições abertas (deste sistema)</h3>
+        <h3>Posições abertas <tip text="As do sistema e, com o EA 2.8, também as abertas fora dele (à mão no MT5, no celular ou por outro robô), marcadas 'fora do sistema'. Essas entram nas travas (posições, um por símbolo, risco aberto — sem stop, o risco é desconhecido e as entradas novas param), mas o sistema não as fecha, não edita e não aplica trailing nem saída por tempo: cuide delas no MT5." /></h3>
         @if (s.money; as m) {
           <div class="protect">
             <div class="lockbar">
@@ -180,7 +180,8 @@ import { MyTrades } from './my-trades';
               <td class="small">{{ originText(d) }}</td>
               <td class="mono" [class.warn]="d?.timeLockUntil">{{ remaining(d) }}</td>
               <td class="small mono" [brt]="p.openTime">{{ p.openTime | date: 'dd/MM HH:mm' : 'UTC' }}</td>
-              <td class="nowrap"><button (click)="startEdit(p)">Editar</button> <button (click)="close(p.ticket)">Fechar</button></td>
+              <td class="nowrap">@if (d?.origin === 'externa') { <span class="badge warn" title="Aberta fora do sistema: cuide dela no MT5">fora do sistema</span> }
+                @else { <button (click)="startEdit(p)">Editar</button> <button (click)="close(p.ticket)">Fechar</button> }</td>
             </tr>
             <tr class="sub"><td></td><td colspan="11" class="small muted">{{ detailText(d) }}</td></tr>
             @if (editing() === p.ticket) {
@@ -504,7 +505,7 @@ export class Operar implements OnInit, OnDestroy {
 
   protected detailText(d: PositionDetail | undefined): string {
     if (!d) return '';
-    if (d.origin === 'externa') return 'Posição sem ordem deste sistema (o trailing e a prorrogação valem só para as do sistema).';
+    if (d.origin === 'externa') return 'Aberta fora do sistema (MT5, celular ou outro robô): conta nas travas, mas o sistema não fecha, não edita e não aplica trailing nem saída por tempo.' + (d.slUsd == null ? ' Sem stop: as entradas novas param até ela ter stop ou fechar.' : '');
     const parts: string[] = [];
     if (d.stopMode === 'USD') parts.push('Stop/alvo de entrada: em US$ (página Risco, parte 2)');
     else if (d.stopAtr != null) parts.push(`Stop de entrada: ${d.stopAtr.toFixed(2)} ATR, alvo ${d.targetR?.toFixed(2) ?? '—'} × o stop`);

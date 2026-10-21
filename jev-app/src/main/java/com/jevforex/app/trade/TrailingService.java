@@ -68,7 +68,7 @@ public class TrailingService {
         }
         oldEaWarned = false;
         Map<String, double[]> quotes = quotes(acc.get().detailJson());
-        for (TradeRepository.Position p : repo.positions()) {
+        for (TradeRepository.Position p : repo.ownPositions()) {   // as de fora o EA não deixa mexer
             try {
                 trail(p, quotes.get(p.symbol()), m);
             } catch (RuntimeException e) {
