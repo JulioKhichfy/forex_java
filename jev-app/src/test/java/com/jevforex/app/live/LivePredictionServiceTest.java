@@ -36,7 +36,7 @@ class LivePredictionServiceTest {
     @Test
     void regraDoMercado_soNoModeloEHorizonteDela_eSoEmEvento() {
         ExperimentConfig.Decision gate = new ExperimentConfig.Decision(0.60, 0.35);
-        var ouro = new LiveProperties.SignalRule("B", 15, 0.45, 0.15, true, null);
+        var ouro = new LiveProperties.SignalRule("B", 15, 0.45, 0.15, true, null, null);
         double[] p = {0.20, 0.30, 0.50};   // passa na regra do ouro, não no gate 4
         assertEquals("BUY", LivePredictionService.signal(p, gate, ouro, "B", 15, "EVENT"));
         assertEquals("NO_TRADE", LivePredictionService.signal(p, gate, ouro, "B", 15, "CONTROL"));   // só em evento
@@ -45,6 +45,11 @@ class LivePredictionServiceTest {
         assertEquals("SELL", LivePredictionService.signal(new double[]{0.46, 0.24, 0.30}, gate, ouro, "B", 15, "EVENT"));
         assertEquals("NO_TRADE", LivePredictionService.signal(new double[]{0.46, 0.20, 0.34}, gate, ouro, "B", 15, "EVENT"));   // margem 0,12
         assertEquals("NO_TRADE", LivePredictionService.signal(p, gate, null, "B", 15, "EVENT"));     // sem regra: gate 4
+        // regra larga (22/10/2026): todos os momentos, sem P mínima, margem >= 0,10, pula LATERAL
+        var larga = new LiveProperties.SignalRule("B", 15, 0.0, 0.10, false, null, true);
+        assertEquals("BUY", LivePredictionService.signal(new double[]{0.25, 0.35, 0.40}, gate, larga, "B", 15, "CONTROL"), "hora cheia vale");
+        assertEquals("NO_TRADE", LivePredictionService.signal(new double[]{0.10, 0.60, 0.30}, gate, larga, "B", 15, "EVENT"), "LATERAL o mais provável");
+        assertEquals("NO_TRADE", LivePredictionService.signal(new double[]{0.30, 0.32, 0.38}, gate, larga, "B", 15, "EVENT"), "margem 0,08");
     }
 
     @Test

@@ -353,3 +353,35 @@ ao lado do `jev-app.jar` em uso (sem `clean`, que falharia com o jar travado).
 | `HTTP 402` / sem créditos | saldo no console da TypeSafe |
 | `Connection refused` na porta 5432 | `docker compose up -d` |
 | acentos estranhos no terminal | `chcp 65001` |
+
+## OURO e Sinais:
+O sinal automático do XAUUSD só dispara quando a regra do ouro aprova uma previsão. Ela tem três partes:
+
+1. Quando o sistema olha: só depois de divulgações econômicas.
+Toda vez que sai um dado de importância média ou alta (CPI, payroll, PPI, vendas no varejo, juros do Fed, PMI…), o sistema faz uma previsão 2 minutos depois. Esse atraso dá tempo de o número real chegar e de o preço reagir. As previsões da hora cheia não valem para o ouro. No teste, a vantagem só apareceu nesses momentos de divulgação, sobretudo as dos EUA.
+
+2. O que o modelo usa: Eventos + Preço (modelo B).
+
+Do evento: a surpresa (real × previsto), a importância e a moeda.
+Do preço: os movimentos recentes, o ATR, o regime de volatilidade e o spread.
+Com isso ele dá três probabilidades para os 15 minutos seguintes: alta, queda ou lateral.
+
+3. Quando vira ordem:
+
+COMPRA: P(alta) ≥ 45% e P(alta) − P(queda) ≥ 15 pontos.
+VENDA: P(queda) ≥ 45% e P(queda) − P(alta) ≥ 15 pontos.
+Nada: em qualquer outro caso, inclusive quando LATERAL é o mais provável, que é o mais comum.
+Exemplo: o payroll sai às 12:30 UTC. Às 12:32 o modelo dá alta 52%, queda 30%, lateral 18%. A margem é de 22 pontos, então o sistema compra XAUUSD em segundos. Com alta 46% e queda 38%, a margem seria de 8 pontos e não sairia nada.
+
+Depois do sinal:
+
+Prazo: sinal com mais de 180 s não vira ordem.
+Travas de risco: todas precisam passar (spread, blackout, sessão, posições, risco, perda do dia/semana, BLOCK). Se uma recusar, o motivo fica na tabela da página Hoje.
+Saídas: stop a 1,5 ATR (o ATR de 15 min), alvo a 1,5 × o stop, e fecha em 15 min se nenhum dos dois vier antes. O trailing, a proteção de lucro e a prorrogação valem se estiverem ligados.
+Frequência: cerca de 2 sinais por mês. Pode passar uma semana inteira sem nenhum.
+
+Resultado da regra no teste:
+
+Walk-forward (2024–mar/2026): 49 operações, +0,23 R em média.
+Cofre (abr–set/2026): 12 operações, +0,38 R.
+É positivo, mas com poucas operações, então pode haver sequências de perdas: a pior histórica foi −3,9 R. Com o seu lote de 0,20 na conta cent, 1 R ≈ US$ 1,80, então essa sequência daria uns US$ 7.

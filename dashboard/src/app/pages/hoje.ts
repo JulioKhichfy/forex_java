@@ -250,8 +250,12 @@ export class Hoje implements OnInit, OnDestroy {
   protected ruleText = computed(() => {
     const r = this.latest()?.rule;
     if (!r) return null;
-    return `Regra deste mercado: ${MODEL_NAMES[r.model] ?? r.model} a ${r.horizon} min, P ≥ ${Math.round(r.minProb * 100)}% e diferença ≥ ${Math.round(r.minMargin * 100)} pontos`
-      + (r.eventsOnly ? ', só no momento de uma divulgação (evento + 2 min).' : '.');
+    const parts = [`${MODEL_NAMES[r.model] ?? r.model} a ${r.horizon} min`];
+    if (r.minProb > 0) parts.push(`P ≥ ${Math.round(r.minProb * 100)}%`);
+    parts.push(`diferença alta × queda ≥ ${Math.round(r.minMargin * 100)} pontos`);
+    if (r.skipFlat) parts.push('sem sinal quando LATERAL é o mais provável');
+    parts.push(r.eventsOnly ? 'só no momento de uma divulgação (evento + 2 min)' : 'em todos os momentos (hora cheia e divulgações)');
+    return 'Regra deste mercado: ' + parts.join(', ') + '.';
   });
   /** Sinal da regra (ou do gate 4) com no máximo 10 min: é o que vale operar agora. */
   protected fresh = computed(() => {

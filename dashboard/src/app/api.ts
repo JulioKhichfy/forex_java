@@ -44,6 +44,7 @@ export interface SignalRule {
   minProb: number;
   minMargin: number;
   eventsOnly: boolean;
+  skipFlat?: boolean;
   note: string | null;
 }
 

@@ -234,6 +234,10 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             (Flyway V14 `auto_signal_entry`): o sinal da regra do ouro vira ordem sozinho com TODAS as travas (decisão do
             operador), sinal de até `live.auto-max-age-seconds` (180), só nos `live.auto-markets` ([metals]); painel na
             página Hoje (LIVE pede digitar LIVE)
+      - [x] 9j regra LARGA do ouro (decisão do operador, 22/10: mais sinais na conta cent): `live.signal-rules.metals` =
+            B 15 min, margem ≥ 0,10, sem P mínima, `skip-flat` (novo), todos os momentos; saídas stop 1 ATR, alvo 2×, 15 min.
+            Laboratório: escolha +0,11 R (200), confirmação +0,12 R (190, ~13/mês, pior queda −8,5 R); a regra anterior
+            (só evento, P ≥ 0,45, margem ≥ 0,15) tinha +0,32 R mas ~2/mês. Laboratório lista as "frequentes" (E[R] ≥ 0,10)
 - [ ] Passo 10 — notícias além dos bancos centrais (pedido do operador, 14/10)
       - [x] 10a coleta: GDELT GKG (histórico desde 2021-10 + ao vivo a cada 15 min; ~1.800 de ~140 mil notícias/dia
             passam no filtro; ~1 MB/dia no bronze) e SEC EDGAR (8-K/10-Q/10-K das 6 ações; espera EDGAR_USER_AGENT).

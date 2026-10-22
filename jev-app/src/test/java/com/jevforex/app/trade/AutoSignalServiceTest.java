@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AutoSignalServiceTest {
 
-    private static final LiveProperties.SignalRule OURO = new LiveProperties.SignalRule("B", 15, 0.45, 0.15, true, null);
+    private static final LiveProperties.SignalRule OURO = new LiveProperties.SignalRule("B", 15, 0.45, 0.15, true, null, null);
 
     private static PredictionRepository.Prediction pred(String model, int h, String signal) {
         return new PredictionRepository.Prediction(1L, "metals", "XAUUSD", Instant.now(), "EVENT", "EVENT", model, h, "v",

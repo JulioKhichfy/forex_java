@@ -15,7 +15,7 @@ interface LabReport {
   market: string; builtAt: string; wfRun: string; lockboxRun: string | null; chooseFrom: string; chooseTo: string;
   confirmFrom: string; confirmTo: string; liveFrom: string | null; liveTo: string | null; configs: number; minTrades: number;
   top: LabRow[]; survivors: number; survivalOf: number; baseSurvivors: number; baseOf: number;
-  recommended: LabRow | null; current: LabRow[]; seconds: number;
+  recommended: LabRow | null; current: LabRow[]; seconds: number; frequent?: LabRow[];
 }
 interface LabFile { report: LabReport; usd_per_atr_min_lot: Record<string, number>; current_exits: { stopAtr: number; targetR: number } }
 
@@ -123,6 +123,25 @@ const KIND: Record<string, string> = { ALL: 'todos os momentos', EVENT: 'só dep
               <tr [class.miss]="(c.confirm?.er ?? 0) <= 0" [class.hit]="(c.confirm?.er ?? 0) > 0">
                 <td>{{ c.config.horizon }} min</td><td class="right mono">{{ er(c.choose) }}</td><td class="right mono">{{ er(c.confirm) }}</td>
                 <td class="right mono">{{ er(c.live) }}</td><td class="right mono">{{ c.confirm ? (c.confirm.maxDd | number: '1.0-0') + ' R' : '—' }}</td>
+              </tr>
+            }
+          </table></div>
+        </section>
+      }
+
+      @if (r.frequent?.length) {
+        <section class="panel" style="margin-top:16px">
+          <h3>Mais operações com vantagem <tip text="As que mais operam (por mês, na confirmação) entre as com E[R] de +0,10 R ou mais nos DOIS períodos. Operar mais rende mais no mês só se cada operação ainda tiver vantagem; abaixo disso é pagar spread e correr risco." /></h3>
+          <div class="table-wrap"><table>
+            <tr><th>Regra</th><th class="right">Por mês</th><th class="right">Escolha</th><th class="right">Confirmação</th><th class="right">Ao vivo</th><th class="right">Pior queda</th><th class="right">Esperado/mês</th></tr>
+            @for (row of r.frequent!; track $index) {
+              <tr>
+                <td class="small">{{ ruleText(row.config) }}</td>
+                <td class="right mono">{{ row.confirm?.perMonth | number: '1.1-1' }}</td>
+                <td class="right mono">{{ er(row.choose) }}</td><td class="right mono">{{ er(row.confirm) }}</td>
+                <td class="right mono">{{ er(row.live) }}</td>
+                <td class="right mono">{{ row.confirm ? (row.confirm.maxDd | number: '1.1-1') + ' R' : '—' }}</td>
+                <td class="right mono">{{ row.confirm ? '+' + (row.confirm.er * row.confirm.perMonth | number: '1.1-1') + ' R' : '—' }}</td>
               </tr>
             }
           </table></div>

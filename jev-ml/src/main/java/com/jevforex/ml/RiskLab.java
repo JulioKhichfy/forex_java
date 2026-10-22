@@ -75,6 +75,7 @@ public final class RiskLab {
      * @param baseSurvivors de TODAS as positivas na escolha (baseOf), quantas seguiram positivas: a taxa de base. Se as
      *                  melhores não sobrevivem bem mais que isso, o ranking é ruído
      * @param recommended a melhor na escolha que também foi positiva na confirmação (null = nenhuma: não operar)
+     * @param frequent  as que mais operam (operações por mês na confirmação) entre as com E[R] >= +0,10 R nos dois períodos
      * @param current   a regra da roleta de hoje, nos dois horizontes (modelo B, lado mais provável, pula LATERAL,
      *                  saídas do mercado)
      */
@@ -82,7 +83,7 @@ public final class RiskLab {
                          LocalDate chooseTo, LocalDate confirmFrom, LocalDate confirmTo, Instant liveFrom,
                          Instant liveTo, int configs, int minTrades, List<Row> top, int survivors, int survivalOf,
                          int baseSurvivors, int baseOf,
-                         Row recommended, List<Row> current, double seconds) {
+                         Row recommended, List<Row> current, double seconds, List<Row> frequent) {
     }
 
     private final Path lakeRoot;
@@ -269,12 +270,17 @@ public final class RiskLab {
                 && r.config().stopAtr() == currentStop && r.config().targetR() == currentTarget)
                 .sorted(Comparator.comparingInt((Row r) -> r.config().horizon())).toList();
         List<Row> top = ranked.stream().limit(15).toList();
+        // as que mais operam entre as que passaram nos dois períodos COM vantagem de verdade (E[R] >= +0,10 R nos dois):
+        // operar mais com E[R] ~0 é só pagar spread e correr risco
+        List<Row> frequent = ranked.stream().filter(r -> r.choose().er() >= 0.10 && confirmed(r) && r.confirm().er() >= 0.10)
+                .sorted(Comparator.comparingDouble((Row r) -> r.confirm().perMonth()).reversed()).limit(15).toList();
 
         // pior queda acumulada só das finalistas (janela por id é cara para a grade inteira)
         Map<Config, Integer> idOf = new HashMap<>();
         byId.forEach((k, c) -> idOf.put(c, k));
         java.util.Set<Integer> wanted = new java.util.HashSet<>();
         for (Row r : top) wanted.add(idOf.get(r.config()));
+        for (Row r : frequent) wanted.add(idOf.get(r.config()));
         for (Row r : current) wanted.add(idOf.get(r.config()));
         if (recommended != null) wanted.add(idOf.get(recommended.config()));
         Map<Integer, Map<String, Double>> dd = new HashMap<>();
@@ -305,7 +311,7 @@ public final class RiskLab {
                 liveFrom, liveTo, all.size(), minTrades, top.stream().map(withDd).toList(), survivors, positive.size(),
                 baseSurvivors, allPositive.size(),
                 recommended == null ? null : withDd.apply(recommended), current.stream().map(withDd).toList(),
-                (System.nanoTime() - t0) / 1e9);
+                (System.nanoTime() - t0) / 1e9, frequent.stream().map(withDd).toList());
     }
 
     /** As operações de cada combinação (id) de um horizonte; {@code ids} = só estas (null = todas). */

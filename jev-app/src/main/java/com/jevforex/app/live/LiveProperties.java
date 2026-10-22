@@ -38,14 +38,16 @@ public record LiveProperties(Boolean enabled, Integer lookbackDays, Map<String, 
      * @param minMargin  diferença mínima para a direção oposta
      * @param eventsOnly só nos momentos de evento (event + atraso); na hora cheia = NO_TRADE
      * @param note       de onde veio a regra (walk-forward, cofre), para o dashboard
+     * @param skipFlat   sem sinal quando LATERAL é o mais provável (22/10/2026: necessário quando não há P mínima)
      */
     public record SignalRule(String model, Integer horizon, Double minProb, Double minMargin, Boolean eventsOnly,
-                             String note) {
+                             String note, Boolean skipFlat) {
         public SignalRule {
             if (model == null || horizon == null || minProb == null || minMargin == null) {
                 throw new IllegalArgumentException("live.signal-rules: model, horizon, min-prob e min-margin são obrigatórios");
             }
             if (eventsOnly == null) eventsOnly = false;
+            if (skipFlat == null) skipFlat = false;
         }
     }
 

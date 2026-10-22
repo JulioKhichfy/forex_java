@@ -206,6 +206,7 @@ public class LivePredictionService {
                          int horizon, String kind) {
         if (rule == null || !rule.model().equals(model) || rule.horizon() != horizon) return signal(p, gate);
         if (rule.eventsOnly() && !"EVENT".equals(kind)) return "NO_TRADE";
+        if (rule.skipFlat() && p[1] >= Math.max(p[0], p[2])) return "NO_TRADE";   // LATERAL é o mais provável
         return signal(p, rule.minProb(), rule.minMargin());
     }
 
