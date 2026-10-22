@@ -605,6 +605,35 @@ export const SECOES: Secao[] = [
     ],
   },
 
+  // ======================================================================== alta frequência
+  {
+    id: 'alta-frequencia',
+    titulo: 'Página Alta frequência',
+    resumo: 'Ordens automáticas com alvo pequeno em dólar: cada previsão nova vira ordem no lado mais provável, fecha no alvo (ex.: +US$ 0,10) ou por tempo.',
+    blocos: [
+      {
+        titulo: 'Como funciona',
+        html: `Em cada mercado ligado, a cada previsão nova do modelo e horizonte escolhidos, uma ordem por símbolo no lado
+          mais provável (pula quando LATERAL é o mais provável), com o lote escolhido (vazio = o mínimo). A ordem sai com:
+          <ul><li><b>alvo em US$</b>: o preço em que o lucro, com o lote da ordem, chega ao valor escolhido (ex.: US$ 0,10);</li>
+          <li><b>stop de proteção</b> a 3 ATR (ou o escolhido): só para emergência — queda do MT5, do PC ou movimento extremo;
+          o EA não aceita ordem sem stop;</li>
+          <li><b>saída por tempo</b> no horizonte, se o alvo não vier antes.</li></ul>
+          <b>Travas:</b> ignora todas as de risco por ordem (teto e alvo de risco, posições, um por símbolo, mercado ligado,
+          risco aberto, dólar, margem, spread, blackout). Valem as técnicas (EA, modo × conta, cotação, ATR, lote, sessão,
+          BLOCK) e o alvo precisa ficar além de 2 spreads e do mínimo da corretora (<b>Onde o alvo cabe</b> mostra em quais
+          símbolos cabe com o lote escolhido). A <b>perda do dia/semana</b> para todos os mercados.`,
+      },
+      {
+        titulo: 'O que esperar',
+        html: `Alvo pequeno não cria vantagem, muda o formato: muitas operações fecham com o lucro pequeno, e as que vão
+          contra saem por tempo com perdas maiores (ou no stop de proteção). Na média, o resultado é a vantagem de direção
+          da previsão menos o spread — e operar toda previsão deu negativo em quase todos os mercados no Laboratório. O
+          quadro de cada mercado mostra o resultado real: fechadas, quantas no alvo, acertos, o total em US$ e a pior.`,
+      },
+    ],
+  },
+
   // ======================================================================== roleta
   {
     id: 'roleta',

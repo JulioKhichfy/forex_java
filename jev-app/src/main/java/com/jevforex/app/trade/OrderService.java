@@ -118,18 +118,36 @@ public class OrderService {
      *
      * @param predictionId a previsão que originou a ordem (auditoria)
      */
-    public record Roulette(int closeAfterMinutes, long predictionId, Double stopAtr, Double targetR) {
+    public record Roulette(int closeAfterMinutes, long predictionId, Double stopAtr, Double targetR, Double takeUsd,
+                           boolean highFrequency) {
 
         /**
          * @param stopAtr / targetR saídas próprias (configuração do Laboratório); null = as do mercado
+         * @param takeUsd       alvo em US$ (alta frequência, 22/10/2026): o alvo fica a esse lucro com o lote da ordem;
+         *                      o stop (stopAtr) é só de proteção
+         * @param highFrequency alta frequência: ignora TODAS as travas de risco por ordem ({@link #HF_WAIVED})
          */
         public Roulette {
         }
 
         public Roulette(int closeAfterMinutes, long predictionId) {
-            this(closeAfterMinutes, predictionId, null, null);
+            this(closeAfterMinutes, predictionId, null, null, null, false);
+        }
+
+        public Roulette(int closeAfterMinutes, long predictionId, Double stopAtr, Double targetR) {
+            this(closeAfterMinutes, predictionId, stopAtr, targetR, null, false);
         }
     }
+
+    /**
+     * Alta frequência (pedido do operador em 22/10/2026): além das da roleta, ignora também posições, par livre,
+     * mercado habilitado e risco aberto. Valem só as técnicas (EA, modo × conta, BLOCK/FLATTEN, cotação, ATR, lote,
+     * sessão, alvo × spread) e a perda do dia/semana.
+     */
+    static final java.util.Set<String> HF_WAIVED = java.util.Set.of("Risco da ordem", "Risco-alvo do mercado",
+            "Exposição líquida a USD", "Nível de margem", "Spread (gate 3)", "Fora de blackout (gate 2)",
+            "Mercado habilitado", "Posições abertas", "Posições no mercado", "Par livre", "Risco aberto total",
+            "Risco aberto no mercado", "Stop em US$ × spread");
 
     /**
      * Travas que a Roleta registra mas não deixa bloquear. 14/10/2026: o operador escolheu manter só a perda do
@@ -215,7 +233,13 @@ public class OrderService {
                 : mr.exits(riskHolder.get().exits());   // as do mercado (ouro: as da regra validada)
         RiskSettings.MoneyExits money = riskHolder.get().money();
         Double slDist, tpDist;
-        if (money.enabled()) {
+        boolean hfTake = roulette != null && roulette.takeUsd() != null;
+        if (hfTake) {
+            // alta frequência: alvo a US$ takeUsd com este lote; stop largo, só de proteção (stopAtr × ATR)
+            double perPrice = inst.lossPerLot(1.0) * lot;
+            slDist = atr == null || roulette.stopAtr() == null ? null : roulette.stopAtr() * atr;
+            tpDist = perPrice > 0 ? roulette.takeUsd() / perPrice : null;
+        } else if (money.enabled()) {
             // página "Stop em US$": a distância em preço que perde/ganha exatamente esses dólares com este lote
             double perPrice = inst.lossPerLot(1.0) * lot;
             slDist = perPrice > 0 ? money.stopUsd() / perPrice : null;
@@ -325,6 +349,18 @@ public class OrderService {
                     String.format(Locale.ROOT, "> %s (2 spreads ou o mínimo da corretora)", fmt(minDist, 6))));
         }
 
+        if (hfTake) {
+            // alvo em US$ perto demais: dentro do spread (o "lucro" seria só o spread) ou do mínimo da corretora (recusa)
+            Mt5Parsers.InstrumentSpec sp = spec(symbol);
+            double point = sp == null ? inst.tickSize() : sp.point();
+            double minDist = Math.max(sp == null || sp.stopsLevel() == null ? 0 : sp.stopsLevel() * point,
+                    spread == null ? 0 : 2.0 * spread * point);
+            checks.add(new Check("Alvo em US$ × spread", tpDist != null && tpDist > minDist,
+                    tpDist == null ? "sem alvo" : String.format(Locale.ROOT, "%s de distância (US$ %.2f)", fmt(tpDist, 6),
+                            roulette.takeUsd()),
+                    String.format(Locale.ROOT, "> %s (2 spreads ou o mínimo da corretora)", fmt(minDist, 6))));
+        }
+
         // ------------------------------------------------------------ gates de mercado (cap. 12)
         Double typical = typicalSpread(pred, market);
         boolean spreadOk = spread != null && typical != null && spread <= o.maxSpreadRatio() * typical;
@@ -338,8 +374,9 @@ public class OrderService {
                         + " min depois"));
 
         if (roulette != null) {
-            checks.replaceAll(c -> c.ok() || !ROULETTE_WAIVED.contains(c.gate()) ? c
-                    : new Check(c.gate(), true, c.value() + " · ignorada na roleta", c.limit()));
+            java.util.Set<String> waived = roulette.highFrequency() ? HF_WAIVED : ROULETTE_WAIVED;
+            String tag = roulette.highFrequency() ? " · ignorada na alta frequência" : " · ignorada na roleta";
+            checks.replaceAll(c -> c.ok() || !waived.contains(c.gate()) ? c : new Check(c.gate(), true, c.value() + tag, c.limit()));
         }
         boolean ok = checks.stream().allMatch(Check::ok);
         Double slPrice = ref == null || slDist == null ? null : "BUY".equals(side) ? ref - slDist : ref + slDist;

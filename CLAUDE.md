@@ -102,7 +102,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-ml | walk-forward: Dataset, Outcomes (stop/alvo/tempo no M1), Gbm (Smile), Metrics, ExperimentRunner (modo cofre), ReportWriter, ModelStore (versões em produção), RiskLab (laboratório de configuração) (sem Spring) |
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5; `news/`: GDELT (GKG) e SEC EDGAR |
 | jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
-| dashboard | Angular 20 (Hoje, Radar, Previsões, Eventos, Operar, Roleta russa, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
+| dashboard | Angular 20 (Hoje, Radar, Previsões, Eventos, Operar, Roleta russa, Alta frequência, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
 | mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.8 (executor com 3 chaves; OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo; reporta o fechamento de toda posição que abriu, mesmo manual; reporta também as posições de fora, marcadas), `install.ps1` |
 
 ## Comandos
@@ -238,6 +238,10 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             B 15 min, margem ≥ 0,10, sem P mínima, `skip-flat` (novo), todos os momentos; saídas stop 1 ATR, alvo 2×, 15 min.
             Laboratório: escolha +0,11 R (200), confirmação +0,12 R (190, ~13/mês, pior queda −8,5 R); a regra anterior
             (só evento, P ≥ 0,45, margem ≥ 0,15) tinha +0,32 R mas ~2/mês. Laboratório lista as "frequentes" (E[R] ≥ 0,10)
+      - [x] 9k alta frequência (pedido do operador, 22/10): `HighFrequencyService` (Flyway V15 `hf_entry`, página Alta
+            frequência): a cada previsão nova, ordem no lado mais provável (pula LATERAL) com ALVO EM US$ (ex.: 0,10),
+            stop SÓ DE PROTEÇÃO (3 ATR, escolha do operador) e saída por tempo; ignora todas as travas de risco por ordem
+            (`OrderService.HF_WAIVED`); valem as técnicas, "Alvo em US$ × spread" e a perda do dia/semana (para tudo)
 - [ ] Passo 10 — notícias além dos bancos centrais (pedido do operador, 14/10)
       - [x] 10a coleta: GDELT GKG (histórico desde 2021-10 + ao vivo a cada 15 min; ~1.800 de ~140 mil notícias/dia
             passam no filtro; ~1 MB/dia no bronze) e SEC EDGAR (8-K/10-Q/10-K das 6 ações; espera EDGAR_USER_AGENT).
