@@ -605,6 +605,37 @@ export const SECOES: Secao[] = [
     ],
   },
 
+  // ======================================================================== universo
+  {
+    id: 'universo',
+    titulo: 'Página Universo',
+    resumo: 'Tudo o que o sistema sabe sobre um símbolo, com o tempo como eixo: passado (48 h), presente (próxima hora) e futuro (até 7 dias).',
+    blocos: [
+      {
+        titulo: 'Os corpos',
+        tabela: {
+          colunas: ['Corpo', 'O que é'],
+          linhas: [
+            { termo: 'Planeta (centro)', texto: 'O símbolo escolhido: preço, movimento das últimas 24 h (verde subiu, vermelho caiu) e RSI de 15 min.' },
+            { termo: 'Luas', texto: 'As previsões dos modelos (A = Preço, E = Eventos, B = Eventos + Preço; ¹ = 15 min, ⁶ = 60 min). Verde = alta mais provável, vermelho = queda, cinza = lateral; maior = mais provável. Passe o mouse para ver as probabilidades e se é sinal.' },
+            { termo: 'Asteroides', texto: 'As divulgações do calendário das moedas do símbolo. Mais perto do planeta = mais perto no tempo (os anéis marcam minutos, horas ou dias); maior = mais importante. Clique ou passe o mouse para os detalhes.' },
+            { termo: 'Cometas', texto: 'Notícias dos bancos centrais das moedas do símbolo nas últimas 48 h. Clique para abrir.' },
+            { termo: 'Estrelas coloridas', texto: 'Os alertas do radar para o símbolo (RSI, bandas, volume, movimento…).' },
+          ],
+        },
+      },
+      {
+        titulo: 'A cor dos asteroides',
+        html: `<b>Presente e Futuro</b>: o número ainda não saiu, então a cor <b>não é previsão do resultado</b>. É o lado que o
+          consenso espera (previsto acima ou abaixo do anterior) combinado com o que essa divulgação fez com o símbolo no
+          passado (mapa de eventos, página Eventos): verde = nesse cenário o símbolo subiu em 60% ou mais das vezes; vermelho
+          = em 40% ou menos; cinza = sem histórico, sem padrão ou consenso igual ao anterior.<br>
+          <b>Passado</b>: a cor é o que de fato aconteceu nos 15 min depois (alta, queda ou lateral, pelo placar das previsões
+          de evento), e o anel branco diz se o modelo acertou (contínuo) ou errou (tracejado).`,
+      },
+    ],
+  },
+
   // ======================================================================== alta frequência
   {
     id: 'alta-frequencia',

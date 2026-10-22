@@ -625,6 +625,12 @@ public class OrderService {
         return null;
     }
 
+    /** As moedas cujo calendário mexe no símbolo (página Universo); vazio sem especificação. */
+    public List<String> currenciesOf(String symbol) {
+        Instrument inst = instrument(symbol);
+        return inst == null ? List.of() : currencies(symbol, inst);
+    }
+
     /** Moedas cujo calendário mexe no instrumento: as duas do par; num índice/ação, a de lucro na corretora. */
     private List<String> currencies(String symbol, Instrument inst) {
         if (inst.market() == Market.FX && symbol.length() == 6) return List.of(symbol.substring(0, 3), symbol.substring(3));

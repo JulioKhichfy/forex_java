@@ -12,12 +12,14 @@ import { StopDolar } from './pages/stop-dolar';
 import { Laboratorio } from './pages/laboratorio';
 import { Eventos } from './pages/eventos';
 import { AltaFrequencia } from './pages/alta-frequencia';
+import { Universo } from './pages/universo';
 
 export const routes: Routes = [
   { path: '', component: Hoje, title: 'Hoje · Jev Forex' },
   { path: 'radar', component: Radar, title: 'Radar · Jev Forex' },
   { path: 'previsoes', component: Previsoes, title: 'Previsões · Jev Forex' },
   { path: 'eventos', component: Eventos, title: 'Eventos · Jev Forex' },
+  { path: 'universo', component: Universo, title: 'Universo · Jev Forex' },
   { path: 'operar', component: Operar, title: 'Operar · Jev Forex' },
   { path: 'roleta', component: Roleta, title: 'Roleta russa · Jev Forex' },
   { path: 'alta-frequencia', component: AltaFrequencia, title: 'Alta frequência · Jev Forex' },
