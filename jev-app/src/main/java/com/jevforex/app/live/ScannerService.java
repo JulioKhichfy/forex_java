@@ -39,6 +39,8 @@ public class ScannerService {
     private final LakeStorage lake;
     private final ExperimentProperties experimentProps;
     private final Map<String, Snapshot> cache = new HashMap<>();
+    /** As barras lidas na última varredura de cada mercado (backtest do Cassino). */
+    private final Map<String, Map<String, Scanner.Input>> inputs = new HashMap<>();
     private LakeSql sql;          // aberta entre as leituras: o bronze recente é lido aos poucos (ScanLoader)
     private ScanLoader loader;
 
@@ -73,6 +75,7 @@ public class ScannerService {
             recent = l.recentFiles();
             log.debug("Radar {} fases (ms): {}", m, l.ms());
             for (Scanner.Input in : l.inputs().values()) results.add(Scanner.scan(in));
+            inputs.put(m, l.inputs());
         } catch (RuntimeException e) {
             close();   // a próxima leitura começa do zero (ex.: o normalize trocou o silver no meio da leitura)
             throw e;
@@ -87,6 +90,13 @@ public class ScannerService {
         log.debug("Radar {}: {} símbolos, {} alertas, {} ms", m, results.size(),
                 results.stream().mapToInt(r -> r.alerts().size()).sum(), s.tookMs());
         return s;
+    }
+
+    /** As barras de um símbolo (M1 das últimas ~26 h e o spread de agora), da varredura de até 30 s atrás. */
+    public synchronized Scanner.Input input(String market, String symbol) {
+        String m = Market.fromCode(market).code();
+        scan(m);
+        return inputs.getOrDefault(m, Map.of()).get(symbol);
     }
 
     @PreDestroy

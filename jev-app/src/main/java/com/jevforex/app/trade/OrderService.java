@@ -116,38 +116,44 @@ public class OrderService {
      * BLOCK/FLATTEN, cotação, ATR, lote, sessão), o disjuntor de perda do dia e da semana e, desde 19/10, posições,
      * par livre, mercado habilitado e risco aberto. A saída por tempo é o horizonte escolhido na roleta.
      *
-     * @param predictionId a previsão que originou a ordem (auditoria)
+     * @param predictionId a previsão que originou a ordem (auditoria); null no Cassino
      */
-    public record Roulette(int closeAfterMinutes, long predictionId, Double stopAtr, Double targetR, Double takeUsd,
-                           boolean highFrequency) {
+    public record Roulette(int closeAfterMinutes, Long predictionId, Double stopAtr, Double targetR, Double takeUsd,
+                           Double stopUsd, boolean casino) {
 
         /**
+         * @param closeAfterMinutes saída por tempo; 0 = sem (só SL/TP; no Cassino é opcional)
          * @param stopAtr / targetR saídas próprias (configuração do Laboratório); null = as do mercado
-         * @param takeUsd       alvo em US$ (alta frequência, 22/10/2026): o alvo fica a esse lucro com o lote da ordem;
-         *                      o stop (stopAtr) é só de proteção
-         * @param highFrequency alta frequência: ignora TODAS as travas de risco por ordem ({@link #HF_WAIVED})
+         * @param takeUsd / stopUsd alvo e stop em US$ com o lote da ordem (Cassino, 23/10/2026)
+         * @param casino            Cassino: ignora TODAS as travas de risco por ordem ({@link #CASINO_WAIVED})
          */
         public Roulette {
         }
 
         public Roulette(int closeAfterMinutes, long predictionId) {
-            this(closeAfterMinutes, predictionId, null, null, null, false);
+            this(closeAfterMinutes, predictionId, null, null, null, null, false);
         }
 
         public Roulette(int closeAfterMinutes, long predictionId, Double stopAtr, Double targetR) {
-            this(closeAfterMinutes, predictionId, stopAtr, targetR, null, false);
+            this(closeAfterMinutes, predictionId, stopAtr, targetR, null, null, false);
+        }
+
+        /** Ordem do Cassino: alvo e stop em US$, saída por tempo opcional (0 = sem). */
+        public static Roulette casino(int closeAfterMinutes, double takeUsd, double stopUsd) {
+            return new Roulette(closeAfterMinutes, null, null, null, takeUsd, stopUsd, true);
         }
     }
 
     /**
-     * Alta frequência (pedido do operador em 22/10/2026): além das da roleta, ignora também posições, par livre,
-     * mercado habilitado e risco aberto. Valem só as técnicas (EA, modo × conta, BLOCK/FLATTEN, cotação, ATR, lote,
-     * sessão, alvo × spread) e a perda do dia/semana.
+     * Cassino (pedido do operador em 23/10/2026; antes, a alta frequência de 22/10): além das da roleta, ignora também
+     * posições, par livre, mercado habilitado e risco aberto, e o ATR (stop e alvo são em US$, não em ATR). Valem só as
+     * técnicas (EA, modo × conta, BLOCK/FLATTEN, cotação, lote, sessão, alvo e stop além de 2 spreads) e a perda do
+     * dia/semana.
      */
-    static final java.util.Set<String> HF_WAIVED = java.util.Set.of("Risco da ordem", "Risco-alvo do mercado",
+    static final java.util.Set<String> CASINO_WAIVED = java.util.Set.of("Risco da ordem", "Risco-alvo do mercado",
             "Exposição líquida a USD", "Nível de margem", "Spread (gate 3)", "Fora de blackout (gate 2)",
             "Mercado habilitado", "Posições abertas", "Posições no mercado", "Par livre", "Risco aberto total",
-            "Risco aberto no mercado", "Stop em US$ × spread");
+            "Risco aberto no mercado", "Stop em US$ × spread", "ATR (última previsão)");
 
     /**
      * Travas que a Roleta registra mas não deixa bloquear. 14/10/2026: o operador escolheu manter só a perda do
@@ -235,9 +241,10 @@ public class OrderService {
         Double slDist, tpDist;
         boolean hfTake = roulette != null && roulette.takeUsd() != null;
         if (hfTake) {
-            // alta frequência: alvo a US$ takeUsd com este lote; stop largo, só de proteção (stopAtr × ATR)
+            // Cassino: alvo a US$ takeUsd e stop a US$ stopUsd com este lote (sem stopUsd: stopAtr × ATR)
             double perPrice = inst.lossPerLot(1.0) * lot;
-            slDist = atr == null || roulette.stopAtr() == null ? null : roulette.stopAtr() * atr;
+            slDist = roulette.stopUsd() != null ? (perPrice > 0 ? roulette.stopUsd() / perPrice : null)
+                    : atr == null || roulette.stopAtr() == null ? null : roulette.stopAtr() * atr;
             tpDist = perPrice > 0 ? roulette.takeUsd() / perPrice : null;
         } else if (money.enabled()) {
             // página "Stop em US$": a distância em preço que perde/ganha exatamente esses dólares com este lote
@@ -359,6 +366,12 @@ public class OrderService {
                     tpDist == null ? "sem alvo" : String.format(Locale.ROOT, "%s de distância (US$ %.2f)", fmt(tpDist, 6),
                             roulette.takeUsd()),
                     String.format(Locale.ROOT, "> %s (2 spreads ou o mínimo da corretora)", fmt(minDist, 6))));
+            if (roulette.stopUsd() != null) {
+                checks.add(new Check("Stop do Cassino × spread", slDist != null && slDist > minDist,
+                        slDist == null ? "sem stop" : String.format(Locale.ROOT, "%s de distância (US$ %.2f)", fmt(slDist, 6),
+                                roulette.stopUsd()),
+                        String.format(Locale.ROOT, "> %s (2 spreads ou o mínimo da corretora)", fmt(minDist, 6))));
+            }
         }
 
         // ------------------------------------------------------------ gates de mercado (cap. 12)
@@ -374,8 +387,8 @@ public class OrderService {
                         + " min depois"));
 
         if (roulette != null) {
-            java.util.Set<String> waived = roulette.highFrequency() ? HF_WAIVED : ROULETTE_WAIVED;
-            String tag = roulette.highFrequency() ? " · ignorada na alta frequência" : " · ignorada na roleta";
+            java.util.Set<String> waived = roulette.casino() ? CASINO_WAIVED : ROULETTE_WAIVED;
+            String tag = roulette.casino() ? " · ignorada no Cassino" : " · ignorada na roleta";
             checks.replaceAll(c -> c.ok() || !waived.contains(c.gate()) ? c : new Check(c.gate(), true, c.value() + tag, c.limit()));
         }
         boolean ok = checks.stream().allMatch(Check::ok);
@@ -384,7 +397,7 @@ public class OrderService {
         return new Preview(symbol, side, lot, ref, atr, slDist, tpDist, slPrice, tpPrice, riskUsd,
                 riskUsd == null || balance == null ? null : riskUsd / balance * 100, rewardUsd, balance, equity,
                 closeAfter == 0 ? null : closeAfter, mode.name(),
-                roulette != null ? Long.valueOf(roulette.predictionId()) : pred == null ? null : pred.id(), checks, ok);
+                roulette != null ? roulette.predictionId() : pred == null ? null : pred.id(), checks, ok);
     }
 
     /** O resultado de um envio: a ordem gravada ou as travas que impediram. */
@@ -618,6 +631,14 @@ public class OrderService {
                     s.volumeStep(), s.volumeMax(), base == null ? 0 : base.typicalStop());
         }
         return base;   // índices e ações só existem com a especificação do MT5
+    }
+
+    /** Tamanho do ponto (spread e distâncias do MT5 vêm em pontos); sem especificação, o tick do instrumento. */
+    public Double point(String symbol) {
+        Mt5Parsers.InstrumentSpec sp = spec(symbol);
+        if (sp != null) return sp.point();
+        Instrument i = instrument(symbol);
+        return i == null ? null : i.tickSize();
     }
 
     Mt5Parsers.InstrumentSpec spec(String symbol) {

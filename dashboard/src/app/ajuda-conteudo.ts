@@ -637,31 +637,53 @@ export const SECOES: Secao[] = [
     ],
   },
 
-  // ======================================================================== alta frequência
+  // ======================================================================== cassino
   {
-    id: 'alta-frequencia',
-    titulo: 'Página Alta frequência',
-    resumo: 'Ordens automáticas com alvo pequeno em dólar: cada previsão nova vira ordem no lado mais provável, fecha no alvo (ex.: +US$ 0,10) ou por tempo.',
+    id: 'cassino',
+    titulo: 'Página Cassino',
+    resumo: 'Você escolhe tudo por símbolo — alvo e stop em US$, lote, compra ou venda, tentativas — e a ordem sai na hora; repete até bater o alvo.',
     blocos: [
       {
         titulo: 'Como funciona',
-        html: `Em cada mercado ligado, a cada previsão nova do modelo e horizonte escolhidos, uma ordem por símbolo no lado
-          mais provável (pula quando LATERAL é o mais provável), com o lote escolhido (vazio = o mínimo). A ordem sai com:
-          <ul><li><b>alvo em US$</b>: o preço em que o lucro, com o lote da ordem, chega ao valor escolhido (ex.: US$ 0,10);</li>
-          <li><b>stop de proteção</b> a 3 ATR (ou o escolhido): só para emergência — queda do MT5, do PC ou movimento extremo;
-          o EA não aceita ordem sem stop;</li>
-          <li><b>saída por tempo</b> no horizonte, se o alvo não vier antes.</li></ul>
-          <b>Travas:</b> ignora todas as de risco por ordem (teto e alvo de risco, posições, um por símbolo, mercado ligado,
-          risco aberto, dólar, margem, spread, blackout). Valem as técnicas (EA, modo × conta, cotação, ATR, lote, sessão,
-          BLOCK) e o alvo precisa ficar além de 2 spreads e do mínimo da corretora (<b>Onde o alvo cabe</b> mostra em quais
-          símbolos cabe com o lote escolhido). A <b>perda do dia/semana</b> para todos os mercados.`,
+        html: `Uma linha por símbolo do mercado escolhido no topo. Em cada linha: <b>alvo US$</b> e <b>stop US$</b> (o lucro e a
+          perda com o lote da linha), <b>lote</b> (vazio = o mínimo), <b>direção</b> (compra ou venda), <b>tentativas</b> e, se
+          quiser, <b>saída (min)</b>: fecha a mercado depois desses minutos (vazio = só alvo e stop).
+          <ul><li>Ao clicar <b>Ligar</b>, a 1ª ordem sai na hora, com o alvo e o stop no servidor da corretora.</li>
+          <li>Fechou no stop (ou por tempo), abre a próxima tentativa na hora.</li>
+          <li><b>Bateu o alvo, a linha termina</b>. Acabaram as tentativas, também.</li>
+          <li>Recusa das travas ou falha do EA numa tentativa para a linha (falhar fechado): o motivo aparece em Estado.</li></ul>
+          <b>Parar</b> desliga a linha e deixa a posição aberta com o alvo e o stop; <b>PARAR TUDO E FECHAR AS POSIÇÕES</b> fecha
+          as posições do Cassino a mercado. As posições do Cassino ficam fora do trailing, da proteção de lucro e da
+          prorrogação com lucro.`,
+      },
+      {
+        titulo: 'Global: lucro, perda e rodadas',
+        html: `Opcional. <b>Lucro global</b> e <b>perda global</b> valem para a rodada inteira: a soma das tentativas fechadas com
+          o lucro flutuante das abertas. Atingiu um dos dois, o Cassino fecha todas as posições dele e, se ainda houver
+          <b>rodadas</b>, recomeça todas as linhas ligadas com as tentativas zeradas (mesmo depois de um lucro global). Na última
+          rodada, desliga tudo. Se as linhas terminarem sozinhas (alvo ou tentativas) antes do global, o Cassino para.`,
+      },
+      {
+        titulo: 'Travas',
+        html: `Ignora todas as de risco por ordem: teto e alvo de risco, posições abertas, um por símbolo, mercado ligado, risco
+          aberto, dólar, margem, spread, blackout e o ATR (alvo e stop são em dólar). Valem as técnicas (EA conectado, modo ×
+          conta, cotação, lote, sessão até a saída por tempo, BLOCK) e o alvo e o stop precisam ficar além de 2 spreads e do
+          mínimo da corretora. A <b>perda do dia/semana</b> para todas as linhas.`,
+      },
+      {
+        titulo: 'Backtest dos últimos 4 quartos de hora',
+        html: `<b>4 quartos</b> (ou <b>Backtest de todos</b>) mostra o que teria acontecido se a linha tivesse aberto no início de
+          cada um dos últimos 4 quartos de hora completos (UTC): <b>alvo</b>, <b>stop</b>, <b>tempo</b> (com a saída em minutos)
+          ou ainda <b>aberta</b>, com o resultado em US$. Usa os candles M1 do MT5 e o spread de agora; compra entra no ask e
+          sai no bid, venda o contrário. Alvo e stop no mesmo minuto contam como stop. Com o mercado fechado, os 4 quartos são
+          os últimos antes de fechar. Também mostra quanto custa o spread em US$ com o lote da linha.`,
       },
       {
         titulo: 'O que esperar',
-        html: `Alvo pequeno não cria vantagem, muda o formato: muitas operações fecham com o lucro pequeno, e as que vão
-          contra saem por tempo com perdas maiores (ou no stop de proteção). Na média, o resultado é a vantagem de direção
-          da previsão menos o spread — e operar toda previsão deu negativo em quase todos os mercados no Laboratório. O
-          quadro de cada mercado mostra o resultado real: fechadas, quantas no alvo, acertos, o total em US$ e a pior.`,
+        html: `Repetir até acertar não cria vantagem: com alvo pequeno e stop maior, a maioria das tentativas acerta, mas cada
+          stop apaga vários alvos, e toda operação paga o spread. Na média, o resultado é o da direção escolhida menos o
+          spread. Uma hora de backtest é pouco para dizer se uma configuração presta. "Últimas tentativas" mostra o resultado
+          real de cada uma.`,
       },
     ],
   },

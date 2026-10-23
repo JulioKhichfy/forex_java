@@ -167,6 +167,14 @@ public class TradeRepository {
                 .param("t", ticket).query(Long.class).single() > 0;
     }
 
+    /** Tickets das posições abertas pelo Cassino (30 dias): saem só no alvo, no stop ou no tempo, sem trailing. */
+    public java.util.Set<Long> casinoTickets() {
+        return new java.util.HashSet<>(jdbc().sql("""
+                        SELECT o.ticket FROM casino_entry e JOIN order_request o ON o.id = e.order_id
+                         WHERE o.ticket IS NOT NULL AND e.created_at > now() - INTERVAL '30 days'
+                        """).query(Long.class).list());
+    }
+
     /**
      * Saída por tempo vencida de uma posição.
      *

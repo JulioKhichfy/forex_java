@@ -68,7 +68,9 @@ public class TrailingService {
         }
         oldEaWarned = false;
         Map<String, double[]> quotes = quotes(acc.get().detailJson());
+        java.util.Set<Long> casino = repo.casinoTickets();   // Cassino: só o alvo e o stop escolhidos
         for (TradeRepository.Position p : repo.ownPositions()) {   // as de fora o EA não deixa mexer
+            if (casino.contains(p.ticket())) continue;
             try {
                 trail(p, quotes.get(p.symbol()), m);
             } catch (RuntimeException e) {

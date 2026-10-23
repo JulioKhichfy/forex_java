@@ -54,13 +54,15 @@ public class TimeExitScheduler {
     public synchronized void tick() {
         RiskSettings.MoneyExits m = riskHolder.get().money();
         follow(m);
-        for (TradeRepository.DueExit d : repo.dueTimeExits()) {
+        List<TradeRepository.DueExit> due = repo.dueTimeExits();
+        java.util.Set<Long> casino = due.isEmpty() ? java.util.Set.of() : repo.casinoTickets();
+        for (TradeRepository.DueExit d : due) {
             try {
                 String why = null;
                 if (d.lockUntil() != null) {
                     why = LOCK_FAILED.contains(d.lockStatus())
                             ? "a prorrogação não pegou (" + d.lockStatus() + ")" : "fim da prorrogação com lucro";
-                } else if (m.timeLockEnabled()) {
+                } else if (m.timeLockEnabled() && !casino.contains(d.ticket())) {   // Cassino: fecha no tempo, sem prorrogar
                     why = start(d.ticket(), m);
                     if (why == null) continue;   // prorrogada (ou esperando um MODIFY do trailing terminar)
                 }
