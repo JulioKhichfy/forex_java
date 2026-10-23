@@ -288,6 +288,34 @@ class FeatureBuilderTest {
         assertEquals(0.0, value(lake, "DE30", "2026-02-10 14:00:00", "surprise_base"), 1e-12);
     }
 
+    @Test
+    void quartosDeHora_momentosQuarter_eParidadeAoVivo(@TempDir Path lake) {
+        silver(lake, "2030-01-01 00:00", 1.0);
+        FeatureConfig d = FeatureConfig.defaults();
+        FeatureConfig quarter = new FeatureConfig(d.fset(), d.entryDelayMinutes(), d.horizonsMinutes(), d.labelThresholdAtr(),
+                d.eventLagMinutes(), d.controlHoursUtc(), d.importanceWeights(), d.surpriseDecayMinutes(), d.sigmaWindow(),
+                d.sigmaMinHistory(), d.negativePolarity(), d.text(), Map.of("fx", List.of(0, 15, 30, 45)));
+        try (LakeSql sql = LakeSql.open(lake.resolve("tmp"), "1GB")) {
+            new FeatureBuilder(lake, quarter).run(sql);
+        }
+        assertEquals("CONTROL", text(lake, "EURUSD", "2026-02-12 10:00:00", "kind"));
+        assertEquals("QUARTER", text(lake, "EURUSD", "2026-02-12 10:15:00", "kind"));
+        assertEquals("QUARTER", text(lake, "EURUSD", "2026-02-12 10:45:00", "kind"));
+        assertEquals("EVENT", text(lake, "EURUSD", "2026-02-10 13:32:00", "kind"), "evento continua EVENT");
+        // o label do quarto de hora existe (mesmo cálculo da hora cheia)
+        assertTrue(List.of("ALTA", "QUEDA", "LATERAL").contains(label(lake, "EURUSD", "2026-02-12 10:15:00", "15m")));
+        // ao vivo às 10:15: o mesmo tipo e as mesmas features do lote
+        FeatureBuilder.Live live;
+        try (LakeSql sql = LakeSql.open(lake.resolve("tmp"), "1GB")) {
+            live = new FeatureBuilder(lake, quarter).live(sql, java.time.LocalDateTime.parse("2026-02-12T10:15:00"), 40, 35);
+        }
+        Map<String, Object> row = live.rows().stream().filter(r -> "EURUSD".equals(r.get("symbol"))).findFirst().orElseThrow();
+        assertEquals("QUARTER", row.get("kind"));
+        assertEquals(value(lake, "EURUSD", "2026-02-12 10:15:00", "atr"), ((Number) row.get("atr")).doubleValue(), 1e-9);
+        // sem a configuração, nada de quarto de hora (o padrão continua só a hora cheia)
+        assertEquals(List.of(0), FeatureConfig.defaults().controlMinutes("fx"));
+    }
+
     /** "2026-02-12 10:00:00.0" e "2026-02-12 10:00:00" são o mesmo instante. */
     private static String noFraction(String s) {
         return s.endsWith(".0") ? s.substring(0, s.length() - 2) : s;

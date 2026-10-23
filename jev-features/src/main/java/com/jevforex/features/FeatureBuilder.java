@@ -439,7 +439,7 @@ public final class FeatureBuilder {
                                               WHERE p2.symbol = x.symbol AND r.weight > 0
                                                 AND time_bucket(INTERVAL 1 MINUTE, r.scheduled_utc) + to_minutes(%2$d)
                                                     BETWEEN x.t - INTERVAL 10 MINUTE AND x.t)
-                                THEN 'EVENT' ELSE 'CONTROL' END AS kind,
+                                THEN 'EVENT' WHEN minute(x.t) = 0 THEN 'CONTROL' ELSE 'QUARTER' END AS kind,
                            x.t - INTERVAL 15 MINUTE AS t15, x.t - INTERVAL 60 MINUTE AS t60,
                            x.t - INTERVAL 240 MINUTE AS t240
                       FROM x
@@ -447,6 +447,9 @@ public final class FeatureBuilder {
         } else {
             String hours = cfg.controlHoursUtc().isEmpty() ? "-1"
                     : cfg.controlHoursUtc().stream().map(String::valueOf).collect(Collectors.joining(","));
+            List<Integer> minutes = cfg.controlMinutes(market);
+            String step = minutes.equals(List.of(0)) ? "1 HOUR" : "15 MINUTE";
+            String mins = minutes.stream().map(String::valueOf).collect(Collectors.joining(","));
             List<String> span = sql.query("SELECT CAST(date_trunc('hour', min(first_close)) AS VARCHAR), "
                     + "CAST(max(last_close) AS VARCHAR) FROM bounds", rs -> rs.getString(1) + "|" + rs.getString(2));
             String[] ends = span.get(0).split("\\|");
@@ -458,18 +461,20 @@ public final class FeatureBuilder {
                           FROM releases r JOIN pairs p ON r.currency IN (p.base, p.quote)
                          WHERE r.weight > 0),
                     ctrl AS (
-                        SELECT p.symbol, g.t, 'CONTROL' AS kind
-                          FROM generate_series(TIMESTAMP '%s', TIMESTAMP '%s', INTERVAL 1 HOUR) AS g(t), pairs p
-                         WHERE isodow(g.t) BETWEEN 1 AND 5 AND hour(g.t) IN (%s)
+                        SELECT p.symbol, g.t, CASE WHEN minute(g.t) = 0 THEN 'CONTROL' ELSE 'QUARTER' END AS kind
+                          FROM generate_series(TIMESTAMP '%s', TIMESTAMP '%s', INTERVAL %s) AS g(t), pairs p
+                         WHERE isodow(g.t) BETWEEN 1 AND 5 AND hour(g.t) IN (%s) AND minute(g.t) IN (%s)
                            AND NOT (isodow(g.t) = 5 AND hour(g.t) >= 19)),
-                    u AS (SELECT symbol, t, max(kind) AS kind
+                    u AS (SELECT symbol, t,
+                                 CASE WHEN bool_or(kind = 'EVENT') THEN 'EVENT' WHEN bool_or(kind = 'CONTROL') THEN 'CONTROL'
+                                      ELSE 'QUARTER' END AS kind
                             FROM (SELECT * FROM ev UNION ALL SELECT * FROM ctrl) GROUP BY symbol, t)
                     SELECT u.symbol, u.t, u.kind,
                            u.t - INTERVAL 15 MINUTE AS t15, u.t - INTERVAL 60 MINUTE AS t60,
                            u.t - INTERVAL 240 MINUTE AS t240
                       FROM u JOIN bounds b USING (symbol)
                      WHERE u.t BETWEEN b.first_close AND b.last_close
-                    """.formatted(cfg.eventLagMinutes(), ends[0], ends[1], hours));
+                    """.formatted(cfg.eventLagMinutes(), ends[0], ends[1], step, hours, mins));
             if (!fx()) {
                 // índices e ações: muitas horas cheias caem com a bolsa fechada; sairiam no filtro de dado velho do
                 // fim — descartar já aqui dá o mesmo resultado com bem menos memória

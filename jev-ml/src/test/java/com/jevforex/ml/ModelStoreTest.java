@@ -52,4 +52,18 @@ class ModelStoreTest {
         double[][] a = g.predict(probe), b = back.predict(probe);
         for (int i = 0; i < probe.length; i++) assertArrayEquals(a[i], b[i], 1e-12);
     }
+
+    @Test
+    void producao_horaCheiaEEvento_semQuartosDeHora() {
+        Dataset d = new Dataset(4, List.of("x"));
+        long h = Instant.parse("2026-10-22T14:00:00Z").getEpochSecond();
+        d.moment[0] = h;                 // hora cheia
+        d.moment[1] = h + 15 * 60;       // quarto de hora
+        d.moment[2] = h + 45 * 60;       // quarto de hora
+        d.moment[3] = h + 32 * 60;       // 2 min depois de uma divulgação às :30
+        d.event[3] = true;
+        assertTrue(ModelStore.productionMoment(d, 0));
+        assertTrue(!ModelStore.productionMoment(d, 1) && !ModelStore.productionMoment(d, 2));
+        assertTrue(ModelStore.productionMoment(d, 3), "evento vale em qualquer minuto");
+    }
 }

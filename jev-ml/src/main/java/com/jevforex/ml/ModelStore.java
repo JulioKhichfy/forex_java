@@ -130,7 +130,7 @@ public final class ModelStore {
             long start = Dataset.epoch(LocalDate.ofInstant(Instant.ofEpochSecond(last), ZoneOffset.UTC)
                     .minusMonths(cfg.trainMonths()));
             int[] rows = java.util.stream.IntStream.range(0, d.size())
-                    .filter(i -> d.moment[i] >= start && d.labelAvailable[i] <= last).toArray();
+                    .filter(i -> d.moment[i] >= start && d.labelAvailable[i] <= last && productionMoment(d, i)).toArray();
             from = Instant.ofEpochSecond(d.moment[rows[0]]).toString();
             to = Instant.ofEpochSecond(d.moment[rows[rows.length - 1]]).toString();
             int[] y = new int[rows.length];
@@ -165,6 +165,14 @@ public final class ModelStore {
         return mf;
     }
 
+    /**
+     * Momento usado pelo modelo de produção: depois de evento ou na hora cheia. Os quartos de hora (:15/:30/:45,
+     * kind QUARTER) ficam só para o walk-forward e o Laboratório: treinar com eles piorou a regra do ouro em evento (22/10).
+     */
+    static boolean productionMoment(Dataset d, int i) {
+        return d.event[i] || d.moment[i] % 3600 == 0;
+    }
+
     /** Champion e receita nova num mês: a receita treina com os {@code trainMonths} meses antes dele (com embargo). */
     private static List<ChallengeRow> challengeHorizon(Dataset d, int h, java.time.YearMonth ym, Loaded champ,
                                                        ExperimentConfig cfg, Consumer<String> progress) {
@@ -172,9 +180,10 @@ public final class ModelStore {
         long trainStart = Dataset.epoch(ym.minusMonths(cfg.trainMonths()).atDay(1));
         long knownBy = testStart - cfg.embargoDays() * 86_400L;
         int[] test = java.util.stream.IntStream.range(0, d.size())
-                .filter(i -> d.moment[i] >= testStart && d.moment[i] < testEnd).toArray();
+                .filter(i -> d.moment[i] >= testStart && d.moment[i] < testEnd && productionMoment(d, i)).toArray();
         int[] train = java.util.stream.IntStream.range(0, d.size())
-                .filter(i -> d.moment[i] >= trainStart && d.moment[i] < testStart && d.labelAvailable[i] <= knownBy)
+                .filter(i -> d.moment[i] >= trainStart && d.moment[i] < testStart && d.labelAvailable[i] <= knownBy
+                        && productionMoment(d, i))
                 .toArray();
         List<ChallengeRow> out = new ArrayList<>();
         if (test.length == 0 || train.length == 0) return out;

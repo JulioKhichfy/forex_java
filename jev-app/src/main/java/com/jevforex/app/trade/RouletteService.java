@@ -105,7 +105,7 @@ public class RouletteService {
             if (pMin == null) pMin = 0.0;
             if (mMin == null) mMin = 0.0;
             if (skipFlat == null) skipFlat = true;
-            if (!Set.of("ALL", "EVENT", "CONTROL").contains(kind)) throw new IllegalArgumentException("Momento deve ser ALL, EVENT ou CONTROL");
+            if (!Set.of("ALL", "EVENT", "CONTROL", "QUARTER").contains(kind)) throw new IllegalArgumentException("Momento deve ser ALL, EVENT, CONTROL ou QUARTER");
             if (pMin < 0 || pMin > 1 || mMin < 0 || mMin > 1) throw new IllegalArgumentException("P e margem mínimas vão de 0 a 1");
             if ((stopAtr != null && !(stopAtr > 0)) || (targetR != null && !(targetR > 0))) {
                 throw new IllegalArgumentException("Stop e alvo precisam ser > 0");
@@ -245,7 +245,8 @@ public class RouletteService {
         double top = Math.max(p.pUp(), p.pDown());
         if (f != null && !"ALL".equals(f.kind()) && !f.kind().equals(p.kind())) {
             return new Decision(null, top, "EVENT".equals(f.kind()) ? "não é momento de divulgação (filtro: só depois de evento)"
-                    : "não é hora cheia (filtro: só na hora cheia)");
+                    : "CONTROL".equals(f.kind()) ? "não é hora cheia (filtro: só na hora cheia)"
+                    : "não é quarto de hora (filtro: só às :15, :30 e :45)");
         }
         if (p.pFlat() >= top && (f == null || f.skipFlat())) {
             return new Decision(null, p.pFlat(), String.format(Locale.ROOT,

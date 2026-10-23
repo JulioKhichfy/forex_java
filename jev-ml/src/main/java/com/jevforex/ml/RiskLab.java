@@ -34,7 +34,8 @@ public final class RiskLab {
 
     public static final List<String> MODELS = List.of("A", "E", "B");
     public static final List<Integer> HORIZONS = List.of(15, 60);
-    public static final List<String> KINDS = List.of("ALL", "EVENT", "CONTROL");
+    /** CONTROL = hora cheia; QUARTER = :15, :30, :45 (deduzido pelo minuto, 22/10/2026). */
+    public static final List<String> KINDS = List.of("ALL", "EVENT", "CONTROL", "QUARTER");
     public static final List<Double> P_MIN = List.of(0.0, 0.40, 0.45, 0.50, 0.55, 0.60);
     public static final List<Double> M_MIN = List.of(0.0, 0.10, 0.20);
     public static final List<Double> STOPS = List.of(1.0, 1.5, 2.0);
@@ -139,7 +140,9 @@ public final class RiskLab {
             if (!u.isEmpty()) u.append(" UNION ALL ");
             u.append(String.format(Locale.ROOT, """
                     SELECT CASE WHEN run = '%1$s' AND moment_utc < TIMESTAMP '%2$s' THEN 'choose' ELSE 'confirm' END AS period,
-                           symbol, moment_utc, kind, CAST(replace(horizon, 'm', '') AS INTEGER) AS h, '%3$s' AS model,
+                           symbol, moment_utc,
+                           CASE WHEN kind = 'EVENT' THEN 'EVENT' WHEN minute(moment_utc) = 0 THEN 'CONTROL' ELSE 'QUARTER' END AS kind,
+                           CAST(replace(horizon, 'm', '') AS INTEGER) AS h, '%3$s' AS model,
                            p_%4$s_down AS p_down, p_%4$s_flat AS p_flat, p_%4$s_up AS p_up
                       FROM %5$s WHERE run IN ('%1$s', '%6$s') AND p_%4$s_up IS NOT NULL%7$s
                     """, wfRun, split, m, l, read, lbRun == null ? wfRun : lbRun, symFilter));

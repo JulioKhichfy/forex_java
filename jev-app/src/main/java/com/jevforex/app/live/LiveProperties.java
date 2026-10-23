@@ -26,7 +26,7 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "live")
 public record LiveProperties(Boolean enabled, Integer lookbackDays, Map<String, Integer> lookbackDaysByMarket,
                              String cron, List<String> firstMarkets, Integer catchUpMinutes,
-                             Map<String, SignalRule> signalRules, String normalizeCron) {
+                             Map<String, SignalRule> signalRules, String normalizeCron, List<String> quarterMarkets) {
 
     /**
      * Regra de sinal validada fora da amostra para um mercado (ex.: ouro, modelo B a 15 min). Vale só para as
@@ -58,6 +58,8 @@ public record LiveProperties(Boolean enabled, Integer lookbackDays, Map<String, 
         if (lookbackDays < 30) throw new IllegalArgumentException("live.lookback-days deve ser >= 30 (regime: 20 dias úteis)");
         lookbackDaysByMarket = lookbackDaysByMarket == null ? Map.of() : Map.copyOf(lookbackDaysByMarket);
         firstMarkets = firstMarkets == null ? List.of() : List.copyOf(firstMarkets);
+        // previsão ao vivo também às :15, :30 e :45 (22/10/2026): só depois do Laboratório aprovar o mercado
+        quarterMarkets = quarterMarkets == null ? List.of() : List.copyOf(quarterMarkets);
         if (catchUpMinutes == null) catchUpMinutes = 10;
         signalRules = signalRules == null ? Map.of() : Map.copyOf(signalRules);
         if (normalizeCron == null || normalizeCron.isBlank()) normalizeCron = "-";

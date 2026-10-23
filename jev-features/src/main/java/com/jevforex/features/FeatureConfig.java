@@ -19,11 +19,14 @@ import java.util.Map;
  * @param sigmaMinHistory      mínimo de divulgações anteriores para calcular z
  * @param negativePolarity     trechos de event_code em que valor maior ENFRAQUECE a moeda (desemprego…)
  * @param text                 grupo C: sinais do Jev por moeda (null = sem grupo C)
+ * @param controlMinutesByMarket minutos da hora com momento de controle por mercado (padrão [0] = só a hora cheia;
+ *                             [0, 15, 30, 45] = a cada 15 min, pedido do operador em 22/10/2026 — os de minuto ≠ 0 são QUARTER)
  */
 public record FeatureConfig(String fset, int entryDelayMinutes, List<Integer> horizonsMinutes,
                             double labelThresholdAtr, int eventLagMinutes, List<Integer> controlHoursUtc,
                             Map<String, Double> importanceWeights, int surpriseDecayMinutes, int sigmaWindow,
-                            int sigmaMinHistory, List<String> negativePolarity, Text text) {
+                            int sigmaMinHistory, List<String> negativePolarity, Text text,
+                            Map<String, List<Integer>> controlMinutesByMarket) {
 
     /**
      * Grupo C (documento mestre, capítulo 10): S_moeda(t) = Σ sinal_i × exp(−(t − t_i) / τ), só documentos com
@@ -69,6 +72,20 @@ public record FeatureConfig(String fset, int entryDelayMinutes, List<Integer> ho
         controlHoursUtc = List.copyOf(controlHoursUtc);
         importanceWeights = Map.copyOf(importanceWeights);
         negativePolarity = List.copyOf(negativePolarity);
+        controlMinutesByMarket = controlMinutesByMarket == null ? Map.of() : Map.copyOf(controlMinutesByMarket);
+        for (var e : controlMinutesByMarket.entrySet()) {
+            for (Integer m : e.getValue()) {
+                if (m == null || !List.of(0, 15, 30, 45).contains(m)) {
+                    throw new IllegalArgumentException("features.control-minutes-by-market." + e.getKey() + ": só 0, 15, 30 ou 45");
+                }
+            }
+        }
+    }
+
+    /** Minutos da hora com momento de controle neste mercado (padrão: só a hora cheia). */
+    public List<Integer> controlMinutes(String market) {
+        List<Integer> m = controlMinutesByMarket.get(market);
+        return m == null || m.isEmpty() ? List.of(0) : m;
     }
 
     /**
@@ -80,6 +97,6 @@ public record FeatureConfig(String fset, int entryDelayMinutes, List<Integer> ho
                 List.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20),
                 Map.of("HIGH", 1.0, "MODERATE", 0.5), 60, 24, 8,
                 List.of("unemployment", "jobless", "claims"),
-                new Text("cb-text-v1", "jev-1.13.0", 6, 72, 0.5));
+                new Text("cb-text-v1", "jev-1.13.0", 6, 72, 0.5), Map.of());
     }
 }

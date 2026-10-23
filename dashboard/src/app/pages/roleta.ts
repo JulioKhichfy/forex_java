@@ -243,7 +243,8 @@ export class Roleta implements OnInit, OnDestroy {
   }
 
   protected filterText(f: NonNullable<RouletteConfig['filters']>): string {
-    const kind = f.kind === 'EVENT' ? 'só depois de evento' : f.kind === 'CONTROL' ? 'só na hora cheia' : 'todos os momentos';
+    const kind = f.kind === 'EVENT' ? 'só depois de evento' : f.kind === 'CONTROL' ? 'só na hora cheia'
+      : f.kind === 'QUARTER' ? 'só nos quartos de hora' : 'todos os momentos';
     const parts = [kind];
     if (f.pMin > 0 || f.mMin > 0) parts.push(`P ≥ ${(f.pMin * 100).toFixed(0)}%, margem ≥ ${(f.mMin * 100).toFixed(0)}`);
     parts.push(f.skipFlat ? 'pula LATERAL' : 'opera mesmo com LATERAL');

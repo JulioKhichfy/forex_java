@@ -19,7 +19,7 @@ interface LabReport {
 }
 interface LabFile { report: LabReport; usd_per_atr_min_lot: Record<string, number>; current_exits: { stopAtr: number; targetR: number } }
 
-const KIND: Record<string, string> = { ALL: 'todos os momentos', EVENT: 'só depois de evento', CONTROL: 'só na hora cheia' };
+const KIND: Record<string, string> = { ALL: 'todos os momentos', EVENT: 'só depois de evento', CONTROL: 'só na hora cheia', QUARTER: 'só nos quartos de hora (:15, :30, :45)' };
 
 @Component({
   selector: 'page-laboratorio',

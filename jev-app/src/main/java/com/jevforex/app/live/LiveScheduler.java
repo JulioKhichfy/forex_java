@@ -56,7 +56,20 @@ public class LiveScheduler {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MINUTES);
         for (LocalDateTime t : minutesToCheck(lastChecked, now, props.catchUpMinutes())) {
             String trigger = triggerFor(t);
-            if (trigger == null) continue;
+            if (trigger == null) {
+                // quartos de hora (:15, :30, :45): só os mercados de live.quarter-markets, nas mesmas horas e dias do controle
+                if (isQuarter(t)) {
+                    for (String market : props.quarterMarkets()) {
+                        try {
+                            LivePredictionService.Run r = service.predict(market, t, "QUARTER");
+                            if (r.note() != null) log.info("Previsão QUARTER {} {}: {}", market, t, r.note());
+                        } catch (RuntimeException e) {
+                            log.warn("Previsão QUARTER {} {} falhou: {}", market, t, e.toString());
+                        }
+                    }
+                }
+                continue;
+            }
             if (!t.equals(now)) log.info("Momento {} {} ficou para trás (rodada anterior calculando): previsto agora", trigger, t);
             try {
                 LivePredictionService.Run r = service.predict(t, trigger);
@@ -76,6 +89,15 @@ public class LiveScheduler {
         List<LocalDateTime> out = new java.util.ArrayList<>();
         for (LocalDateTime t = from; !t.isAfter(now); t = t.plusMinutes(1)) out.add(t);
         return out;
+    }
+
+    /** Quarto de hora (:15, :30, :45) dentro das horas e dias do controle (seg a sex, sem sexta >= 19 h). */
+    boolean isQuarter(LocalDateTime t) {
+        DayOfWeek dow = t.getDayOfWeek();
+        if (dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY) return false;
+        if (dow == DayOfWeek.FRIDAY && t.getHour() >= 19) return false;
+        return (t.getMinute() == 15 || t.getMinute() == 30 || t.getMinute() == 45)
+                && featureProps.toConfig().controlHoursUtc().contains(t.getHour());
     }
 
     /** SCHEDULE, EVENT ou null (não é momento de decisão). */

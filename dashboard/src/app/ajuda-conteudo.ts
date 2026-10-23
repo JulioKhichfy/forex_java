@@ -566,7 +566,8 @@ export const SECOES: Secao[] = [
         titulo: 'Como funciona',
         html: `Escolha o mercado no topo e clique em <b>Rodar o laboratório deste mercado</b> (1 a 7 min; roda como as tarefas
           da página Saúde). O laboratório testa milhares de combinações — modelo (Preço, Eventos, Eventos + Preço), horizonte
-          (15 ou 60 min), momento (todos, só depois de evento, só na hora cheia), probabilidade mínima do lado, margem mínima
+          (15 ou 60 min), momento (todos, só depois de evento, só na hora cheia ou, no ouro e no bitcoin, só nos quartos de
+          hora :15/:30/:45 — estes ainda não são previstos ao vivo), probabilidade mínima do lado, margem mínima
           entre alta e queda, pular LATERAL, stop (1; 1,5; 2 ATR) e alvo (1; 1,5; 2 × o stop) — sobre as previsões <b>fora
           da amostra</b>: cada mês previsto por um modelo que não tinha visto aquele mês (walk-forward), mais o cofre e as
           previsões ao vivo já passadas. Cada saída é simulada minuto a minuto no M1, com o spread.`,

@@ -61,7 +61,7 @@ class LivePredictionServiceTest {
         assertEquals(List.of(t), LiveScheduler.minutesToCheck(null, t, 10));                        // 1º disparo: só agora
         assertEquals(3, LiveScheduler.minutesToCheck(t.minusHours(2), t, 2).size());                 // no máximo 2 para trás
         assertEquals(List.of("metals", "fx", "indices"), new LiveProperties(true, 40, null, null, List.of("metals"), null,
-                null, null).ordered(List.of("fx", "indices", "metals")));
+                null, null, null).ordered(List.of("fx", "indices", "metals")));
     }
 
     @Test

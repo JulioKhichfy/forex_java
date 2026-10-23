@@ -52,7 +52,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
   técnicas, o BLOCK, a perda do dia/semana (que para todas) e, desde 19/10, posições, par livre, mercado habilitado e
   risco aberto. Não estender essa exceção a outras ordens sem o operador pedir.
   Roleta com a configuração do Laboratório (21/10, botão na página Laboratório): `RouletteService.Filters` — momento
-  (ALL/EVENT/CONTROL), P e margem mínimas, pular LATERAL e stop/alvo próprios (`OrderService.Roulette.stopAtr/targetR`).
+  (ALL/EVENT/CONTROL/QUARTER), P e margem mínimas, pular LATERAL e stop/alvo próprios (`OrderService.Roulette.stopAtr/targetR`).
   Travas (revisão de 19/10): conta (3.1) e mercado (3.4) separados — "Posições abertas"/"Risco aberto total" contam a
   conta; "Posições no mercado"/"Risco aberto no mercado" só o mercado; "Risco-alvo do mercado" aplica risk-per-trade-pct
   e min-lot-policy; exposição a USD conta ouro/bitcoin/etc. pelo usd-weight. A página Risco mostra o que a roleta ignora.
@@ -246,6 +246,11 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             asteroides (órbita = tempo, tamanho = importância), notícias como cometas e alertas do radar como estrelas;
             abas Passado (48 h, o que aconteceu + se o modelo acertou), Presente (1 h) e Futuro (7 dias). A cor de evento
             futuro = lado do consenso (previsto × anterior) × mapa de eventos, não previsão do número (GET /api/universe)
+      - [x] 9m quartos de hora (pedido do operador, 22/10: "operar a cada 15 min"): momentos :15/:30/:45 (kind QUARTER) no
+            ouro e no bitcoin (`features.control-minutes-by-market`), no Laboratório e nos filtros da roleta; ao vivo só nos
+            mercados de `live.quarter-markets` (VAZIO). Resultado: 15 min quase sempre LATERAL; ouro 60 min P ≥ 0,50 nos
+            quartos +0,09 R (92) / +0,50 R (36), mas 125 de 128 são compras (alta do ouro) e ~4/mês; bitcoin negativo.
+            Treinar com os quartos piorou a regra larga em evento → o champion de produção continua só com horas cheias
 - [ ] Passo 10 — notícias além dos bancos centrais (pedido do operador, 14/10)
       - [x] 10a coleta: GDELT GKG (histórico desde 2021-10 + ao vivo a cada 15 min; ~1.800 de ~140 mil notícias/dia
             passam no filtro; ~1 MB/dia no bronze) e SEC EDGAR (8-K/10-Q/10-K das 6 ações; espera EDGAR_USER_AGENT).
