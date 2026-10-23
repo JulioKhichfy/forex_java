@@ -115,6 +115,11 @@ experiment:
                                   # depois de: features --market=…, train --market=… e o cofre de cada um
   market-symbols:                 # universo por mercado (vazio = todos do silver); o bronze guarda o resto
     stocks: [AAPL, MSFT, NVDA, META, GOOGL, INTC, SPCX]
+    # 23/10/2026: o Cassino traz exóticos/cruzados e "forex indicators" (fx), prata (metals) e ETH (crypto) para o silver;
+    # fixados aqui para NÃO entrarem em features, modelos, previsões, radar nem laboratório
+    fx: [EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD, NZDUSD]
+    metals: [XAUUSD]
+    crypto: [BTCUSD]
   market-from:                    # início do período por mercado (índices, ações, ouro e bitcoin: histórico desde 2022)
     indices: 2022-01-01
     stocks: 2022-01-01
@@ -293,6 +298,36 @@ mt5:
   expected-server: ${MT5_SERVER:}      # ex.: Exness-MT5Trial11 (vazio = não confere)
   heartbeat-stale-seconds: 30          # EA sem heartbeat há mais que isto = fora
   candle-stale-seconds: 150            # última barra M1 mais velha que isto = candles atrasados
+
+# ---------------------------------------------------------------------
+#  Cassino (23/10/2026): símbolos além dos do sistema, só para o Cassino. Precisam do JevCandleExporter (especificação
+#  e M1, inputs InpCasino*) e do JevExecutor 2.9 (cotação, inputs InpSymbols7..9). Ficam fora dos modelos
+#  (experiment.market-symbols). optional = a página mostra só se o operador marcar "incluir".
+# ---------------------------------------------------------------------
+casino:
+  groups:
+    - code: fx-cross
+      label: Forex exóticos e cruzados
+      market: fx
+      optional: true
+      symbols: [AUDCAD, AUDCHF, AUDJPY, AUDNZD, CADJPY, CHFJPY, EURAUD, EURCAD, EURCHF, EURGBP, EURJPY, EURNZD,
+                GBPAUD, GBPCAD, GBPCHF, GBPJPY, GBPNZD, NZDJPY, USDHKD]
+    - code: fx-indicators
+      label: Forex indicators
+      market: fx
+      optional: true
+      symbols: [AUDAUC, CADCAC, CHFCHC, EUREUC, GBPGBC, IDRIDC, JPYJPC, THBTHC, USDAUC, USDCAC, USDCHC, USDEUC,
+                USDGBC, USDIDC, USDJPC, USDSC, USDTHC, USDVNC, VNDVNC]
+    - code: metals-extra
+      label: Prata
+      market: metals
+      optional: false
+      symbols: [XAGUSD]
+    - code: crypto-extra
+      label: Ethereum
+      market: crypto
+      optional: false
+      symbols: [ETHUSD]
 
 # ---------------------------------------------------------------------
 #  Trading: modo, saldo e RISCO

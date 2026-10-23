@@ -19,6 +19,7 @@ import java.util.Map;
  * <pre>
  * GET  /api/casino                                      linhas, global, rodada, resultado e últimas tentativas
  * POST /api/casino/start?symbol=XAUUSD&side=BUY|auto=true&takeUsd=0.1&stopUsd=1&times=5&attempts=3[&lot=0.01][&closeAfter=15]
+ * POST /api/casino/configs                             salva a configuração por par (JSON: símbolo → configuração)
  * POST /api/casino/stop?symbol=XAUUSD                   desliga a linha (a posição aberta continua com SL/TP)
  * POST /api/casino/stop-all[?close=true]                desliga todas (close=true: fecha as posições do Cassino)
  * POST /api/casino/global?[takeUsd=1][&lossUsd=2]&rounds=3
@@ -58,6 +59,17 @@ public class CasinoController {
                                         @RequestParam(required = false) Integer closeAfter) {
         try {
             return ResponseEntity.ok(casino.start(symbol, side, auto, lot, takeUsd, stopUsd, attempts, times, closeAfter));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(409).body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    /** Salva a configuração de um ou mais pares: {"XAUUSD": {side, auto, lot, takeUsd, stopUsd, times, attempts, closeAfter}}. */
+    @PostMapping("/configs")
+    public ResponseEntity<Object> saveConfigs(@org.springframework.web.bind.annotation.RequestBody
+                                              Map<String, CasinoService.Config> configs) {
+        try {
+            return ResponseEntity.ok(casino.saveConfigs(configs));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(409).body(Map.of("message", e.getMessage()));
         }

@@ -54,17 +54,20 @@ public class CasinoService {
     private final RiskSettingsHolder riskHolder;
     private final ScannerService scanner;
     private final PredictionRepository predictions;
+    private final CasinoProperties casinoProps;
     private final ObjectProvider<JdbcClient> jdbc;
     private final ObjectMapper mapper;
     private final Map<Long, Instant> missingSince = new HashMap<>();
 
     public CasinoService(TradeRepository repo, OrderService orders, RiskSettingsHolder riskHolder, ScannerService scanner,
-                         PredictionRepository predictions, ObjectProvider<JdbcClient> jdbc, ObjectMapper mapper) {
+                         PredictionRepository predictions, CasinoProperties casinoProps, ObjectProvider<JdbcClient> jdbc,
+                         ObjectMapper mapper) {
         this.repo = repo;
         this.orders = orders;
         this.riskHolder = riskHolder;
         this.scanner = scanner;
         this.predictions = predictions;
+        this.casinoProps = casinoProps;
         this.jdbc = jdbc;
         this.mapper = mapper;
     }
@@ -141,6 +144,10 @@ public class CasinoService {
                                                   double stopUsd, int attempts, int times, Integer closeAfterMinutes) {
         Instrument inst = orders.instrument(symbol);
         if (inst == null) throw new IllegalArgumentException("Símbolo sem especificação do MT5: " + symbol);
+        if (auto && casinoProps.groups().stream().anyMatch(g -> g.symbols().contains(symbol))) {
+            throw new IllegalArgumentException("\"Deixa comigo!\" só nos símbolos com previsão do modelo; " + symbol
+                    + " é um extra do Cassino: escolha compra ou venda");
+        }
         if (auto) side = "AUTO";
         else if (!"BUY".equals(side) && !"SELL".equals(side)) throw new IllegalArgumentException("Lado deve ser BUY ou SELL");
         if (!(takeUsd > 0)) throw new IllegalArgumentException("O alvo em US$ precisa ser > 0");
@@ -171,6 +178,8 @@ public class CasinoService {
         lines.put(symbol, line);
         State next = new State(session, round, false, s.global(), lines, s.lastEvent(), roundStart);
         save(next);
+        saveConfigs(Map.of(symbol, new Config(auto ? "BUY" : side, auto, lot, takeUsd, stopUsd, times, attempts,
+                closeAfterMinutes)));   // a configuração adotada fica salva para o par
         log.info("Cassino: {} LIGADO — {} lote {} · alvo US$ {} · stop US$ {} · {} vez(es) × até {} tentativa(s){}", symbol,
                 auto ? "lado pela previsão" : side, lot == null ? "mínimo" : lot, takeUsd, stopUsd, times, attempts,
                 closeAfterMinutes == null ? "" : " · sai em " + closeAfterMinutes + " min");
@@ -556,11 +565,85 @@ public class CasinoService {
 
     // ------------------------------------------------------------------ o que a página mostra
 
+    /** A configuração salva de um par na tabela (23/10/2026: "salvar a configuração adotada para cada par"). */
+    public record Config(String side, boolean auto, Double lot, double takeUsd, double stopUsd, int times, int attempts,
+                         Integer closeAfter) {
+    }
+
+    private static final String CONFIGS = "casino.configs";
+
+    public synchronized Map<String, Config> configs() {
+        return repo.setting(CONFIGS).map(json -> {
+            try {
+                return mapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Config>>() { });
+            } catch (Exception e) {
+                log.warn("Cassino: configurações salvas ilegíveis ({})", e.getMessage());
+                return Map.<String, Config>of();
+            }
+        }).orElse(Map.of());
+    }
+
+    /** Salva (ou troca) a configuração de cada par recebido; os demais ficam como estão. */
+    public synchronized Map<String, Config> saveConfigs(Map<String, Config> changes) {
+        Map<String, Config> all = new java.util.TreeMap<>(configs());
+        for (var e : changes.entrySet()) {
+            Config c = e.getValue();
+            if (c == null) {
+                all.remove(e.getKey());
+                continue;
+            }
+            if (!e.getKey().matches("[A-Za-z0-9._]+")) throw new IllegalArgumentException("símbolo inválido: " + e.getKey());
+            if (!(c.takeUsd() > 0) || !(c.stopUsd() > 0) || c.times() < 1 || c.attempts() < 1) {
+                throw new IllegalArgumentException(e.getKey() + ": alvo e stop > 0, vezes e tentativas ≥ 1");
+            }
+            all.put(e.getKey(), c);
+        }
+        try {
+            repo.setSetting(CONFIGS, mapper.writeValueAsString(all));
+        } catch (Exception ex) {
+            throw new IllegalStateException("Não consegui gravar as configurações do Cassino", ex);
+        }
+        log.info("Cassino: configuração salva de {}", String.join(", ", changes.keySet()));
+        return all;
+    }
+
+    /**
+     * Os grupos da tabela: os símbolos do sistema por mercado e os extras do Cassino (casino.groups). {@code ready} =
+     * a corretora mandou a especificação; {@code predicted} = tem previsão do modelo (o "Deixa comigo!" funciona).
+     */
+    private List<Map<String, Object>> groups() {
+        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        for (var e : orders.symbolsByMarket().entrySet()) {
+            out.add(group("base-" + e.getKey(), null, e.getKey(), false, e.getValue(), true));
+        }
+        for (CasinoProperties.Group g : casinoProps.groups()) {
+            out.add(group(g.code(), g.label(), g.market(), g.optional(), g.symbols(), false));
+        }
+        return out;
+    }
+
+    private Map<String, Object> group(String code, String label, String market, boolean optional, List<String> symbols,
+                                      boolean predicted) {
+        List<Map<String, Object>> rows = new java.util.ArrayList<>();
+        for (String s : symbols) {
+            Instrument inst = orders.instrument(s);
+            rows.add(Map.of("symbol", s, "ready", inst != null, "predicted", predicted));
+        }
+        Map<String, Object> g = new LinkedHashMap<>();
+        g.put("code", code);
+        g.put("label", label);
+        g.put("market", market);
+        g.put("optional", optional);
+        g.put("symbols", rows);
+        return g;
+    }
+
     public Map<String, Object> view() {
         State s = state();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("state", s);
-        out.put("symbols", orders.symbolsByMarket());
+        out.put("groups", groups());
+        out.put("configs", configs());
         out.put("round_result", s.session() == 0 ? null : roundResult(s.session(), s.round()));
         out.put("session_result", s.session() == 0 ? null : db().sql("""
                         SELECT sum(result_usd) FROM casino_entry WHERE session_id = :s

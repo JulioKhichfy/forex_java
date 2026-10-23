@@ -92,11 +92,29 @@ public class ScannerService {
         return s;
     }
 
-    /** As barras de um símbolo (M1 das últimas ~26 h e o spread de agora), da varredura de até 30 s atrás. */
+    /**
+     * As barras de um símbolo (M1 das últimas ~26 h e o spread de agora). Do radar: a varredura de até 30 s atrás. Fora
+     * do radar (símbolos extras do Cassino): lido só ele, 2 dias de M1.
+     */
     public synchronized Scanner.Input input(String market, String symbol) {
         String m = Market.fromCode(market).code();
-        scan(m);
-        return inputs.getOrDefault(m, Map.of()).get(symbol);
+        List<String> universe = experimentProps.symbolsOf(m);
+        if (universe == null || universe.contains(symbol)) {
+            scan(m);
+            Scanner.Input in = inputs.getOrDefault(m, Map.of()).get(symbol);
+            if (in != null || universe != null) return in;
+        }
+        try {
+            if (loader == null) {
+                sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb-scan"), "1GB");
+                loader = new ScanLoader(sql, lake.root());
+            }
+            return loader.load(m, List.of(symbol), LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS), 2)
+                    .inputs().get(symbol);
+        } catch (RuntimeException e) {
+            close();
+            throw e;
+        }
     }
 
     @PreDestroy

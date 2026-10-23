@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -101,6 +102,27 @@ class CasinoServiceTest {
         assertTrue(CasinoService.globalHit(g, -2.0).startsWith("perda global"));
         assertNull(CasinoService.globalHit(new CasinoService.Global(null, null, 1), 50), "desligado");
         assertNull(CasinoService.globalHit(new CasinoService.Global(null, 2.0, 1), 50), "só a perda ligada");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void extrasDoCassino_ficamForaDosModelos() throws Exception {
+        Map<String, Object> yml;
+        try (var in = Files.newInputStream(Path.of("src/main/resources/application.yml"))) {
+            yml = new org.yaml.snakeyaml.Yaml().load(in);
+        }
+        Map<String, List<String>> universe = (Map<String, List<String>>) ((Map<String, Object>) yml.get("experiment")).get("market-symbols");
+        List<Map<String, Object>> groups = (List<Map<String, Object>>) ((Map<String, Object>) yml.get("casino")).get("groups");
+        assertFalse(groups.isEmpty());
+        for (Map<String, Object> g : groups) {
+            String market = (String) g.get("market");
+            List<String> pinned = universe.get(market);
+            // sem universo fixo, o mercado usa "todos do silver": os extras entrariam em features, modelos e previsões
+            assertTrue(pinned != null && !pinned.isEmpty(), "experiment.market-symbols." + market + " precisa ser fixo");
+            for (Object s : (List<Object>) g.get("symbols")) {
+                assertFalse(pinned.contains(String.valueOf(s)), s + " é extra do Cassino e não pode entrar no modelo de " + market);
+            }
+        }
     }
 
     @Test

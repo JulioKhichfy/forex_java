@@ -103,7 +103,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5; `news/`: GDELT (GKG) e SEC EDGAR |
 | jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
 | dashboard | Angular 20 (Hoje, Radar, Previsões, Eventos, Universo, Operar, Roleta russa, Cassino, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
-| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.8 (executor com 3 chaves; OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo; reporta o fechamento de toda posição que abriu, mesmo manual; reporta também as posições de fora, marcadas), `install.ps1` |
+| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.9 (executor com 3 chaves; cotações dos extras do Cassino em InpSymbols7..9; OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo; reporta o fechamento de toda posição que abriu, mesmo manual; reporta também as posições de fora, marcadas), `install.ps1` |
 
 ## Comandos
 ```
@@ -264,6 +264,10 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             23/10 (Flyway V17): "vezes" = laço de fora (abrir N vezes, aconteça o que acontecer), tentativas = por vez até o
             alvo; "Deixa comigo!" = lado de cada ordem pela previsão mais recente do B (15 antes de 60 min, ≤ 75 min;
             `CasinoService.choose`); sem previsão a linha espera — NUNCA gerar previsão fora de hora (dispara roleta/sinais)
+            Extras do Cassino (23/10, `casino.groups`): exóticos/cruzados e "forex indicators" (fx, opcionais na página),
+            XAGUSD (metals) e ETHUSD (crypto); JevCandleExporter 1.1 (InpCasino*, só 3 dias de M1) e EA 2.9. FORA dos modelos:
+            `experiment.market-symbols` fixo para fx/metals/crypto (teste `extrasDoCassino_ficamForaDosModelos`). Config por par
+            salva no servidor (app_setting `casino.configs`, POST /api/casino/configs)
 - [ ] Passo 10 — notícias além dos bancos centrais (pedido do operador, 14/10)
       - [x] 10a coleta: GDELT GKG (histórico desde 2021-10 + ao vivo a cada 15 min; ~1.800 de ~140 mil notícias/dia
             passam no filtro; ~1 MB/dia no bronze) e SEC EDGAR (8-K/10-Q/10-K das 6 ações; espera EDGAR_USER_AGENT).

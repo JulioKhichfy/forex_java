@@ -660,6 +660,19 @@ export const SECOES: Secao[] = [
           prorrogação com lucro.`,
       },
       {
+        titulo: 'Símbolos extras e configuração salva',
+        html: `Além dos símbolos do sistema, o Cassino oferece <b>extras</b> (application.yml, <code>casino.groups</code>):
+          <ul><li><b>Forex exóticos e cruzados</b> (AUDCAD, EURGBP, GBPJPY, USDHKD…) e <b>Forex indicators</b> da Exness
+          (USDSC, EUREUC…), na aba Forex — marque "incluir" no topo da tabela (lembrado neste navegador);</li>
+          <li><b>Prata</b> (XAGUSD) na aba Ouro e <b>Ethereum</b> (ETHUSD) na aba Bitcoin, sempre visíveis.</li></ul>
+          Os extras precisam do <b>JevCandleExporter 1.1</b> (especificação e M1, só 3 dias de histórico) e do
+          <b>JevExecutor 2.9</b> (cotação): rode <code>mql5\\install.ps1</code> e reinicie o serviço e o EA. Sem isso a linha
+          aparece apagada ("sem dados do MT5"). Eles ficam <b>fora dos modelos</b> (sem previsão: o "Deixa comigo!" fica
+          desligado neles) e o spread costuma ser bem maior que nos majors — confira no backtest.
+          <br><b>Salvar</b> guarda a configuração do par no servidor (alvo, stop, lote, lado, vezes, tentativas, saída);
+          <b>Salvar todos</b> grava todas as alteradas (●). Ligar também salva.`,
+      },
+      {
         titulo: 'Deixa comigo!',
         html: `Marcado, o sistema decide o lado de <b>cada</b> ordem na hora de enviar: o mais provável entre alta e queda na
           previsão mais recente do <b>modelo B</b> (eventos + preço) do símbolo — a de 15 min, senão a de 60 min — de até 75 min

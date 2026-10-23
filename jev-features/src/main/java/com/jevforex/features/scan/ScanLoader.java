@@ -71,8 +71,10 @@ public final class ScanLoader {
         Map<String, Long> ms = new LinkedHashMap<>();
         long t0 = System.nanoTime();
         LocalDateTime from = at.minusDays(lookbackDays);
-        String silverTable = "scan_silver_" + market;
-        Instant loadedAt = silverLoadedAt.get(market);
+        // uma tabela por mercado E universo: o Cassino pede um símbolo fora do radar (23/10/2026)
+        String silverTable = "scan_silver_" + market + (symbols == null || symbols.isEmpty() ? ""
+                : "_" + Integer.toHexString(String.join(",", symbols).hashCode()));
+        Instant loadedAt = silverLoadedAt.get(silverTable);
         if (loadedAt == null || loadedAt.plus(SILVER_TTL).isBefore(Instant.now())) {
             LocalDateTime f = from.minusDays(1);
             List<String> files = silverMonths(candles, market, symbols, f, at);
@@ -87,7 +89,7 @@ public final class ScanLoader {
                       FROM read_parquet([%s], hive_partitioning = true)
                      WHERE time_utc >= %s
                     """.formatted(silverTable, String.join(", ", files), ts(f)));
-            silverLoadedAt.put(market, Instant.now());
+            silverLoadedAt.put(silverTable, Instant.now());
         }
         ms.put("silver", (System.nanoTime() - t0) / 1_000_000);
         t0 = System.nanoTime();

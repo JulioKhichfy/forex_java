@@ -11,10 +11,12 @@
 //| Só barras FECHADAS são exportadas (a barra em formação nunca).    |
 //| O estado (última barra exportada por símbolo) fica em jev\state:  |
 //| reiniciar o Service retoma de onde parou, sem buracos.            |
+//| 1.1 (23/10/2026): símbolos extras do Cassino (InpCasino*), com     |
+//| só InpCasinoHistoryDays de histórico; fora dos modelos (Java).    |
 //+------------------------------------------------------------------+
 #property service
 #property copyright   "Jev Forex"
-#property version     "1.00"
+#property version     "1.10"
 #property description "Exporta candles M1 e especificações dos símbolos para Common\\Files\\jev\\inbox, em UTC."
 
 #include <Jev/Csv.mqh>
@@ -36,6 +38,12 @@ input datetime InpHistoryFrom   = D'2016.01.01';            // Histórico M1 a p
 input datetime InpHistoryFromOther = D'2022.01.01';         // Histórico M1 de índices, ações, ouro e bitcoin a partir de
 input int      InpSpecMinutes   = 60;                       // Especificações a cada N minutos
 input int      InpPollMs        = 1000;                     // Verificação de barra nova (ms)
+input string   InpCasinoFx1     = "AUDCAD,AUDCHF,AUDJPY,AUDNZD,CADJPY,CHFJPY,EURAUD,EURCAD,EURCHF,EURGBP"; // Cassino: cruzados (fx)
+input string   InpCasinoFx2     = "EURJPY,EURNZD,GBPAUD,GBPCAD,GBPCHF,GBPJPY,GBPNZD,NZDJPY,USDHKD"; // Cassino: cruzados (fx)
+input string   InpCasinoFxInd   = "AUDAUC,CADCAC,CHFCHC,EUREUC,GBPGBC,IDRIDC,JPYJPC,THBTHC,USDAUC,USDCAC,USDCHC,USDEUC,USDGBC,USDIDC,USDJPC,USDSC,USDTHC,USDVNC,VNDVNC"; // Cassino: forex indicators (fx)
+input string   InpCasinoMetals  = "XAGUSD";                 // Cassino: prata (metals)
+input string   InpCasinoCrypto  = "ETHUSD";                 // Cassino: Ethereum (crypto)
+input int      InpCasinoHistoryDays = 3;                   // Cassino: dias de histórico M1 (só para o backtest)
 
 #define EXPORTER "JevCandleExporter/1.0"
 #define CANDLE_HEADER "market;symbol;broker_symbol;time_server;time_utc;open;high;low;close;tick_volume;spread_points;real_volume"
@@ -402,6 +410,12 @@ void OnStart()
    AddSymbols(InpStockSymbols1, "stocks", candleMarkets, InpHistoryFromOther);
    AddSymbols(InpStockSymbols2, "stocks", candleMarkets, InpHistoryFromOther);
    AddSymbols(InpStockSymbols3, "stocks", candleMarkets, InpHistoryFromOther);
+   datetime casinoFrom = TimeTradeServer() - InpCasinoHistoryDays * 86400;   // Cassino: só uns dias (backtest)
+   AddSymbols(InpCasinoFx1, "fx", candleMarkets, casinoFrom);
+   AddSymbols(InpCasinoFx2, "fx", candleMarkets, casinoFrom);
+   AddSymbols(InpCasinoFxInd, "fx", candleMarkets, casinoFrom);
+   AddSymbols(InpCasinoMetals, "metals", candleMarkets, casinoFrom);
+   AddSymbols(InpCasinoCrypto, "crypto", candleMarkets, casinoFrom);
    if(ArraySize(g_syms) == 0)
      {
       Print("JevCandleExporter: nenhum símbolo válido; confira as listas e o sufixo");

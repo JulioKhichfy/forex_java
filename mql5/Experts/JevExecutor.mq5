@@ -14,6 +14,7 @@
 //|  - edição manual de stop e alvo pelo dashboard (MODIFY MANUAL, 2.6)|
 //|  - reporta o fechamento de toda posição que abriu, mesmo à mão (2.7)|
 //|  - reporta também as posições de fora, marcadas (2.8)             |
+//|  - cotações dos símbolos extras do Cassino (2.9): InpSymbols7..9  |
 //|  - reporta cada execução (POST /api/ea/execution) e envia         |
 //|    heartbeat com saldo, margem, cotações e posições               |
 //|                                                                  |
@@ -28,7 +29,7 @@
 //| Expert Advisors → "Permitir WebRequest…" → http://127.0.0.1:8080  |
 //+------------------------------------------------------------------+
 #property copyright   "Jev Forex"
-#property version     "2.80"
+#property version     "2.90"
 #property description "Jev Forex — executor das ordens aprovadas no dashboard, com SL/TP no servidor."
 
 #include <Trade/Trade.mqh>
@@ -47,10 +48,13 @@ input string InpSymbols3         = "";                         // Cotações: ma
 input string InpSymbols4         = "";                         // Cotações: mais ações, se quiser
 input string InpSymbols5         = "XAUUSD,BTCUSD";            // Cotações: ouro e bitcoin
 input string InpSymbols6         = "UKOIL,USOIL,XNGUSD";       // Cotações: energia (petróleo e gás)
+input string InpSymbols7         = "AUDCAD,AUDCHF,AUDJPY,AUDNZD,CADJPY,CHFJPY,EURAUD,EURCAD,EURCHF,EURGBP"; // Cassino: cruzados
+input string InpSymbols8         = "EURJPY,EURNZD,GBPAUD,GBPCAD,GBPCHF,GBPJPY,GBPNZD,NZDJPY,USDHKD,XAGUSD,ETHUSD"; // Cassino: cruzados, prata, ETH
+input string InpSymbols9         = "AUDAUC,CADCAC,CHFCHC,EUREUC,GBPGBC,IDRIDC,JPYJPC,THBTHC,USDAUC,USDCAC,USDCHC,USDEUC,USDGBC,USDIDC,USDJPC,USDSC,USDTHC,USDVNC,VNDVNC"; // Cassino: forex indicators
 input int    InpPollSeconds      = 1;                       // Busca de ordens (s)
 input int    InpHeartbeatSeconds = 5;                       // Heartbeat (s)
 
-#define EA_VERSION "JevExecutor/2.8"
+#define EA_VERSION "JevExecutor/2.9"
 #define MAX_SEEN   500
 
 CTrade   g_trade;
@@ -113,7 +117,7 @@ int OnInit()
       return INIT_FAILED;
      }
    JevSplitList(InpSymbols + "," + InpSymbols2 + "," + InpSymbols3 + "," + InpSymbols4 + "," + InpSymbols5 + ","
-                + InpSymbols6, g_symbols);
+                + InpSymbols6 + "," + InpSymbols7 + "," + InpSymbols8 + "," + InpSymbols9, g_symbols);
    g_trade.SetExpertMagicNumber(InpMagic);
    g_trade.SetAsyncMode(false);
    PrintFormat("JevExecutor %s iniciado: conta %I64d em %s (%s), API %s, %s, teto %.2f lote.", EA_VERSION,
