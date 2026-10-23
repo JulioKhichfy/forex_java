@@ -641,26 +641,40 @@ export const SECOES: Secao[] = [
   {
     id: 'cassino',
     titulo: 'Página Cassino',
-    resumo: 'Você escolhe tudo por símbolo — alvo e stop em US$, lote, compra ou venda, tentativas — e a ordem sai na hora; repete até bater o alvo.',
+    resumo: 'Você escolhe tudo por símbolo — alvo e stop em US$, lote, compra, venda ou "Deixa comigo!", vezes e tentativas — e a ordem sai na hora.',
     blocos: [
       {
         titulo: 'Como funciona',
         html: `Uma linha por símbolo do mercado escolhido no topo. Em cada linha: <b>alvo US$</b> e <b>stop US$</b> (o lucro e a
-          perda com o lote da linha), <b>lote</b> (vazio = o mínimo), <b>direção</b> (compra ou venda), <b>tentativas</b> e, se
-          quiser, <b>saída (min)</b>: fecha a mercado depois desses minutos (vazio = só alvo e stop).
+          perda com o lote da linha), <b>lote</b> (vazio = o mínimo), <b>direção</b> (compra, venda ou <b>Deixa comigo!</b>),
+          <b>vezes</b>, <b>tentativas</b> e, se quiser, <b>saída (min)</b>: fecha a mercado depois desses minutos (vazio = só
+          alvo e stop).
           <ul><li>Ao clicar <b>Ligar</b>, a 1ª ordem sai na hora, com o alvo e o stop no servidor da corretora.</li>
-          <li>Fechou no stop (ou por tempo), abre a próxima tentativa na hora.</li>
-          <li><b>Bateu o alvo, a linha termina</b>. Acabaram as tentativas, também.</li>
+          <li><b>Vezes</b> = quantas vezes abrir, aconteça o que acontecer. Em cada vez, até N <b>tentativas</b>: fechou no
+          stop (ou por tempo), abre a próxima tentativa na hora; bateu o alvo ou acabaram as tentativas, a vez termina e a
+          próxima começa. Depois da última vez, a linha termina. Total de ordens ≤ vezes × tentativas (ex.: 10 vezes × 1
+          tentativa = 10 ordens seguidas).</li>
           <li>Recusa das travas ou falha do EA numa tentativa para a linha (falhar fechado): o motivo aparece em Estado.</li></ul>
           <b>Parar</b> desliga a linha e deixa a posição aberta com o alvo e o stop; <b>PARAR TUDO E FECHAR AS POSIÇÕES</b> fecha
           as posições do Cassino a mercado. As posições do Cassino ficam fora do trailing, da proteção de lucro e da
           prorrogação com lucro.`,
       },
       {
+        titulo: 'Deixa comigo!',
+        html: `Marcado, o sistema decide o lado de <b>cada</b> ordem na hora de enviar: o mais provável entre alta e queda na
+          previsão mais recente do <b>modelo B</b> (eventos + preço) do símbolo — a de 15 min, senão a de 60 min — de até 75 min
+          atrás. LATERAL não impede: você pediu uma direção. Sem previsão recente (forex fora do horário das previsões,
+          mercado parado), a linha <b>espera</b> e o Estado avisa. O porquê de cada lado fica no detalhe da tentativa
+          (ex.: "B 15 min das 14:00 UTC: alta 31% × queda 22%"). As previsões não são geradas fora de hora: isso dispararia a
+          roleta e o sinal automático.
+          <br><b>O que esperar:</b> no Laboratório, entrar sempre no lado mais provável deu perto de zero ou negativo na maioria
+          dos mercados (o ouro é a exceção, com filtros). É a melhor opinião do sistema, não uma vantagem comprovada.`,
+      },
+      {
         titulo: 'Global: lucro, perda e rodadas',
         html: `Opcional. <b>Lucro global</b> e <b>perda global</b> valem para a rodada inteira: a soma das tentativas fechadas com
           o lucro flutuante das abertas. Atingiu um dos dois, o Cassino fecha todas as posições dele e, se ainda houver
-          <b>rodadas</b>, recomeça todas as linhas ligadas com as tentativas zeradas (mesmo depois de um lucro global). Na última
+          <b>rodadas</b>, recomeça todas as linhas ligadas com as vezes e tentativas zeradas (mesmo depois de um lucro global). Na última
           rodada, desliga tudo. Se as linhas terminarem sozinhas (alvo ou tentativas) antes do global, o Cassino para.`,
       },
       {
@@ -676,7 +690,9 @@ export const SECOES: Secao[] = [
           cada um dos últimos 4 quartos de hora completos (UTC): <b>alvo</b>, <b>stop</b>, <b>tempo</b> (com a saída em minutos)
           ou ainda <b>aberta</b>, com o resultado em US$. Usa os candles M1 do MT5 e o spread de agora; compra entra no ask e
           sai no bid, venda o contrário. Alvo e stop no mesmo minuto contam como stop. Com o mercado fechado, os 4 quartos são
-          os últimos antes de fechar. Também mostra quanto custa o spread em US$ com o lote da linha.`,
+          os últimos antes de fechar. Com <b>Deixa comigo!</b>, cada quarto usa o lado que a previsão gravada até aquele
+          momento daria (C = compra, V = venda; "sem previsão" se não havia). Também mostra quanto custa o spread em US$
+          com o lote da linha.`,
       },
       {
         titulo: 'O que esperar',

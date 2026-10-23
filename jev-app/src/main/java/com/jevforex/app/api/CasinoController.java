@@ -18,11 +18,11 @@ import java.util.Map;
  *
  * <pre>
  * GET  /api/casino                                      linhas, global, rodada, resultado e últimas tentativas
- * POST /api/casino/start?symbol=XAUUSD&side=BUY&takeUsd=0.1&stopUsd=1&attempts=10[&lot=0.01][&closeAfter=15]
+ * POST /api/casino/start?symbol=XAUUSD&side=BUY|auto=true&takeUsd=0.1&stopUsd=1&times=5&attempts=3[&lot=0.01][&closeAfter=15]
  * POST /api/casino/stop?symbol=XAUUSD                   desliga a linha (a posição aberta continua com SL/TP)
  * POST /api/casino/stop-all[?close=true]                desliga todas (close=true: fecha as posições do Cassino)
  * POST /api/casino/global?[takeUsd=1][&lossUsd=2]&rounds=3
- * GET  /api/casino/backtest?symbol=…&side=…&takeUsd=…&stopUsd=…[&lot=…][&closeAfter=…]   últimos 4 quartos de hora
+ * GET  /api/casino/backtest?symbol=…&side=…|auto=true&takeUsd=…&stopUsd=…[&lot=…][&closeAfter=…]   últimos 4 quartos de hora
  * </pre>
  */
 @RestController
@@ -50,12 +50,14 @@ public class CasinoController {
     }
 
     @PostMapping("/start")
-    public ResponseEntity<Object> start(@RequestParam String symbol, @RequestParam String side,
+    public ResponseEntity<Object> start(@RequestParam String symbol, @RequestParam(defaultValue = "BUY") String side,
+                                        @RequestParam(defaultValue = "false") boolean auto,
                                         @RequestParam(required = false) Double lot, @RequestParam double takeUsd,
                                         @RequestParam double stopUsd, @RequestParam(defaultValue = "1") int attempts,
+                                        @RequestParam(defaultValue = "1") int times,
                                         @RequestParam(required = false) Integer closeAfter) {
         try {
-            return ResponseEntity.ok(casino.start(symbol, side, lot, takeUsd, stopUsd, attempts, closeAfter));
+            return ResponseEntity.ok(casino.start(symbol, side, auto, lot, takeUsd, stopUsd, attempts, times, closeAfter));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(409).body(Map.of("message", e.getMessage()));
         }
@@ -83,11 +85,12 @@ public class CasinoController {
     }
 
     @GetMapping("/backtest")
-    public ResponseEntity<Object> backtest(@RequestParam String symbol, @RequestParam String side,
+    public ResponseEntity<Object> backtest(@RequestParam String symbol, @RequestParam(defaultValue = "BUY") String side,
+                                           @RequestParam(defaultValue = "false") boolean auto,
                                            @RequestParam(required = false) Double lot, @RequestParam double takeUsd,
                                            @RequestParam double stopUsd, @RequestParam(required = false) Integer closeAfter) {
         try {
-            return ResponseEntity.ok(casino.backtest(symbol, side, lot, takeUsd, stopUsd, closeAfter));
+            return ResponseEntity.ok(casino.backtest(symbol, side, auto, lot, takeUsd, stopUsd, closeAfter));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(409).body(Map.of("message", e.getMessage()));
         }

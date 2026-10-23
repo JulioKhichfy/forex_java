@@ -17,28 +17,79 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CasinoServiceTest {
 
-    private static CasinoService.Line line(int attempts, int used) {
-        return new CasinoService.Line("XAUUSD", "metals", "BUY", null, 0.10, 1.0, attempts, null, true, used, "RUNNING",
-                null, Instant.now());
+    private static CasinoService.Line line(int times, int attempts, int cycle, int used) {
+        return new CasinoService.Line("XAUUSD", "metals", "BUY", false, null, 0.10, 1.0, attempts, times, null, true,
+                cycle, used, 0, 0, "RUNNING", null, Instant.now());
     }
 
-    private static CasinoService.Entry entry(int attempt, String status, Double result) {
-        return new CasinoService.Entry(1, attempt, status, result, "motivo");
+    private static CasinoService.Entry entry(long id, int attempt, String status, Double result) {
+        return new CasinoService.Entry(id, attempt, status, result, "motivo");
     }
 
     @Test
-    void tentativas_ateOAlvo() {
-        assertEquals(CasinoService.Action.SUBMIT, CasinoService.decide(line(3, 0), null).action(), "ligou: abre na hora");
-        assertEquals(CasinoService.Action.WAIT, CasinoService.decide(line(3, 1), entry(1, "SENT", null)).action());
-        assertEquals(CasinoService.Action.SUBMIT, CasinoService.decide(line(3, 1), entry(1, "CLOSED", -1.0)).action(),
-                "fechou no stop com tentativas sobrando: tenta de novo");
-        CasinoService.Decision hit = CasinoService.decide(line(3, 2), entry(2, "TARGET", 0.10));
+    void umaVez_tentativasAteOAlvo() {
+        assertEquals(CasinoService.Action.SUBMIT, CasinoService.decide(line(1, 3, 1, 0), null).action(), "ligou: abre na hora");
+        assertEquals(CasinoService.Action.WAIT, CasinoService.decide(line(1, 3, 1, 1), entry(7, 1, "SENT", null)).action());
+        CasinoService.Decision again = CasinoService.decide(line(1, 3, 1, 1), entry(7, 1, "CLOSED", -1.0));
+        assertEquals(CasinoService.Action.SUBMIT, again.action(), "fechou no stop com tentativas sobrando: tenta de novo");
+        assertEquals(1, again.line().cycle());
+        assertEquals(7, again.line().counted());
+        CasinoService.Decision hit = CasinoService.decide(line(1, 3, 1, 2), entry(8, 2, "TARGET", 0.10));
         assertEquals(CasinoService.Action.FINISH, hit.action());
-        assertEquals("TARGET", hit.status(), "bateu o alvo: a linha termina");
-        CasinoService.Decision out = CasinoService.decide(line(3, 3), entry(3, "CLOSED", -1.0));
-        assertEquals("EXHAUSTED", out.status(), "acabaram as tentativas");
-        assertEquals("STOPPED", CasinoService.decide(line(3, 1), entry(1, "FAILED", null)).status(), "falha: falhar fechado");
-        assertEquals("STOPPED", CasinoService.decide(line(3, 1), entry(1, "REFUSED", null)).status());
+        assertEquals("DONE", hit.line().status(), "bateu o alvo na única vez: a linha termina");
+        assertEquals(1, hit.line().hits());
+        assertEquals("DONE", CasinoService.decide(line(1, 3, 1, 3), entry(9, 3, "CLOSED", -1.0)).line().status(),
+                "acabaram as tentativas");
+        assertEquals("STOPPED", CasinoService.decide(line(1, 3, 1, 1), entry(9, 1, "FAILED", null)).line().status(), "falha: falhar fechado");
+        assertEquals("STOPPED", CasinoService.decide(line(1, 3, 1, 1), entry(9, 1, "REFUSED", null)).line().status());
+    }
+
+    @Test
+    void vezes_abreDeNovoAconteçaOQueAcontecer() {
+        // 3 vezes × 2 tentativas: bateu o alvo na vez 1 → vez 2, tentativas zeradas
+        CasinoService.Decision d = CasinoService.decide(line(3, 2, 1, 1), entry(10, 1, "TARGET", 0.10));
+        assertEquals(CasinoService.Action.SUBMIT, d.action());
+        assertEquals(2, d.line().cycle());
+        assertEquals(0, d.line().used());
+        assertEquals(1, d.line().hits());
+        // vez 2: as 2 tentativas no stop → vez 3 mesmo sem o alvo
+        CasinoService.Decision d2 = CasinoService.decide(d.line().counters(2, 2, 1, 10), entry(12, 2, "CLOSED", -1.0));
+        assertEquals(CasinoService.Action.SUBMIT, d2.action());
+        assertEquals(3, d2.line().cycle());
+        assertEquals(1, d2.line().hits());
+        // a mesma tentativa decidida de novo (ex.: esperando a previsão) não conta duas vezes
+        CasinoService.Decision same = CasinoService.decide(d2.line(), entry(12, 2, "CLOSED", -1.0));
+        assertEquals(CasinoService.Action.SUBMIT, same.action());
+        assertEquals(3, same.line().cycle());
+        // vez 3 (a última): alvo → termina
+        CasinoService.Decision end = CasinoService.decide(d2.line().counters(3, 1, 1, 12), entry(13, 1, "TARGET", 0.10));
+        assertEquals("DONE", end.line().status());
+        assertEquals(2, end.line().hits());
+    }
+
+    private static com.jevforex.app.live.PredictionRepository.Prediction pred(String model, int h, String at,
+                                                                               double down, double flat, double up) {
+        return new com.jevforex.app.live.PredictionRepository.Prediction(1L, "metals", "XAUUSD", Instant.parse(at), "CONTROL",
+                "SCHEDULE", model, h, "v", down, flat, up, "NO_TRADE", 1.0, 2000.0, 20, 1, "{}", null, null, null, null, null);
+    }
+
+    @Test
+    void deixaComigo_ladoDaPrevisaoMaisRecenteDoB() {
+        Instant now = Instant.parse("2026-10-23T14:20:00Z");
+        var preds = List.of(
+                pred("B", 15, "2026-10-23T14:00:00Z", 0.30, 0.50, 0.20),    // 15 min: queda > alta (LATERAL não impede)
+                pred("B", 60, "2026-10-23T14:00:00Z", 0.20, 0.30, 0.50),
+                pred("A", 15, "2026-10-23T14:02:00Z", 0.10, 0.10, 0.80));   // outro modelo: não conta
+        CasinoService.Choice c = CasinoService.choose(preds, "XAUUSD", now);
+        assertEquals("SELL", c.side(), "B 15 min antes de B 60 min");
+        assertTrue(c.why().startsWith("B 15 min das 14:00"));
+        // só a de 60 min serve → compra
+        assertEquals("BUY", CasinoService.choose(List.of(preds.get(1)), "XAUUSD", now).side());
+        // velha demais (mais de 75 min) ou de outro símbolo → espera
+        assertNull(CasinoService.choose(preds, "XAUUSD", Instant.parse("2026-10-23T15:20:00Z")));
+        assertNull(CasinoService.choose(preds, "BTCUSD", now));
+        // do futuro em relação ao momento (backtest de um quarto anterior) → não vale
+        assertNull(CasinoService.choose(preds, "XAUUSD", Instant.parse("2026-10-23T13:45:00Z")));
     }
 
     @Test

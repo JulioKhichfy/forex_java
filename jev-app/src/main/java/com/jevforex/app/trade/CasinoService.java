@@ -2,6 +2,7 @@ package com.jevforex.app.trade;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jevforex.app.config.RiskSettingsHolder;
+import com.jevforex.app.live.PredictionRepository;
 import com.jevforex.app.live.ScannerService;
 import com.jevforex.core.Instrument;
 import com.jevforex.features.scan.Scanner;
@@ -52,40 +53,68 @@ public class CasinoService {
     private final OrderService orders;
     private final RiskSettingsHolder riskHolder;
     private final ScannerService scanner;
+    private final PredictionRepository predictions;
     private final ObjectProvider<JdbcClient> jdbc;
     private final ObjectMapper mapper;
     private final Map<Long, Instant> missingSince = new HashMap<>();
 
     public CasinoService(TradeRepository repo, OrderService orders, RiskSettingsHolder riskHolder, ScannerService scanner,
-                         ObjectProvider<JdbcClient> jdbc, ObjectMapper mapper) {
+                         PredictionRepository predictions, ObjectProvider<JdbcClient> jdbc, ObjectMapper mapper) {
         this.repo = repo;
         this.orders = orders;
         this.riskHolder = riskHolder;
         this.scanner = scanner;
+        this.predictions = predictions;
         this.jdbc = jdbc;
         this.mapper = mapper;
     }
 
     /**
-     * Uma linha da tabela.
+     * Uma linha da tabela. 23/10/2026 (operador): "vezes" = quantas vezes abrir, aconteça o que acontecer; em cada vez,
+     * até {@code attempts} tentativas para bater o alvo. Total de ordens ≤ vezes × tentativas.
      *
+     * @param side              BUY | SELL; com {@code auto}, o lado de cada ordem vem da previsão (o "Deixa comigo!")
      * @param lot               null = o lote mínimo do símbolo
+     * @param attempts          tentativas por vez (para quando bate o alvo)
+     * @param times             vezes (o laço de fora)
      * @param closeAfterMinutes null = sem saída por tempo
      * @param on                faz parte da sessão (o operador ligou e não desligou): recomeça a cada rodada
-     * @param used              tentativas usadas na rodada
-     * @param status            OFF | RUNNING | TARGET | EXHAUSTED | STOPPED | GLOBAL
+     * @param cycle             a vez atual (1…times)
+     * @param used              tentativas usadas na vez atual
+     * @param hits              vezes que bateram o alvo
+     * @param counted           a última tentativa já contada (decidir de novo não conta duas vezes)
+     * @param status            OFF | RUNNING | DONE | STOPPED | GLOBAL
      */
-    public record Line(String symbol, String market, String side, Double lot, double takeUsd, double stopUsd,
-                       int attempts, Integer closeAfterMinutes, boolean on, int used, String status, String message,
-                       Instant startedAt) {
+    public record Line(String symbol, String market, String side, boolean auto, Double lot, double takeUsd,
+                       double stopUsd, int attempts, int times, Integer closeAfterMinutes, boolean on, int cycle,
+                       int used, int hits, long counted, String status, String message, Instant startedAt) {
 
-        Line with(boolean on, int used, String status, String message) {
-            return new Line(symbol, market, side, lot, takeUsd, stopUsd, attempts, closeAfterMinutes, on, used, status,
-                    message, startedAt);
+        Line with(boolean on, String status, String message) {
+            return new Line(symbol, market, side, auto, lot, takeUsd, stopUsd, attempts, times, closeAfterMinutes, on,
+                    cycle, used, hits, counted, status, message, startedAt);
+        }
+
+        Line counters(int cycle, int used, int hits, long counted) {
+            return new Line(symbol, market, side, auto, lot, takeUsd, stopUsd, attempts, times, closeAfterMinutes, on,
+                    cycle, used, hits, counted, status, message, startedAt);
+        }
+
+        /** Zera os contadores (ligar ou rodada nova). */
+        Line restart(String message) {
+            return new Line(symbol, market, side, auto, lot, takeUsd, stopUsd, attempts, times, closeAfterMinutes, true,
+                    1, 0, 0, 0, "RUNNING", message, startedAt);
         }
 
         boolean running() {
             return "RUNNING".equals(status);
+        }
+
+        int timesOrOne() {
+            return Math.max(1, times);
+        }
+
+        int cycleOrOne() {
+            return Math.max(1, cycle);
         }
     }
 
@@ -107,15 +136,17 @@ public class CasinoService {
         return repo.setting(KEY).map(this::parse).orElse(empty());
     }
 
-    /** Liga uma linha e abre a 1ª ordem na hora. */
-    public synchronized Map<String, Object> start(String symbol, String side, Double lot, double takeUsd, double stopUsd,
-                                                  int attempts, Integer closeAfterMinutes) {
+    /** Liga uma linha e abre a 1ª ordem na hora (com o "Deixa comigo!", assim que houver previsão recente). */
+    public synchronized Map<String, Object> start(String symbol, String side, boolean auto, Double lot, double takeUsd,
+                                                  double stopUsd, int attempts, int times, Integer closeAfterMinutes) {
         Instrument inst = orders.instrument(symbol);
         if (inst == null) throw new IllegalArgumentException("Símbolo sem especificação do MT5: " + symbol);
-        if (!"BUY".equals(side) && !"SELL".equals(side)) throw new IllegalArgumentException("Lado deve ser BUY ou SELL");
+        if (auto) side = "AUTO";
+        else if (!"BUY".equals(side) && !"SELL".equals(side)) throw new IllegalArgumentException("Lado deve ser BUY ou SELL");
         if (!(takeUsd > 0)) throw new IllegalArgumentException("O alvo em US$ precisa ser > 0");
         if (!(stopUsd > 0)) throw new IllegalArgumentException("O stop em US$ precisa ser > 0 (o EA não abre sem stop)");
         if (attempts < 1) throw new IllegalArgumentException("Tentativas: pelo menos 1");
+        if (times < 1) throw new IllegalArgumentException("Vezes: pelo menos 1");
         if (closeAfterMinutes != null && closeAfterMinutes < 1) closeAfterMinutes = null;
         if (lot != null && (!(lot > 0) || lot > riskHolder.get().orders().maxLot() + 1e-9)) {
             throw new IllegalArgumentException(String.format(Locale.ROOT,
@@ -133,15 +164,15 @@ public class CasinoService {
             session = System.currentTimeMillis();
             round = 1;
             roundStart = Instant.now();
-            lines.replaceAll((k, l) -> l.with(false, l.used(), l.running() ? "OFF" : l.status(), l.message()));
+            lines.replaceAll((k, l) -> l.with(false, l.running() ? "OFF" : l.status(), l.message()));
         }
-        Line line = new Line(symbol, inst.market().code(), side, lot, takeUsd, stopUsd, attempts, closeAfterMinutes, true,
-                0, "RUNNING", "ligada", Instant.now());
+        Line line = new Line(symbol, inst.market().code(), side, auto, lot, takeUsd, stopUsd, attempts, times,
+                closeAfterMinutes, true, 1, 0, 0, 0, "RUNNING", "ligada", Instant.now());
         lines.put(symbol, line);
         State next = new State(session, round, false, s.global(), lines, s.lastEvent(), roundStart);
         save(next);
-        log.info("Cassino: {} LIGADO — {} lote {} · alvo US$ {} · stop US$ {} · {} tentativa(s){}", symbol, side,
-                lot == null ? "mínimo" : lot, takeUsd, stopUsd, attempts,
+        log.info("Cassino: {} LIGADO — {} lote {} · alvo US$ {} · stop US$ {} · {} vez(es) × até {} tentativa(s){}", symbol,
+                auto ? "lado pela previsão" : side, lot == null ? "mínimo" : lot, takeUsd, stopUsd, times, attempts,
                 closeAfterMinutes == null ? "" : " · sai em " + closeAfterMinutes + " min");
         step(symbol);   // a 1ª ordem sai agora
         return Map.of("line", state().lines().get(symbol));
@@ -153,7 +184,7 @@ public class CasinoService {
         Line l = s.lines().get(symbol);
         if (l == null) return s;
         Map<String, Line> lines = new LinkedHashMap<>(s.lines());
-        lines.put(symbol, l.with(false, l.used(), "OFF", why));
+        lines.put(symbol, l.with(false, "OFF", why));
         State next = new State(s.session(), s.round(), s.closing(), s.global(), lines, s.lastEvent(), s.roundStartedAt());
         save(next);
         log.info("Cassino: {} desligado ({})", symbol, why);
@@ -163,7 +194,7 @@ public class CasinoService {
     public synchronized State stopAll(String why, boolean closePositions) {
         State s = state();
         Map<String, Line> lines = new LinkedHashMap<>(s.lines());
-        lines.replaceAll((k, l) -> l.on() || l.running() ? l.with(false, l.used(), l.running() ? "OFF" : l.status(), why) : l);
+        lines.replaceAll((k, l) -> l.on() || l.running() ? l.with(false, l.running() ? "OFF" : l.status(), why) : l);
         int closed = closePositions ? closeOpen(s.session(), null) : 0;
         State next = new State(s.session(), s.round(), false, s.global(), lines,
                 why + (closePositions ? " · " + closed + " posição(ões) mandada(s) fechar" : ""), s.roundStartedAt());
@@ -215,53 +246,115 @@ public class CasinoService {
         Decision d = decide(l, last);
         switch (d.action()) {
             case WAIT -> { }
-            case SUBMIT -> submit(s, l);
-            case FINISH -> update(symbol, l.with(l.on(), l.used(), d.status(), d.message()));
+            case SUBMIT -> {
+                if (d.line() != l) update(symbol, d.line());   // contadores da vez avançaram
+                submit(s, d.line());
+            }
+            case FINISH -> update(symbol, d.line());
         }
     }
 
     enum Action { WAIT, SUBMIT, FINISH }
 
-    record Decision(Action action, String status, String message) {
+    /** @param line a linha com os contadores já atualizados pela última tentativa */
+    record Decision(Action action, Line line) {
     }
 
     /** A última tentativa de uma linha: status (SENT, REFUSED, TARGET, CLOSED, FAILED) e o resultado em US$. */
     record Entry(long id, int attempt, String status, Double resultUsd, String message) {
     }
 
-    /** Puro (testável): continua, espera ou termina. */
+    /**
+     * Puro (testável): continua, espera ou termina. Fechou sem o alvo com tentativas sobrando → outra tentativa na
+     * mesma vez; bateu o alvo ou acabaram as tentativas → a vez termina; com vezes sobrando → a próxima vez, aconteça o
+     * que acontecer; senão a linha termina (DONE). Recusa ou falha → para (falhar fechado).
+     */
     static Decision decide(Line l, Entry last) {
-        if (last == null) return new Decision(Action.SUBMIT, null, null);
+        if (last == null || last.id() == l.counted()) return new Decision(Action.SUBMIT, l);   // nada novo a contar
         return switch (last.status()) {
-            case "SENT" -> new Decision(Action.WAIT, null, null);
-            case "TARGET" -> new Decision(Action.FINISH, "TARGET", String.format(Locale.ROOT,
-                    "alvo na tentativa %d de %d (US$ %+.2f)", last.attempt(), l.attempts(), nz(last.resultUsd())));
-            case "CLOSED" -> l.used() < l.attempts() ? new Decision(Action.SUBMIT, null, null)
-                    : new Decision(Action.FINISH, "EXHAUSTED", String.format(Locale.ROOT,
-                    "%d tentativa(s) sem o alvo (a última: US$ %+.2f)", l.attempts(), nz(last.resultUsd())));
-            default -> new Decision(Action.FINISH, "STOPPED", last.message());   // REFUSED, FAILED: falhar fechado
+            case "SENT" -> new Decision(Action.WAIT, l);
+            case "TARGET", "CLOSED" -> {
+                boolean hit = "TARGET".equals(last.status());
+                int hits = l.hits() + (hit ? 1 : 0);
+                if (!hit && l.used() < l.attempts()) {
+                    yield new Decision(Action.SUBMIT, l.counters(l.cycleOrOne(), l.used(), hits, last.id()));
+                }
+                String vez = String.format(Locale.ROOT, "vez %d de %d: %s", l.cycleOrOne(), l.timesOrOne(),
+                        hit ? String.format(Locale.ROOT, "alvo na tentativa %d (US$ %+.2f)", last.attempt(), nz(last.resultUsd()))
+                                : String.format(Locale.ROOT, "%d tentativa(s) sem o alvo", l.attempts()));
+                if (l.cycleOrOne() < l.timesOrOne()) {
+                    yield new Decision(Action.SUBMIT, l.counters(l.cycleOrOne() + 1, 0, hits, last.id())
+                            .with(l.on(), "RUNNING", vez));
+                }
+                yield new Decision(Action.FINISH, l.counters(l.cycleOrOne(), l.used(), hits, last.id()).with(l.on(), "DONE",
+                        String.format(Locale.ROOT, "%d vez(es), %d no alvo · a última — %s", l.timesOrOne(), hits, vez)));
+            }
+            default -> new Decision(Action.FINISH, l.with(l.on(), "STOPPED", last.message()));   // REFUSED, FAILED
         };
+    }
+
+    /** Até quando uma previsão serve para o "Deixa comigo!" (as horas cheias + folga). */
+    static final Duration AUTO_MAX_AGE = Duration.ofMinutes(75);
+
+    /** O lado escolhido pelo "Deixa comigo!" e o porquê. */
+    record Choice(String side, String why) {
+    }
+
+    /**
+     * "Deixa comigo!" (pedido do operador em 23/10/2026): o lado de cada ordem é o mais provável entre alta e queda na
+     * previsão mais recente do modelo B (eventos + preço) do símbolo, 15 min antes de 60 min, de até
+     * {@link #AUTO_MAX_AGE} antes de {@code at}. LATERAL não impede: o operador pediu uma direção. Sem previsão recente:
+     * null (a linha espera; não gera previsão fora de hora, que dispararia a roleta e o sinal automático).
+     */
+    static Choice choose(List<PredictionRepository.Prediction> preds, String symbol, Instant at) {
+        for (int h : new int[]{15, 60}) {
+            PredictionRepository.Prediction best = null;
+            for (PredictionRepository.Prediction p : preds) {
+                if (!p.symbol().equals(symbol) || !"B".equals(p.model()) || p.horizonMin() != h) continue;
+                if (p.momentUtc().isAfter(at) || p.momentUtc().isBefore(at.minus(AUTO_MAX_AGE))) continue;
+                if (best == null || p.momentUtc().isAfter(best.momentUtc())) best = p;
+            }
+            if (best == null) continue;
+            String side = best.pUp() >= best.pDown() ? "BUY" : "SELL";
+            java.time.format.DateTimeFormatter f = java.time.format.DateTimeFormatter.ofPattern("HH:mm").withZone(java.time.ZoneOffset.UTC);
+            return new Choice(side, String.format(Locale.ROOT, "B %d min das %s UTC: alta %.0f%% × queda %.0f%% (lateral %.0f%%)",
+                    h, f.format(best.momentUtc()), best.pUp() * 100, best.pDown() * 100, best.pFlat() * 100));
+        }
+        return null;
     }
 
     private void submit(State s, Line l) {
         Instrument inst = orders.instrument(l.symbol());
         Double lot = l.lot() != null ? l.lot() : inst == null ? null : inst.minLot();
+        String side = l.side(), why = null;
+        if (l.auto()) {
+            Choice c = choose(predictions.latest(l.market()), l.symbol(), Instant.now());
+            if (c == null) {
+                String wait = "esperando uma previsão do modelo B de até " + AUTO_MAX_AGE.toMinutes() + " min para decidir o lado";
+                if (!wait.equals(l.message())) update(l.symbol(), l.with(l.on(), "RUNNING", wait));
+                return;
+            }
+            side = c.side();
+            why = c.why();
+        }
         int attempt = l.used() + 1;
-        OrderService.Submit r = orders.submit(l.symbol(), l.side(), lot, OrderService.Roulette.casino(
+        OrderService.Submit r = orders.submit(l.symbol(), side, lot, OrderService.Roulette.casino(
                 l.closeAfterMinutes() == null ? 0 : l.closeAfterMinutes(), l.takeUsd(), l.stopUsd()));
         if (r.orderId() != null) {
-            insertEntry(s, l, attempt, lot, r.orderId(), "SENT", String.format(Locale.ROOT, "%s %.2f · alvo US$ %.2f · stop US$ %.2f",
-                    l.side(), r.preview().lot(), l.takeUsd(), l.stopUsd()));
-            update(l.symbol(), l.with(l.on(), attempt, "RUNNING", String.format(Locale.ROOT, "tentativa %d de %d enviada",
-                    attempt, l.attempts())));
-            log.info("Cassino: {} tentativa {}/{} — {} {} (ordem {})", l.symbol(), attempt, l.attempts(), l.side(),
-                    r.preview().lot(), r.orderId());
+            insertEntry(s, l, attempt, side, lot, r.orderId(), "SENT", String.format(Locale.ROOT,
+                    "%s %.2f · alvo US$ %.2f · stop US$ %.2f%s", side, r.preview().lot(), l.takeUsd(), l.stopUsd(),
+                    why == null ? "" : " · " + why));
+            update(l.symbol(), l.counters(l.cycleOrOne(), attempt, l.hits(), l.counted()).with(l.on(), "RUNNING",
+                    String.format(Locale.ROOT, "vez %d de %d · tentativa %d de %d enviada (%s)", l.cycleOrOne(),
+                            l.timesOrOne(), attempt, l.attempts(), "BUY".equals(side) ? "compra" : "venda")));
+            log.info("Cassino: {} vez {}/{} tentativa {}/{} — {} {} (ordem {}){}", l.symbol(), l.cycleOrOne(), l.timesOrOne(),
+                    attempt, l.attempts(), side, r.preview().lot(), r.orderId(), why == null ? "" : " · " + why);
             return;
         }
         String failed = r.preview().checks().stream().filter(x -> !x.ok())
                 .map(x -> x.gate() + " (" + x.value() + ")").collect(Collectors.joining("; "));
-        insertEntry(s, l, attempt, lot, null, "REFUSED", failed);
-        update(l.symbol(), l.with(l.on(), l.used(), "STOPPED", "recusada: " + failed));
+        insertEntry(s, l, attempt, side, lot, null, "REFUSED", failed);
+        update(l.symbol(), l.with(l.on(), "STOPPED", "recusada: " + failed));
         log.info("Cassino: {} recusada — {}", l.symbol(), failed);
         if (r.preview().checks().stream().anyMatch(x -> !x.ok() && x.gate().startsWith("Perda d"))) {
             stopAll("disjuntor de perda: " + failed, false);
@@ -356,7 +449,7 @@ public class CasinoService {
         if (why == null) return false;
         int closed = closeOpen(s.session(), s.round());
         Map<String, Line> lines = new LinkedHashMap<>(s.lines());
-        lines.replaceAll((k, l) -> l.running() ? l.with(l.on(), l.used(), "GLOBAL", why) : l);
+        lines.replaceAll((k, l) -> l.running() ? l.with(l.on(), "GLOBAL", why) : l);
         String event = String.format(Locale.ROOT, "rodada %d de %d: %s · %d posição(ões) fechando", s.round(),
                 s.global().rounds(), why, closed);
         save(new State(s.session(), s.round(), true, s.global(), lines, event, s.roundStartedAt()));
@@ -372,12 +465,12 @@ public class CasinoService {
         int rounds = s.global() == null ? 1 : s.global().rounds();
         if (s.round() < rounds) {
             int next = s.round() + 1;
-            lines.replaceAll((k, l) -> l.on() ? l.with(true, 0, "RUNNING", "rodada " + next + " de " + rounds) : l);
+            lines.replaceAll((k, l) -> l.on() ? l.restart("rodada " + next + " de " + rounds) : l);
             save(new State(s.session(), next, false, s.global(), lines, s.lastEvent() + " · rodada " + next + " começou",
                     Instant.now()));
             log.info("Cassino: rodada {} de {} começou", next, rounds);
         } else {
-            lines.replaceAll((k, l) -> l.on() ? l.with(false, l.used(), "GLOBAL", "fim das " + rounds + " rodada(s)") : l);
+            lines.replaceAll((k, l) -> l.on() ? l.with(false, "GLOBAL", "fim das " + rounds + " rodada(s)") : l);
             save(new State(s.session(), s.round(), false, s.global(), lines, s.lastEvent() + " · fim das rodadas",
                     s.roundStartedAt()));
             log.info("Cassino: fim das {} rodada(s)", rounds);
@@ -414,9 +507,12 @@ public class CasinoService {
 
     // ------------------------------------------------------------------ backtest
 
-    /** Os últimos 4 quartos de hora com esta configuração (página Cassino, um símbolo por vez). */
-    public Map<String, Object> backtest(String symbol, String side, Double lot, double takeUsd, double stopUsd,
-                                        Integer closeAfterMinutes) {
+    /**
+     * Os últimos 4 quartos de hora com esta configuração (página Cassino, um símbolo por vez). Com o "Deixa comigo!"
+     * ({@code auto}), o lado de cada quarto é o que {@link #choose} daria com as previsões gravadas até o início dele.
+     */
+    public Map<String, Object> backtest(String symbol, String side, boolean auto, Double lot, double takeUsd,
+                                        double stopUsd, Integer closeAfterMinutes) {
         Instrument inst = orders.instrument(symbol);
         if (inst == null) throw new IllegalArgumentException("Símbolo sem especificação do MT5: " + symbol);
         double l = lot != null ? lot : inst.minLot();
@@ -435,7 +531,19 @@ public class CasinoService {
         double tpDist = takeUsd / usdPerPrice, slDist = stopUsd / usdPerPrice;
         Instant lastBar = in.m1().get(in.m1().size() - 1).t().toInstant(java.time.ZoneOffset.UTC);
         Instant ref = Instant.now().isAfter(lastBar.plusSeconds(120)) ? lastBar.plusSeconds(60) : Instant.now();
-        out.put("quarters", CasinoBacktest.run(in.m1(), ref, "BUY".equals(side), tpDist, slDist, spreadPx,
+        java.util.function.Function<Instant, Boolean> sideAt;
+        if (auto) {
+            List<PredictionRepository.Prediction> hist = predictions.history(inst.market().code(), symbol,
+                    ref.minus(Duration.ofHours(1)).minus(AUTO_MAX_AGE), 500);
+            sideAt = t -> {
+                Choice c = choose(hist, symbol, t);
+                return c == null ? null : "BUY".equals(c.side());
+            };
+        } else {
+            boolean buy = "BUY".equals(side);
+            sideAt = t -> buy;
+        }
+        out.put("quarters", CasinoBacktest.run(in.m1(), ref, sideAt, tpDist, slDist, spreadPx,
                 closeAfterMinutes == null ? 0 : closeAfterMinutes, usdPerPrice));
         out.put("spread_usd", spreadPx * usdPerPrice);
         out.put("take_distance", tpDist);
@@ -458,7 +566,7 @@ public class CasinoService {
                         SELECT sum(result_usd) FROM casino_entry WHERE session_id = :s
                         """).param("s", s.session()).query(Double.class).single());
         out.put("entries", db().sql("""
-                        SELECT e.id, e.round, e.market, e.symbol, e.attempt, e.side, e.lot, e.status, e.result_usd,
+                        SELECT e.id, e.round, e.market, e.symbol, e.cycle, e.attempt, e.side, e.auto_side, e.lot, e.status, e.result_usd,
                                e.message, e.created_at, e.finished_at
                           FROM casino_entry e ORDER BY e.id DESC LIMIT 60
                         """).query().listOfRows());
@@ -485,21 +593,28 @@ public class CasinoService {
                         (Double) rs.getObject("result_usd"), rs.getString("message"))).optional().orElse(null);
     }
 
-    private void insertEntry(State s, Line l, int attempt, Double lot, Long orderId, String status, String message) {
+    private void insertEntry(State s, Line l, int attempt, String side, Double lot, Long orderId, String status,
+                             String message) {
         db().sql("""
-                        INSERT INTO casino_entry (session_id, round, market, symbol, attempt, side, lot, take_usd, stop_usd,
-                                                  close_after_minutes, order_id, status, message, finished_at)
-                        VALUES (:s, :r, :m, :sym, :a, :side, :lot, :take, :stop, :ca, :o, :st, :msg,
+                        INSERT INTO casino_entry (session_id, round, market, symbol, cycle, attempt, side, auto_side, lot,
+                                                  take_usd, stop_usd, close_after_minutes, order_id, status, message, finished_at)
+                        VALUES (:s, :r, :m, :sym, :c, :a, :side, :auto, :lot, :take, :stop, :ca, :o, :st, :msg,
                                 CASE WHEN :st = 'SENT' THEN NULL ELSE now() END)
                         """)
                 .param("s", s.session()).param("r", s.round()).param("m", l.market()).param("sym", l.symbol())
-                .param("a", attempt).param("side", l.side()).param("lot", lot, Types.DOUBLE).param("take", l.takeUsd())
+                .param("c", l.cycleOrOne()).param("a", attempt).param("side", side).param("auto", l.auto())
+                .param("lot", lot, Types.DOUBLE).param("take", l.takeUsd())
                 .param("stop", l.stopUsd()).param("ca", l.closeAfterMinutes(), Types.INTEGER).param("o", orderId, Types.BIGINT)
                 .param("st", status).param("msg", message, Types.VARCHAR).update();
     }
 
+    /** Fecha a tentativa; a mensagem do envio (com o porquê do lado) fica, o resultado vai depois dela. */
     private void finishEntry(long id, String status, Double result, String message) {
-        db().sql("UPDATE casino_entry SET status = :st, result_usd = :r, message = :m, finished_at = now() WHERE id = :id")
+        db().sql("""
+                        UPDATE casino_entry SET status = :st, result_usd = :r, finished_at = now(),
+                               message = CASE WHEN message IS NULL THEN :m ELSE message || ' → ' || :m END
+                         WHERE id = :id
+                        """)
                 .param("st", status).param("r", result, Types.DOUBLE).param("m", message, Types.VARCHAR).param("id", id).update();
     }
 

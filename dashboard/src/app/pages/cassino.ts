@@ -4,15 +4,16 @@ import { HttpClient } from '@angular/common/http';
 import { MARKETS, MarketState } from '../market';
 import { Brt } from '../brt';
 
-interface Line { symbol: string; market: string; side: string; lot: number | null; takeUsd: number; stopUsd: number;
-  attempts: number; closeAfterMinutes: number | null; on: boolean; used: number; status: string; message: string | null;
-  startedAt: string | null }
-interface Form { side: string; lot: number | null; takeUsd: number; stopUsd: number; attempts: number; closeAfter: number | null }
-interface Quarter { start: string; result: string; usd: number | null; minutes: number | null }
+interface Line { symbol: string; market: string; side: string; auto: boolean; lot: number | null; takeUsd: number;
+  stopUsd: number; attempts: number; times: number; closeAfterMinutes: number | null; on: boolean; cycle: number;
+  used: number; hits: number; status: string; message: string | null; startedAt: string | null }
+interface Form { side: string; auto: boolean; lot: number | null; takeUsd: number; stopUsd: number; times: number;
+  attempts: number; closeAfter: number | null }
+interface Quarter { start: string; side: string | null; result: string; usd: number | null; minutes: number | null }
 interface Backtest { symbol: string; lot: number; quarters: Quarter[]; message?: string; spread_usd?: number;
   spread_points?: number; too_close?: boolean; last_bar?: string }
 
-const DEFAULT: Form = { side: 'BUY', lot: null, takeUsd: 0.10, stopUsd: 1.00, attempts: 10, closeAfter: null };
+const DEFAULT: Form = { side: 'BUY', auto: false, lot: null, takeUsd: 0.10, stopUsd: 1.00, times: 10, attempts: 1, closeAfter: null };
 const STORE = 'jev.cassino.forms';
 
 @Component({
@@ -28,13 +29,17 @@ const STORE = 'jev.cassino.forms';
     </div>
     <div class="notice danger">
       <b>Ordens que você escolhe, sem as travas de risco por ordem.</b> Em cada linha: alvo e stop em US$ (com o lote da
-      linha), lado e tentativas. Ao <b>ligar</b>, a ordem sai na hora. Fechou no stop (ou por tempo), abre de novo; <b>bateu o
-      alvo, a linha termina</b>; acabaram as tentativas, também. Valem só as travas técnicas (EA, cotação, lote, mercado aberto,
+      linha), lado (ou <b>Deixa comigo!</b>), vezes e tentativas. Ao <b>ligar</b>, a ordem sai na hora. <b>Vezes</b> = quantas
+      vezes abrir, aconteça o que acontecer; em cada vez, até N <b>tentativas</b>: fechou no stop (ou por tempo), tenta de novo;
+      bateu o alvo, a vez termina e começa a próxima. Total de ordens ≤ vezes × tentativas. Valem só as travas técnicas (EA, cotação, lote, mercado aberto,
       BLOCK, alvo e stop além de 2 spreads) e a <b>perda do dia/semana</b>, que para tudo. As posições do Cassino ficam fora do
       trailing e da prorrogação.
       <br><b>Repetir até acertar não cria vantagem</b>: com alvo pequeno e stop maior, a maioria das tentativas acerta, mas
       cada stop apaga vários alvos. Cada operação ainda paga o spread. O backtest abaixo mostra só a última hora; é pouco para
       dizer se a configuração presta.
+      <br><b>Deixa comigo!</b>: o lado de cada ordem é o mais provável (alta × queda) na previsão mais recente do modelo B do
+      símbolo, 15 min antes de 60 min, de até 75 min atrás; sem previsão recente, a linha espera. No Laboratório, entrar sempre
+      no lado mais provável deu perto de zero ou negativo na maioria dos mercados: é a melhor opinião que eu tenho, não uma vantagem.
       @if (view(); as v) {
         <div class="small">Modo <b>{{ v.mode }}</b> · perda do dia {{ v.loss_limits?.maxDailyLossPct }}%, semana {{ v.loss_limits?.maxWeeklyLossPct }}%
           @if (v.blocked) { · <b class="down">BLOCK ligado: nenhuma ordem sai</b> }</div>
@@ -75,7 +80,9 @@ const STORE = 'jev.cassino.forms';
           <button (click)="backtestAll()">Backtest de todos (últimos 4 quartos de hora)</button>
         </div>
         <div class="table-wrap"><table class="small grid">
-          <tr><th>Símbolo</th><th>Alvo US$</th><th>Stop US$</th><th>Lote</th><th>Direção</th><th>Tentativas</th>
+          <tr><th>Símbolo</th><th>Alvo US$</th><th>Stop US$</th><th>Lote</th><th>Direção</th>
+            <th title="Quantas vezes abrir, aconteça o que acontecer">Vezes</th>
+            <th title="Em cada vez: até quantas ordens para bater o alvo">Tentativas</th>
             <th title="Opcional: fecha a mercado depois desses minutos (vazio = só alvo e stop)">Saída (min)</th><th></th><th>Estado</th><th>Backtest</th></tr>
           @for (sym of symbols(); track sym) {
             @let l = s.lines[sym];
@@ -86,16 +93,24 @@ const STORE = 'jev.cassino.forms';
               <td><input type="number" min="0.01" step="0.05" [value]="f.takeUsd" [disabled]="running" (input)="patch(sym, { takeUsd: num($event) ?? 0 })" /></td>
               <td><input type="number" min="0.01" step="0.10" [value]="f.stopUsd" [disabled]="running" (input)="patch(sym, { stopUsd: num($event) ?? 0 })" /></td>
               <td><input type="number" min="0.01" step="0.01" [value]="f.lot ?? ''" placeholder="mínimo" [disabled]="running" (input)="patch(sym, { lot: num($event) })" /></td>
-              <td><select [value]="f.side" [disabled]="running" (change)="patch(sym, { side: $any($event.target).value })">
-                <option value="BUY">Compra</option><option value="SELL">Venda</option></select></td>
+              <td class="dir">
+                <select [value]="f.side" [disabled]="running || f.auto" [class.hidden]="f.auto" (change)="patch(sym, { side: $any($event.target).value })">
+                  <option value="BUY">Compra</option><option value="SELL">Venda</option></select>
+                <label class="auto" title="O sistema decide o lado de cada ordem pela previsão mais recente do modelo B">
+                  <input type="checkbox" [checked]="f.auto" [disabled]="running" (change)="patch(sym, { auto: $any($event.target).checked })" />
+                  Deixa comigo!</label>
+              </td>
+              <td><input type="number" min="1" step="1" [value]="f.times" [disabled]="running" (input)="patch(sym, { times: num($event) ?? 1 })" /></td>
               <td><input type="number" min="1" step="1" [value]="f.attempts" [disabled]="running" (input)="patch(sym, { attempts: num($event) ?? 1 })" /></td>
               <td><input type="number" min="1" step="1" [value]="f.closeAfter ?? ''" placeholder="—" [disabled]="running" (input)="patch(sym, { closeAfter: num($event) })" /></td>
               <td>@if (running) { <button class="danger" (click)="stop(sym)">Parar</button> }
                 @else { <button class="primary" [disabled]="s.closing" (click)="start(sym)">Ligar</button> }</td>
               <td class="state">
                 @if (l) {
-                  <span class="badge" [class.ok]="l.status === 'RUNNING' || l.status === 'TARGET'" [class.high]="l.status === 'STOPPED' || l.status === 'EXHAUSTED'">{{ statusText(l.status) }}</span>
-                  @if (l.status !== 'OFF') { <span class="muted"> {{ l.used }}/{{ l.attempts }}</span> }
+                  <span class="badge" [class.ok]="l.status === 'RUNNING' || l.status === 'DONE'" [class.high]="l.status === 'STOPPED' || l.status === 'EXHAUSTED'">{{ statusText(l.status) }}</span>
+                  @if (l.status !== 'OFF') {
+                    <span class="muted"> vez {{ l.cycle || 1 }}/{{ l.times || 1 }} · tentativa {{ l.used }}/{{ l.attempts }} · alvos {{ l.hits || 0 }}</span>
+                  }
                   @if (l.message) { <div class="muted">{{ l.message }}</div> }
                 }
               </td>
@@ -107,6 +122,7 @@ const STORE = 'jev.cassino.forms';
                     @for (q of b.quarters; track q.start) {
                       <span class="badge" [class.ok]="q.result === 'ALVO'" [class.high]="q.result === 'STOP'"
                         [title]="(q.minutes ?? '—') + ' min'"><span [brt]="q.start">{{ q.start | date: 'HH:mm' : 'UTC' }}</span>
+                        @if (f.auto && q.side) { {{ q.side === 'BUY' ? 'C' : 'V' }} }
                         {{ resultText(q.result) }} @if (q.usd !== null) { {{ q.usd | number: '1.2-2' }} }</span>
                     }
                   </div>
@@ -117,10 +133,11 @@ const STORE = 'jev.cassino.forms';
                 }
               </td>
             </tr>
-          } @empty { <tr><td colspan="10" class="muted">Nenhum símbolo deste mercado com especificação do MT5.</td></tr> }
+          } @empty { <tr><td colspan="11" class="muted">Nenhum símbolo deste mercado com especificação do MT5.</td></tr> }
         </table></div>
         <p class="small muted">Backtest: se a linha tivesse aberto no início de cada um dos últimos 4 quartos de hora completos
-          (UTC), com o spread de agora — alvo, stop, tempo ou ainda aberta. Alvo e stop no mesmo minuto contam como stop.</p>
+          (UTC), com o spread de agora — alvo, stop, tempo ou ainda aberta. Alvo e stop no mesmo minuto contam como stop. Com
+          <b>Deixa comigo!</b>, cada quarto usa o lado que a previsão daquela hora daria (C = compra, V = venda).</p>
       </section>
 
       <section class="panel" style="margin-top:16px">
@@ -131,17 +148,18 @@ const STORE = 'jev.cassino.forms';
             @if (t.worst !== null) { · pior US$ {{ t.worst | number: '1.2-2' }} }</p>
         }
         <div class="table-wrap"><table class="small">
-          <tr><th>Quando (UTC)</th><th>Rodada</th><th>Símbolo</th><th>Tentativa</th><th>Lado</th><th>Status</th><th class="right">US$</th><th>Detalhe</th></tr>
+          <tr><th>Quando (UTC)</th><th>Rodada</th><th>Símbolo</th><th>Vez</th><th>Tentativa</th><th>Lado</th><th>Status</th><th class="right">US$</th><th>Detalhe</th></tr>
           @for (e of v.entries; track e.id) {
             <tr>
               <td class="mono" [brt]="e.created_at">{{ e.created_at | date: 'dd/MM HH:mm:ss' : 'UTC' }}</td>
-              <td>{{ e.round }}</td><td class="mono">{{ e.symbol }}</td><td>{{ e.attempt }}</td>
-              <td><span class="badge" [class.buy]="e.side === 'BUY'" [class.sell]="e.side === 'SELL'">{{ e.side === 'BUY' ? 'COMPRA' : 'VENDA' }}</span></td>
+              <td>{{ e.round }}</td><td class="mono">{{ e.symbol }}</td><td>{{ e.cycle ?? '' }}</td><td>{{ e.attempt }}</td>
+              <td><span class="badge" [class.buy]="e.side === 'BUY'" [class.sell]="e.side === 'SELL'">{{ e.side === 'BUY' ? 'COMPRA' : 'VENDA' }}</span>
+                @if (e.auto_side) { <span class="muted" title="Lado escolhido pelo sistema (Deixa comigo!)"> auto</span> }</td>
               <td><span class="badge" [class.ok]="e.status === 'TARGET'" [class.high]="e.status === 'REFUSED' || e.status === 'FAILED'">{{ entryText(e.status) }}</span></td>
               <td class="right mono" [class.up]="e.result_usd > 0" [class.down]="e.result_usd < 0">{{ e.result_usd === null ? '' : (e.result_usd | number: '1.2-2') }}</td>
               <td class="muted">{{ e.message }}</td>
             </tr>
-          } @empty { <tr><td colspan="8" class="muted">Nenhuma tentativa ainda.</td></tr> }
+          } @empty { <tr><td colspan="9" class="muted">Nenhuma tentativa ainda.</td></tr> }
         </table></div>
       </section>
     } @else if (error()) {
@@ -164,6 +182,10 @@ const STORE = 'jev.cassino.forms';
     td.state { min-width: 150px; }
     td.bt { min-width: 220px; }
     .quarters { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+    td.dir { min-width: 120px; }
+    td.dir select.hidden { display: none; }
+    label.auto { display: flex; align-items: center; gap: 4px; white-space: nowrap; margin-top: 2px; }
+    label.auto input { width: auto; }
   `,
 })
 export class Cassino implements OnInit, OnDestroy {
@@ -209,8 +231,9 @@ export class Cassino implements OnInit, OnDestroy {
   protected form(sym: string): Form {
     const l: Line | undefined = this.view()?.state?.lines?.[sym];
     const saved = this.forms()[sym];
-    if (saved && l?.status !== 'RUNNING') return saved;   // ligada: mostra o que está valendo
-    return l ?{ side: l.side, lot: l.lot, takeUsd: l.takeUsd, stopUsd: l.stopUsd, attempts: l.attempts, closeAfter: l.closeAfterMinutes } : DEFAULT;
+    if (saved && l?.status !== 'RUNNING') return { ...DEFAULT, ...saved };   // ligada: mostra o que está valendo
+    return l ? { side: l.auto ? 'BUY' : l.side, auto: !!l.auto, lot: l.lot, takeUsd: l.takeUsd, stopUsd: l.stopUsd,
+      times: l.times || 1, attempts: l.attempts, closeAfter: l.closeAfterMinutes } : DEFAULT;
   }
 
   protected patch(sym: string, p: Partial<Form>): void {
@@ -239,15 +262,15 @@ export class Cassino implements OnInit, OnDestroy {
 
   protected start(sym: string): void {
     const f = this.form(sym);
-    const side = f.side === 'BUY' ? 'COMPRA' : 'VENDA';
+    const side = f.auto ? 'lado pela previsão (Deixa comigo!)' : f.side === 'BUY' ? 'COMPRA' : 'VENDA';
     const text = `Ligar ${sym}: ${side}, lote ${f.lot ?? 'mínimo'}, alvo US$ ${f.takeUsd}, stop US$ ${f.stopUsd}, `
-      + `até ${f.attempts} tentativa(s)${f.closeAfter ? `, sai em ${f.closeAfter} min` : ''}?\n`
-      + 'A primeira ordem sai AGORA, sem as travas de risco por ordem (valem as técnicas e a perda do dia/semana).';
+      + `${f.times} vez(es) × até ${f.attempts} tentativa(s)${f.closeAfter ? `, sai em ${f.closeAfter} min` : ''}?\n`
+      + `Até ${f.times * f.attempts} ordens. A primeira sai AGORA, sem as travas de risco por ordem (valem as técnicas e a perda do dia/semana).`;
     if (this.view()?.mode === 'LIVE') {
       if (prompt(`${text}\n\nCONTA REAL: digite LIVE para confirmar.`) !== 'LIVE') return;
     } else if (!confirm(text)) return;
-    const q = new URLSearchParams({ symbol: sym, side: f.side, takeUsd: String(f.takeUsd), stopUsd: String(f.stopUsd),
-      attempts: String(f.attempts || 1) });
+    const q = new URLSearchParams({ symbol: sym, side: f.side, auto: String(!!f.auto), takeUsd: String(f.takeUsd),
+      stopUsd: String(f.stopUsd), times: String(f.times || 1), attempts: String(f.attempts || 1) });
     if (f.lot) q.set('lot', String(f.lot));
     if (f.closeAfter) q.set('closeAfter', String(f.closeAfter));
     this.http.post<any>(`/api/casino/start?${q}`, {}).subscribe({
@@ -269,7 +292,8 @@ export class Cassino implements OnInit, OnDestroy {
 
   protected backtest(sym: string): void {
     const f = this.form(sym);
-    const q = new URLSearchParams({ symbol: sym, side: f.side, takeUsd: String(f.takeUsd), stopUsd: String(f.stopUsd) });
+    const q = new URLSearchParams({ symbol: sym, side: f.side, auto: String(!!f.auto), takeUsd: String(f.takeUsd),
+      stopUsd: String(f.stopUsd) });
     if (f.lot) q.set('lot', String(f.lot));
     if (f.closeAfter) q.set('closeAfter', String(f.closeAfter));
     this.http.get<Backtest>(`/api/casino/backtest?${q}`).subscribe({
@@ -283,8 +307,8 @@ export class Cassino implements OnInit, OnDestroy {
   }
 
   protected statusText(s: string): string {
-    return ({ OFF: 'desligada', RUNNING: 'ligada', TARGET: 'bateu o alvo', EXHAUSTED: 'sem tentativas', STOPPED: 'parada',
-      GLOBAL: 'global' } as Record<string, string>)[s] ?? s;
+    return ({ OFF: 'desligada', RUNNING: 'ligada', DONE: 'terminou', TARGET: 'bateu o alvo', EXHAUSTED: 'sem tentativas',
+      STOPPED: 'parada', GLOBAL: 'global' } as Record<string, string>)[s] ?? s;
   }
 
   protected entryText(s: string): string {
@@ -292,6 +316,7 @@ export class Cassino implements OnInit, OnDestroy {
   }
 
   protected resultText(r: string): string {
-    return ({ ALVO: 'alvo', STOP: 'stop', TEMPO: 'tempo', ABERTA: 'aberta', SEM_DADOS: 'sem dados' } as Record<string, string>)[r] ?? r;
+    return ({ ALVO: 'alvo', STOP: 'stop', TEMPO: 'tempo', ABERTA: 'aberta', SEM_DADOS: 'sem dados',
+      SEM_LADO: 'sem previsão' } as Record<string, string>)[r] ?? r;
   }
 }
