@@ -87,25 +87,28 @@ public class CasinoService {
      * @param hits              vezes que bateram o alvo
      * @param counted           a última tentativa já contada (decidir de novo não conta duas vezes)
      * @param status            OFF | RUNNING | DONE | STOPPED | GLOBAL
+     * @param minSpreads        "lucro mínimo" (23/10/2026): o alvo é o menor possível + esta margem em spreads, a cada
+     *                          ordem (takeUsd não vale); null = alvo em US$
      */
     public record Line(String symbol, String market, String side, boolean auto, Double lot, double takeUsd,
                        double stopUsd, int attempts, int times, Integer closeAfterMinutes, boolean on, int cycle,
-                       int used, int hits, long counted, String status, String message, Instant startedAt) {
+                       int used, int hits, long counted, String status, String message, Instant startedAt,
+                       Double minSpreads) {
 
         Line with(boolean on, String status, String message) {
             return new Line(symbol, market, side, auto, lot, takeUsd, stopUsd, attempts, times, closeAfterMinutes, on,
-                    cycle, used, hits, counted, status, message, startedAt);
+                    cycle, used, hits, counted, status, message, startedAt, minSpreads);
         }
 
         Line counters(int cycle, int used, int hits, long counted) {
             return new Line(symbol, market, side, auto, lot, takeUsd, stopUsd, attempts, times, closeAfterMinutes, on,
-                    cycle, used, hits, counted, status, message, startedAt);
+                    cycle, used, hits, counted, status, message, startedAt, minSpreads);
         }
 
         /** Zera os contadores (ligar ou rodada nova). */
         Line restart(String message) {
             return new Line(symbol, market, side, auto, lot, takeUsd, stopUsd, attempts, times, closeAfterMinutes, true,
-                    1, 0, 0, 0, "RUNNING", message, startedAt);
+                    1, 0, 0, 0, "RUNNING", message, startedAt, minSpreads);
         }
 
         boolean running() {
@@ -142,6 +145,43 @@ public class CasinoService {
     /** Liga uma linha e abre a 1ª ordem na hora (com o "Deixa comigo!", assim que houver previsão recente). */
     public synchronized Map<String, Object> start(String symbol, String side, boolean auto, Double lot, double takeUsd,
                                                   double stopUsd, int attempts, int times, Integer closeAfterMinutes) {
+        return start(symbol, side, auto, lot, takeUsd, stopUsd, attempts, times, closeAfterMinutes, null);
+    }
+
+    /**
+     * "Lucro mínimo" (pedido do operador em 23/10/2026): liga de uma vez todos os pares dados (os de um mercado, na
+     * página), com o alvo no menor valor possível + margem; o lucro fica sempre no TP do servidor. Pares já ligados e
+     * sem especificação ficam de fora; com o "Deixa comigo!", também os sem previsão do modelo (extras).
+     *
+     * @return por par: "ligado" ou o motivo de não ter ligado
+     */
+    public synchronized Map<String, String> startMin(List<String> symbols, String side, boolean auto, Double lot,
+                                                     double marginSpreads, double stopUsd, int attempts, int times,
+                                                     Integer closeAfterMinutes) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (String sym : symbols) {
+            Line cur = state().lines().get(sym);
+            if (cur != null && cur.running()) {
+                out.put(sym, "já estava ligado");
+                continue;
+            }
+            boolean extra = casinoProps.groups().stream().anyMatch(g -> g.symbols().contains(sym));
+            try {
+                start(sym, side, auto && !extra, lot, 0, stopUsd, attempts, times, closeAfterMinutes, marginSpreads);
+                Line l = state().lines().get(sym);
+                out.put(sym, l == null ? "?" : l.running() ? "ligado" + (auto && extra ? " (extra: lado " + side + ")" : "")
+                        : l.message());
+            } catch (IllegalArgumentException e) {
+                out.put(sym, e.getMessage());
+            }
+        }
+        log.info("Cassino: lucro mínimo — {}", out);
+        return out;
+    }
+
+    public synchronized Map<String, Object> start(String symbol, String side, boolean auto, Double lot, double takeUsd,
+                                                  double stopUsd, int attempts, int times, Integer closeAfterMinutes,
+                                                  Double minSpreads) {
         Instrument inst = orders.instrument(symbol);
         if (inst == null) throw new IllegalArgumentException("Símbolo sem especificação do MT5: " + symbol);
         if (auto && casinoProps.groups().stream().anyMatch(g -> g.symbols().contains(symbol))) {
@@ -150,7 +190,10 @@ public class CasinoService {
         }
         if (auto) side = "AUTO";
         else if (!"BUY".equals(side) && !"SELL".equals(side)) throw new IllegalArgumentException("Lado deve ser BUY ou SELL");
-        if (!(takeUsd > 0)) throw new IllegalArgumentException("O alvo em US$ precisa ser > 0");
+        if (minSpreads != null) {
+            if (!(minSpreads >= 0) || minSpreads > 50) throw new IllegalArgumentException("Margem do lucro mínimo: de 0 a 50 spreads");
+            takeUsd = 0;   // o alvo é calculado a cada ordem
+        } else if (!(takeUsd > 0)) throw new IllegalArgumentException("O alvo em US$ precisa ser > 0");
         if (!(stopUsd > 0)) throw new IllegalArgumentException("O stop em US$ precisa ser > 0 (o EA não abre sem stop)");
         if (attempts < 1) throw new IllegalArgumentException("Tentativas: pelo menos 1");
         if (times < 1) throw new IllegalArgumentException("Vezes: pelo menos 1");
@@ -174,14 +217,17 @@ public class CasinoService {
             lines.replaceAll((k, l) -> l.with(false, l.running() ? "OFF" : l.status(), l.message()));
         }
         Line line = new Line(symbol, inst.market().code(), side, auto, lot, takeUsd, stopUsd, attempts, times,
-                closeAfterMinutes, true, 1, 0, 0, 0, "RUNNING", "ligada", Instant.now());
+                closeAfterMinutes, true, 1, 0, 0, 0, "RUNNING", "ligada", Instant.now(), minSpreads);
         lines.put(symbol, line);
         State next = new State(session, round, false, s.global(), lines, s.lastEvent(), roundStart);
         save(next);
-        saveConfigs(Map.of(symbol, new Config(auto ? "BUY" : side, auto, lot, takeUsd, stopUsd, times, attempts,
-                closeAfterMinutes)));   // a configuração adotada fica salva para o par
-        log.info("Cassino: {} LIGADO — {} lote {} · alvo US$ {} · stop US$ {} · {} vez(es) × até {} tentativa(s){}", symbol,
-                auto ? "lado pela previsão" : side, lot == null ? "mínimo" : lot, takeUsd, stopUsd, times, attempts,
+        if (minSpreads == null) {   // a configuração adotada fica salva para o par (o lucro mínimo tem a dele, na página)
+            saveConfigs(Map.of(symbol, new Config(auto ? "BUY" : side, auto, lot, takeUsd, stopUsd, times, attempts,
+                    closeAfterMinutes)));
+        }
+        log.info("Cassino: {} LIGADO — {} lote {} · alvo {} · stop US$ {} · {} vez(es) × até {} tentativa(s){}", symbol,
+                auto ? "lado pela previsão" : side, lot == null ? "mínimo" : lot,
+                minSpreads == null ? "US$ " + takeUsd : "mínimo + " + minSpreads + " spread(s)", stopUsd, times, attempts,
                 closeAfterMinutes == null ? "" : " · sai em " + closeAfterMinutes + " min");
         step(symbol);   // a 1ª ordem sai agora
         return Map.of("line", state().lines().get(symbol));
@@ -347,12 +393,16 @@ public class CasinoService {
             why = c.why();
         }
         int attempt = l.used() + 1;
-        OrderService.Submit r = orders.submit(l.symbol(), side, lot, OrderService.Roulette.casino(
-                l.closeAfterMinutes() == null ? 0 : l.closeAfterMinutes(), l.takeUsd(), l.stopUsd()));
+        int closeAfter = l.closeAfterMinutes() == null ? 0 : l.closeAfterMinutes();
+        OrderService.Submit r = orders.submit(l.symbol(), side, lot, l.minSpreads() != null
+                ? OrderService.Roulette.casinoMin(closeAfter, l.minSpreads(), l.stopUsd())
+                : OrderService.Roulette.casino(closeAfter, l.takeUsd(), l.stopUsd()));
+        // lucro mínimo: o alvo em US$ é o que a prévia calculou com o spread de agora
+        double take = l.minSpreads() != null && r.preview().rewardUsd() != null ? r.preview().rewardUsd() : l.takeUsd();
         if (r.orderId() != null) {
-            insertEntry(s, l, attempt, side, lot, r.orderId(), "SENT", String.format(Locale.ROOT,
-                    "%s %.2f · alvo US$ %.2f · stop US$ %.2f%s", side, r.preview().lot(), l.takeUsd(), l.stopUsd(),
-                    why == null ? "" : " · " + why));
+            insertEntry(s, l, attempt, side, lot, take, r.orderId(), "SENT", String.format(Locale.ROOT,
+                    "%s %.2f · alvo US$ %.2f%s · stop US$ %.2f%s", side, r.preview().lot(), take,
+                    l.minSpreads() != null ? " (lucro mínimo)" : "", l.stopUsd(), why == null ? "" : " · " + why));
             update(l.symbol(), l.counters(l.cycleOrOne(), attempt, l.hits(), l.counted()).with(l.on(), "RUNNING",
                     String.format(Locale.ROOT, "vez %d de %d · tentativa %d de %d enviada (%s)", l.cycleOrOne(),
                             l.timesOrOne(), attempt, l.attempts(), "BUY".equals(side) ? "compra" : "venda")));
@@ -362,7 +412,7 @@ public class CasinoService {
         }
         String failed = r.preview().checks().stream().filter(x -> !x.ok())
                 .map(x -> x.gate() + " (" + x.value() + ")").collect(Collectors.joining("; "));
-        insertEntry(s, l, attempt, side, lot, null, "REFUSED", failed);
+        insertEntry(s, l, attempt, side, lot, take, null, "REFUSED", failed);
         update(l.symbol(), l.with(l.on(), "STOPPED", "recusada: " + failed));
         log.info("Cassino: {} recusada — {}", l.symbol(), failed);
         if (r.preview().checks().stream().anyMatch(x -> !x.ok() && x.gate().startsWith("Perda d"))) {
@@ -522,6 +572,40 @@ public class CasinoService {
      */
     public Map<String, Object> backtest(String symbol, String side, boolean auto, Double lot, double takeUsd,
                                         double stopUsd, Integer closeAfterMinutes) {
+        return backtest(symbol, side, auto, lot, takeUsd, stopUsd, closeAfterMinutes, null);
+    }
+
+    /**
+     * Prévia do lucro mínimo por par, agora: o alvo em US$ (com o lote e o spread de agora) e se a ordem passaria nas
+     * travas — a mesma prévia do envio (OrderService.preview).
+     */
+    public List<Map<String, Object>> minPreview(List<String> symbols, Double lot, double marginSpreads, double stopUsd) {
+        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        for (String sym : symbols) {
+            Instrument inst = orders.instrument(sym);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("symbol", sym);
+            if (inst == null) {
+                m.put("ok", false);
+                m.put("why", "sem especificação do MT5");
+                out.add(m);
+                continue;
+            }
+            OrderService.Preview p = orders.preview(sym, "BUY", lot != null ? lot : inst.minLot(),
+                    OrderService.Roulette.casinoMin(0, marginSpreads, stopUsd));
+            m.put("lot", p.lot());
+            m.put("take_usd", p.rewardUsd());
+            m.put("take_distance", p.tpDistance());
+            m.put("ok", p.ok());
+            m.put("why", p.checks().stream().filter(x -> !x.ok()).map(x -> x.gate() + " (" + x.value() + ")")
+                    .collect(Collectors.joining("; ")));
+            out.add(m);
+        }
+        return out;
+    }
+
+    public Map<String, Object> backtest(String symbol, String side, boolean auto, Double lot, double takeUsd,
+                                        double stopUsd, Integer closeAfterMinutes, Double minSpreads) {
         Instrument inst = orders.instrument(symbol);
         if (inst == null) throw new IllegalArgumentException("Símbolo sem especificação do MT5: " + symbol);
         double l = lot != null ? lot : inst.minLot();
@@ -537,7 +621,9 @@ public class CasinoService {
             return out;
         }
         double spreadPx = (in.spreadNow() == null ? 0 : in.spreadNow()) * point;
-        double tpDist = takeUsd / usdPerPrice, slDist = stopUsd / usdPerPrice;
+        Double minDist = minSpreads == null ? null : orders.minTakeDistance(symbol, in.spreadNow(), minSpreads);
+        double tpDist = minDist != null ? minDist : takeUsd / usdPerPrice, slDist = stopUsd / usdPerPrice;
+        out.put("take_usd", tpDist * usdPerPrice);
         Instant lastBar = in.m1().get(in.m1().size() - 1).t().toInstant(java.time.ZoneOffset.UTC);
         Instant ref = Instant.now().isAfter(lastBar.plusSeconds(120)) ? lastBar.plusSeconds(60) : Instant.now();
         java.util.function.Function<Instant, Boolean> sideAt;
@@ -676,8 +762,8 @@ public class CasinoService {
                         (Double) rs.getObject("result_usd"), rs.getString("message"))).optional().orElse(null);
     }
 
-    private void insertEntry(State s, Line l, int attempt, String side, Double lot, Long orderId, String status,
-                             String message) {
+    private void insertEntry(State s, Line l, int attempt, String side, Double lot, double takeUsd, Long orderId,
+                             String status, String message) {
         db().sql("""
                         INSERT INTO casino_entry (session_id, round, market, symbol, cycle, attempt, side, auto_side, lot,
                                                   take_usd, stop_usd, close_after_minutes, order_id, status, message, finished_at)
@@ -686,7 +772,7 @@ public class CasinoService {
                         """)
                 .param("s", s.session()).param("r", s.round()).param("m", l.market()).param("sym", l.symbol())
                 .param("c", l.cycleOrOne()).param("a", attempt).param("side", side).param("auto", l.auto())
-                .param("lot", lot, Types.DOUBLE).param("take", l.takeUsd())
+                .param("lot", lot, Types.DOUBLE).param("take", takeUsd)
                 .param("stop", l.stopUsd()).param("ca", l.closeAfterMinutes(), Types.INTEGER).param("o", orderId, Types.BIGINT)
                 .param("st", status).param("msg", message, Types.VARCHAR).update();
     }

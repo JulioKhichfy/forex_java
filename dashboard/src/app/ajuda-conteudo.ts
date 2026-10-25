@@ -673,6 +673,21 @@ export const SECOES: Secao[] = [
           <b>Salvar todos</b> grava todas as alteradas (●). Ligar também salva.`,
       },
       {
+        titulo: 'Lucro mínimo',
+        html: `O painel <b>Lucro mínimo</b> (acima da tabela) liga de uma vez todos os pares da lista do mercado (com os extras
+          que você incluiu) com o <b>menor alvo possível</b>: a distância que passa da trava "Alvo em US$ × spread" (mais que
+          2 spreads e que o mínimo da corretora) + a <b>margem</b> em spreads que você escolher, calculada com o spread na hora
+          de cada ordem. Lote, stop US$, vezes, tentativas e saída são os do painel; o <b>Deixa comigo!</b> vem marcado (nos
+          extras sem previsão vale a direção escolhida). <b>Ver os alvos</b> mostra quanto dá o alvo em US$ em cada par agora
+          e se a ordem passaria nas travas.
+          <br><b>Por que o lucro não vira prejuízo:</b> o alvo fica no <b>TP do servidor da corretora</b>, que executa no preço
+          dele — nas suas tentativas de 23/10, todas as que fecharam no alvo fecharam exatamente no valor (+0,03, +0,11). As que
+          fecharam negativas foram fechadas <b>a mercado</b> ("PARAR TUDO E FECHAR AS POSIÇÕES"), no preço daquele instante. Por
+          isso o painel vem sem saída por tempo: ela também fecha a mercado, assim como o global e o "fechar as posições".
+          <br><b>O custo:</b> com alvo mínimo e stop maior, quase toda tentativa acerta, mas um stop apaga muitos alvos, e
+          toda operação paga o spread. Na média, o resultado é a vantagem de direção menos o spread.`,
+      },
+      {
         titulo: 'Deixa comigo!',
         html: `Marcado, o sistema decide o lado de <b>cada</b> ordem na hora de enviar: o mais provável entre alta e queda na
           previsão mais recente do <b>modelo B</b> (eventos + preço) do símbolo — a de 15 min, senão a de 60 min — de até 75 min

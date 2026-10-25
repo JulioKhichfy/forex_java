@@ -268,6 +268,10 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             XAGUSD (metals) e ETHUSD (crypto); JevCandleExporter 1.1 (InpCasino*, só 3 dias de M1) e EA 2.9. FORA dos modelos:
             `experiment.market-symbols` fixo para fx/metals/crypto (teste `extrasDoCassino_ficamForaDosModelos`). Config por par
             salva no servidor (app_setting `casino.configs`, POST /api/casino/configs)
+            Lucro mínimo (23/10): painel que liga todos os pares do mercado com alvo = menor TP que passa da trava (2 spreads /
+            mínimo da corretora) + margem em spreads, a cada ordem (`OrderService.minTakeDistance`, `Roulette.casinoMin`; POST
+            /api/casino/start-min, GET /api/casino/min-preview). O lucro fica no TP do servidor (fecha no preço); os negativos
+            vistos em 23/10 vieram de fechar a mercado (PARAR TUDO E FECHAR), não do TP
 - [ ] Passo 10 — notícias além dos bancos centrais (pedido do operador, 14/10)
       - [x] 10a coleta: GDELT GKG (histórico desde 2021-10 + ao vivo a cada 15 min; ~1.800 de ~140 mil notícias/dia
             passam no filtro; ~1 MB/dia no bronze) e SEC EDGAR (8-K/10-Q/10-K das 6 ações; espera EDGAR_USER_AGENT).

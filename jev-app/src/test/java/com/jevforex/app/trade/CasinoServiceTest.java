@@ -20,7 +20,22 @@ class CasinoServiceTest {
 
     private static CasinoService.Line line(int times, int attempts, int cycle, int used) {
         return new CasinoService.Line("XAUUSD", "metals", "BUY", false, null, 0.10, 1.0, attempts, times, null, true,
-                cycle, used, 0, 0, "RUNNING", null, Instant.now());
+                cycle, used, 0, 0, "RUNNING", null, Instant.now(), null);
+    }
+
+    @Test
+    void lucroMinimo_menorAlvoQuePassaDaTrava() {
+        // EURUSD: ponto 0,00001, spread 12 pontos, sem mínimo da corretora → 2 spreads (24) + 1 spread de margem (12) + 1
+        assertEquals(0.00037, OrderService.minTakeDistance(0.00001, 0, 12, 1.0), 1e-12);
+        // sem margem: só passa da trava (2 spreads + 1 ponto)
+        assertEquals(0.00025, OrderService.minTakeDistance(0.00001, null, 12, 0), 1e-12);
+        // mínimo da corretora maior que 2 spreads manda
+        assertEquals(0.00051, OrderService.minTakeDistance(0.00001, 50, 12, 0), 1e-12);
+        // a trava do envio exige alvo > max(2 spreads, mínimo): sempre passa
+        double d = OrderService.minTakeDistance(0.01, 10, 30, 0);
+        assertTrue(d > Math.max(10 * 0.01, 2 * 30 * 0.01));
+        // sem spread (sem cotação): não calcula — falhar fechado
+        assertNull(OrderService.minTakeDistance(0.00001, 0, null, 1));
     }
 
     private static CasinoService.Entry entry(long id, int attempt, String status, Double result) {

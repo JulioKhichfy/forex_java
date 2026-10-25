@@ -119,29 +119,58 @@ public class OrderService {
      * @param predictionId a previsão que originou a ordem (auditoria); null no Cassino
      */
     public record Roulette(int closeAfterMinutes, Long predictionId, Double stopAtr, Double targetR, Double takeUsd,
-                           Double stopUsd, boolean casino) {
+                           Double stopUsd, Double takeSpreads, boolean casino) {
 
         /**
          * @param closeAfterMinutes saída por tempo; 0 = sem (só SL/TP; no Cassino é opcional)
          * @param stopAtr / targetR saídas próprias (configuração do Laboratório); null = as do mercado
          * @param takeUsd / stopUsd alvo e stop em US$ com o lote da ordem (Cassino, 23/10/2026)
+         * @param takeSpreads       "lucro mínimo" (Cassino, 23/10/2026): no lugar de takeUsd, o menor alvo que passa da
+         *                          trava (2 spreads e o mínimo da corretora) + esta margem em spreads, com o spread de agora
          * @param casino            Cassino: ignora TODAS as travas de risco por ordem ({@link #CASINO_WAIVED})
          */
         public Roulette {
         }
 
         public Roulette(int closeAfterMinutes, long predictionId) {
-            this(closeAfterMinutes, predictionId, null, null, null, null, false);
+            this(closeAfterMinutes, predictionId, null, null, null, null, null, false);
         }
 
         public Roulette(int closeAfterMinutes, long predictionId, Double stopAtr, Double targetR) {
-            this(closeAfterMinutes, predictionId, stopAtr, targetR, null, null, false);
+            this(closeAfterMinutes, predictionId, stopAtr, targetR, null, null, null, false);
         }
 
         /** Ordem do Cassino: alvo e stop em US$, saída por tempo opcional (0 = sem). */
         public static Roulette casino(int closeAfterMinutes, double takeUsd, double stopUsd) {
-            return new Roulette(closeAfterMinutes, null, null, null, takeUsd, stopUsd, true);
+            return new Roulette(closeAfterMinutes, null, null, null, takeUsd, stopUsd, null, true);
         }
+
+        /** Ordem do Cassino no "lucro mínimo": o alvo é o menor possível + {@code marginSpreads} spreads. */
+        public static Roulette casinoMin(int closeAfterMinutes, double marginSpreads, double stopUsd) {
+            return new Roulette(closeAfterMinutes, null, null, null, null, stopUsd, marginSpreads, true);
+        }
+
+        boolean moneyTake() {
+            return takeUsd != null || takeSpreads != null;
+        }
+    }
+
+    /**
+     * Lucro mínimo (Cassino, 23/10/2026): a menor distância de alvo que passa da trava "Alvo em US$ × spread" (mais que 2
+     * spreads e que o mínimo da corretora), + {@code marginSpreads} spreads de folga, + 1 ponto. O alvo fica no servidor
+     * (TP): executa no preço dele, sem o escorregão de fechar a mercado. null sem spread (sem cotação: falhar fechado).
+     */
+    public static Double minTakeDistance(double point, Integer stopsLevel, Integer spreadPoints, double marginSpreads) {
+        if (spreadPoints == null || !(point > 0)) return null;
+        double base = Math.max(stopsLevel == null ? 0 : stopsLevel * point, 2.0 * spreadPoints * point);
+        return base + Math.max(0, marginSpreads) * Math.max(1, spreadPoints) * point + point;
+    }
+
+    /** O mesmo, com a especificação do símbolo (backtest e prévia do Cassino). */
+    public Double minTakeDistance(String symbol, Integer spreadPoints, double marginSpreads) {
+        Mt5Parsers.InstrumentSpec sp = spec(symbol);
+        Double point = point(symbol);
+        return point == null ? null : minTakeDistance(point, sp == null ? null : sp.stopsLevel(), spreadPoints, marginSpreads);
     }
 
     /**
@@ -239,13 +268,19 @@ public class OrderService {
                 : mr.exits(riskHolder.get().exits());   // as do mercado (ouro: as da regra validada)
         RiskSettings.MoneyExits money = riskHolder.get().money();
         Double slDist, tpDist;
-        boolean hfTake = roulette != null && roulette.takeUsd() != null;
+        boolean hfTake = roulette != null && roulette.moneyTake();
         if (hfTake) {
-            // Cassino: alvo a US$ takeUsd e stop a US$ stopUsd com este lote (sem stopUsd: stopAtr × ATR)
+            // Cassino: alvo a US$ takeUsd (ou o mínimo possível + margem) e stop a US$ stopUsd com este lote
             double perPrice = inst.lossPerLot(1.0) * lot;
             slDist = roulette.stopUsd() != null ? (perPrice > 0 ? roulette.stopUsd() / perPrice : null)
                     : atr == null || roulette.stopAtr() == null ? null : roulette.stopAtr() * atr;
-            tpDist = perPrice > 0 ? roulette.takeUsd() / perPrice : null;
+            if (roulette.takeSpreads() != null) {
+                Mt5Parsers.InstrumentSpec sp = spec(symbol);
+                tpDist = minTakeDistance(sp == null ? inst.tickSize() : sp.point(), sp == null ? null : sp.stopsLevel(),
+                        spread, roulette.takeSpreads());
+            } else {
+                tpDist = perPrice > 0 ? roulette.takeUsd() / perPrice : null;
+            }
         } else if (money.enabled()) {
             // página "Stop em US$": a distância em preço que perde/ganha exatamente esses dólares com este lote
             double perPrice = inst.lossPerLot(1.0) * lot;
@@ -363,8 +398,8 @@ public class OrderService {
             double minDist = Math.max(sp == null || sp.stopsLevel() == null ? 0 : sp.stopsLevel() * point,
                     spread == null ? 0 : 2.0 * spread * point);
             checks.add(new Check("Alvo em US$ × spread", tpDist != null && tpDist > minDist,
-                    tpDist == null ? "sem alvo" : String.format(Locale.ROOT, "%s de distância (US$ %.2f)", fmt(tpDist, 6),
-                            roulette.takeUsd()),
+                    tpDist == null ? "sem alvo" : String.format(Locale.ROOT, "%s de distância (US$ %.2f%s)", fmt(tpDist, 6),
+                            inst.lossPerLot(tpDist) * lot, roulette.takeSpreads() != null ? ", lucro mínimo" : ""),
                     String.format(Locale.ROOT, "> %s (2 spreads ou o mínimo da corretora)", fmt(minDist, 6))));
             if (roulette.stopUsd() != null) {
                 checks.add(new Check("Stop do Cassino × spread", slDist != null && slDist > minDist,

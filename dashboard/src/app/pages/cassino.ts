@@ -6,7 +6,9 @@ import { Brt } from '../brt';
 
 interface Line { symbol: string; market: string; side: string; auto: boolean; lot: number | null; takeUsd: number;
   stopUsd: number; attempts: number; times: number; closeAfterMinutes: number | null; on: boolean; cycle: number;
-  used: number; hits: number; status: string; message: string | null; startedAt: string | null }
+  used: number; hits: number; status: string; message: string | null; startedAt: string | null; minSpreads: number | null }
+interface MinForm { lot: number | null; stopUsd: number; marginSpreads: number; times: number; attempts: number;
+  closeAfter: number | null; side: string; auto: boolean }
 interface Form { side: string; auto: boolean; lot: number | null; takeUsd: number; stopUsd: number; times: number;
   attempts: number; closeAfter: number | null }
 interface Quarter { start: string; side: string | null; result: string; usd: number | null; minutes: number | null }
@@ -17,6 +19,8 @@ interface Group { code: string; label: string | null; market: string; optional: 
 
 const DEFAULT: Form = { side: 'BUY', auto: false, lot: null, takeUsd: 0.10, stopUsd: 1.00, times: 10, attempts: 1, closeAfter: null };
 const GROUPS_KEY = 'jev.cassino.grupos';
+const MIN_KEY = 'jev.cassino.minimo';
+const MIN_DEFAULT: MinForm = { lot: null, stopUsd: 0.50, marginSpreads: 1, times: 10, attempts: 1, closeAfter: null, side: 'BUY', auto: true };
 
 @Component({
   selector: 'page-cassino',
@@ -90,6 +94,37 @@ const GROUPS_KEY = 'jev.cassino.grupos';
             <button (click)="backtestAll()">Backtest de todos</button>
           </div>
         </div>
+        <div class="minp">
+          <div class="min-head"><b>Lucro mínimo</b>
+            <span class="muted small">— liga todos os pares desta lista ({{ readyCount() }}) com o <b>menor alvo possível</b>: o
+              que passa da trava (2 spreads ou o mínimo da corretora) + a margem, com o spread na hora de cada ordem. O lucro
+              fica no TP do servidor da corretora, que executa no preço dele; fechar a mercado (saída por tempo, "fechar as
+              posições", global) é o que pode virar negativo.</span></div>
+          <div class="min-form">
+            <label class="small">Lote <input type="number" min="0.01" step="0.01" [value]="mf().lot ?? ''" placeholder="mínimo" (input)="patchMin({ lot: num($event) })" /></label>
+            <label class="small">Stop US$ <input type="number" min="0.01" step="0.10" [value]="mf().stopUsd" (input)="patchMin({ stopUsd: num($event) ?? 0 })" /></label>
+            <label class="small" title="Folga além do mínimo, em spreads (0 = o mínimo que a trava aceita)">Margem (spreads)
+              <input type="number" min="0" step="0.5" [value]="mf().marginSpreads" (input)="patchMin({ marginSpreads: num($event) ?? 0 })" /></label>
+            <label class="small">Vezes <input type="number" min="1" step="1" [value]="mf().times" (input)="patchMin({ times: num($event) ?? 1 })" /></label>
+            <label class="small">Tentativas <input type="number" min="1" step="1" [value]="mf().attempts" (input)="patchMin({ attempts: num($event) ?? 1 })" /></label>
+            <label class="small" title="Vazio = sem (recomendado: a saída por tempo fecha a mercado)">Saída min
+              <input type="number" min="1" step="1" [value]="mf().closeAfter ?? ''" placeholder="—" (input)="patchMin({ closeAfter: num($event) })" /></label>
+            <label class="small">Direção
+              <select [value]="mf().side" [disabled]="mf().auto" (change)="patchMin({ side: $any($event.target).value })">
+                <option value="BUY">Compra</option><option value="SELL">Venda</option></select></label>
+            <label class="small auto"><input type="checkbox" [checked]="mf().auto" (change)="patchMin({ auto: $any($event.target).checked })" /> Deixa comigo!</label>
+            <button (click)="minPreview()">Ver os alvos</button>
+            <button class="primary" [disabled]="!readyCount() || s.closing" (click)="startMin()">Ligar lucro mínimo em todos ({{ readyCount() }})</button>
+          </div>
+          @if (minPrev(); as mp) {
+            <div class="quarters small">
+              @for (x of mp; track x.symbol) {
+                <span class="badge" [class.ok]="x.ok" [class.high]="!x.ok" [title]="x.why || 'passa nas travas'">{{ x.symbol }}
+                  @if (x.take_usd !== null && x.take_usd !== undefined) { US$ {{ x.take_usd | number: '1.2-3' }} } @else { — }</span>
+              }
+            </div>
+          }
+        </div>
         <div class="table-wrap">
           <table class="small cas">
             <colgroup>
@@ -115,7 +150,11 @@ const GROUPS_KEY = 'jev.cassino.grupos';
                   <tr class="row" [class.on]="running" [class.na]="!r.ready">
                     <td class="mono sym"><b>{{ sym }}</b>
                       @if (dirty(sym)) { <span class="dot" title="Alterado e não salvo">●</span> }</td>
-                    <td><input type="number" min="0.01" step="0.05" [value]="f.takeUsd" [disabled]="off" (input)="patch(sym, { takeUsd: num($event) ?? 0 })" /></td>
+                    <td>@if (running && l?.minSpreads !== null && l?.minSpreads !== undefined) {
+                        <input type="text" disabled [value]="'mín. +' + l!.minSpreads" title="Lucro mínimo: o menor alvo possível + margem em spreads" />
+                      } @else {
+                        <input type="number" min="0.01" step="0.05" [value]="f.takeUsd" [disabled]="off" (input)="patch(sym, { takeUsd: num($event) ?? 0 })" />
+                      }</td>
                     <td><input type="number" min="0.01" step="0.10" [value]="f.stopUsd" [disabled]="off" (input)="patch(sym, { stopUsd: num($event) ?? 0 })" /></td>
                     <td><input type="number" min="0.01" step="0.01" [value]="f.lot ?? ''" placeholder="mínimo" [disabled]="off" (input)="patch(sym, { lot: num($event) })" /></td>
                     <td>
@@ -218,6 +257,12 @@ const GROUPS_KEY = 'jev.cassino.grupos';
     .global label { display: flex; flex-direction: column; gap: 2px; }
     input, select { font: inherit; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); }
     label.incl { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+    .minp { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 8px 0 12px; }
+    .min-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 6px; }
+    .min-form label { display: flex; flex-direction: column; gap: 2px; }
+    .min-form label.auto { flex-direction: row; align-items: center; padding-bottom: 4px; }
+    .min-form input[type='number'] { width: 84px; }
+    .min-form input[type='checkbox'] { width: auto; }
 
     table.cas { table-layout: fixed; width: 100%; min-width: 1040px; border-collapse: collapse; }
     table.cas col.c-sym { width: 96px; }
@@ -256,6 +301,8 @@ export class Cassino implements OnInit, OnDestroy {
   protected bt = signal<Record<string, Backtest>>({});
   protected globalForm = signal<{ takeUsd: number | null; lossUsd: number | null; rounds: number } | null>(null);
   protected included = signal<string[]>(this.loadIncluded());
+  protected mf = signal<MinForm>(this.loadMin());
+  protected minPrev = signal<any[] | null>(null);
   private timer?: ReturnType<typeof setInterval>;
 
   protected marketLabel = computed(() => MARKETS.find((m) => m.code === this.marketState.market())?.label ?? this.marketState.market());
@@ -266,6 +313,9 @@ export class Cassino implements OnInit, OnDestroy {
   protected otherRunning = computed<Line[]>(() => Object.values<Line>(this.view()?.state?.lines ?? {})
     .filter((l) => l.status === 'RUNNING' && l.market !== this.marketState.market()));
   protected dirtyCount = computed(() => Object.keys(this.drafts()).length);
+  /** Os pares visíveis com dados do MT5 (o "lucro mínimo" liga estes). */
+  private readyRows = computed<Row[]>(() => this.visibleGroups().flatMap((gr) => gr.symbols.filter((r) => r.ready)));
+  protected readyCount = computed(() => this.readyRows().length);
   protected g = computed(() => this.globalForm() ?? (() => {
     const s = this.view()?.state?.global;
     return { takeUsd: s?.takeUsd ?? null, lossUsd: s?.lossUsd ?? null, rounds: s?.rounds ?? 1 };
@@ -346,6 +396,59 @@ export class Cassino implements OnInit, OnDestroy {
     try { localStorage.setItem(GROUPS_KEY, JSON.stringify(next)); } catch { /* só nesta aba */ }
   }
 
+  private loadMin(): MinForm {
+    try { return { ...MIN_DEFAULT, ...JSON.parse(localStorage.getItem(MIN_KEY) ?? '{}') }; } catch { return MIN_DEFAULT; }
+  }
+
+  protected patchMin(p: Partial<MinForm>): void {
+    this.mf.set({ ...this.mf(), ...p });
+    this.minPrev.set(null);
+    try { localStorage.setItem(MIN_KEY, JSON.stringify(this.mf())); } catch { /* só nesta aba */ }
+  }
+
+  private minQuery(): URLSearchParams {
+    const m = this.mf();
+    const q = new URLSearchParams({ symbols: this.readyRows().map((r) => r.symbol).join(','), stopUsd: String(m.stopUsd),
+      marginSpreads: String(m.marginSpreads ?? 0) });
+    if (m.lot) q.set('lot', String(m.lot));
+    return q;
+  }
+
+  protected minPreview(): void {
+    this.http.get<any[]>(`/api/casino/min-preview?${this.minQuery()}`).subscribe({
+      next: (rows) => this.minPrev.set(rows),
+      error: (e) => alert(e?.error?.message ?? 'prévia indisponível'),
+    });
+  }
+
+  protected startMin(): void {
+    const m = this.mf();
+    const n = this.readyCount();
+    const side = m.auto ? 'lado pela previsão (Deixa comigo!; extras sem previsão: ' + (m.side === 'BUY' ? 'compra' : 'venda') + ')'
+      : m.side === 'BUY' ? 'COMPRA' : 'VENDA';
+    const text = `Ligar o LUCRO MÍNIMO em ${n} par(es) de ${this.marketLabel()}?\n${side}, lote ${m.lot ?? 'mínimo'}, `
+      + `alvo = o menor possível + ${m.marginSpreads} spread(s), stop US$ ${m.stopUsd}, ${m.times} vez(es) × até ${m.attempts} `
+      + `tentativa(s)${m.closeAfter ? `, sai em ${m.closeAfter} min` : ''}.\nAté ${n * m.times * m.attempts} ordens; as primeiras saem AGORA, `
+      + 'sem as travas de risco por ordem (valem as técnicas e a perda do dia/semana). Pares já ligados ficam como estão.';
+    if (this.view()?.mode === 'LIVE') {
+      if (prompt(`${text}\n\nCONTA REAL: digite LIVE para confirmar.`) !== 'LIVE') return;
+    } else if (!confirm(text)) return;
+    const q = this.minQuery();
+    q.set('side', m.side);
+    q.set('auto', String(m.auto));
+    q.set('times', String(m.times || 1));
+    q.set('attempts', String(m.attempts || 1));
+    if (m.closeAfter) q.set('closeAfter', String(m.closeAfter));
+    this.http.post<Record<string, string>>(`/api/casino/start-min?${q}`, {}).subscribe({
+      next: (res) => {
+        const bad = Object.entries(res).filter(([, v]) => !v.startsWith('ligado'));
+        if (bad.length) alert('Não ligados:\n' + bad.map(([k, v]) => `${k}: ${v}`).join('\n'));
+        this.load();
+      },
+      error: (e) => alert(e?.error?.message ?? 'não consegui ligar'),
+    });
+  }
+
   protected patchGlobal(p: Partial<{ takeUsd: number | null; lossUsd: number | null; rounds: number }>): void {
     this.globalForm.set({ ...this.g(), ...p });
   }
@@ -403,6 +506,8 @@ export class Cassino implements OnInit, OnDestroy {
       takeUsd: String(f.takeUsd), stopUsd: String(f.stopUsd) });
     if (f.lot) q.set('lot', String(f.lot));
     if (f.closeAfter) q.set('closeAfter', String(f.closeAfter));
+    const l: Line | undefined = this.view()?.state?.lines?.[sym];
+    if (l?.status === 'RUNNING' && l.minSpreads !== null && l.minSpreads !== undefined) q.set('minSpreads', String(l.minSpreads));
     this.http.get<Backtest>(`/api/casino/backtest?${q}`).subscribe({
       next: (b) => this.bt.set({ ...this.bt(), [sym]: b }),
       error: (e) => this.bt.set({ ...this.bt(), [sym]: { symbol: sym, lot: 0, quarters: [], message: e?.error?.message ?? 'backtest indisponível' } }),

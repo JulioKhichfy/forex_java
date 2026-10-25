@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -19,6 +20,8 @@ import java.util.Map;
  * <pre>
  * GET  /api/casino                                      linhas, global, rodada, resultado e últimas tentativas
  * POST /api/casino/start?symbol=XAUUSD&side=BUY|auto=true&takeUsd=0.1&stopUsd=1&times=5&attempts=3[&lot=0.01][&closeAfter=15]
+ * POST /api/casino/start-min?symbols=EURUSD,GBPUSD&stopUsd=0.5[&auto=true][&marginSpreads=1][&lot=..][&times=..][&attempts=..]
+ * GET  /api/casino/min-preview?symbols=…&stopUsd=…[&lot=…][&marginSpreads=1]   alvo do lucro mínimo por par agora
  * POST /api/casino/configs                             salva a configuração por par (JSON: símbolo → configuração)
  * POST /api/casino/stop?symbol=XAUUSD                   desliga a linha (a posição aberta continua com SL/TP)
  * POST /api/casino/stop-all[?close=true]                desliga todas (close=true: fecha as posições do Cassino)
@@ -75,6 +78,25 @@ public class CasinoController {
         }
     }
 
+    /** Lucro mínimo: liga de uma vez os pares dados (os de um mercado, na página). */
+    @PostMapping("/start-min")
+    public ResponseEntity<Object> startMin(@RequestParam List<String> symbols, @RequestParam(defaultValue = "BUY") String side,
+                                           @RequestParam(defaultValue = "true") boolean auto,
+                                           @RequestParam(required = false) Double lot,
+                                           @RequestParam(defaultValue = "1") double marginSpreads,
+                                           @RequestParam double stopUsd, @RequestParam(defaultValue = "1") int attempts,
+                                           @RequestParam(defaultValue = "1") int times,
+                                           @RequestParam(required = false) Integer closeAfter) {
+        return ResponseEntity.ok(casino.startMin(symbols, side, auto, lot, marginSpreads, stopUsd, attempts, times, closeAfter));
+    }
+
+    /** Lucro mínimo: o alvo em US$ de cada par agora (lote, spread, margem) e se passaria nas travas. */
+    @GetMapping("/min-preview")
+    public Object minPreview(@RequestParam List<String> symbols, @RequestParam(required = false) Double lot,
+                             @RequestParam(defaultValue = "1") double marginSpreads, @RequestParam double stopUsd) {
+        return casino.minPreview(symbols, lot, marginSpreads, stopUsd);
+    }
+
     @PostMapping("/stop")
     public Object stop(@RequestParam String symbol) {
         return casino.stop(symbol, "desligada pelo operador");
@@ -99,10 +121,15 @@ public class CasinoController {
     @GetMapping("/backtest")
     public ResponseEntity<Object> backtest(@RequestParam String symbol, @RequestParam(defaultValue = "BUY") String side,
                                            @RequestParam(defaultValue = "false") boolean auto,
-                                           @RequestParam(required = false) Double lot, @RequestParam double takeUsd,
-                                           @RequestParam double stopUsd, @RequestParam(required = false) Integer closeAfter) {
+                                           @RequestParam(required = false) Double lot,
+                                           @RequestParam(defaultValue = "0") double takeUsd,
+                                           @RequestParam double stopUsd, @RequestParam(required = false) Integer closeAfter,
+                                           @RequestParam(required = false) Double minSpreads) {
+        if (minSpreads == null && !(takeUsd > 0)) {
+            return ResponseEntity.status(409).body(Map.of("message", "alvo em US$ > 0 ou minSpreads (lucro mínimo)"));
+        }
         try {
-            return ResponseEntity.ok(casino.backtest(symbol, side, auto, lot, takeUsd, stopUsd, closeAfter));
+            return ResponseEntity.ok(casino.backtest(symbol, side, auto, lot, takeUsd, stopUsd, closeAfter, minSpreads));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(409).body(Map.of("message", e.getMessage()));
         }
