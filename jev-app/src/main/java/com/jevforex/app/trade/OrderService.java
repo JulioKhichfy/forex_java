@@ -193,10 +193,25 @@ public class OrderService {
             "Exposição líquida a USD", "Nível de margem", "Spread (gate 3)", "Fora de blackout (gate 2)");
 
     public Preview preview(String symbol, String side, Double requestedLot) {
-        return preview(symbol, side, requestedLot, null);
+        return preview(symbol, side, requestedLot, null, null);
+    }
+
+    /**
+     * Saídas fixas de uma regra validada (Momentum BTC, 25/10/2026): stop e alvo já em preço e saída por tempo, as do
+     * estudo. Diferente da roleta e do Cassino, NENHUMA trava é dispensada; valem por cima do "Stop em US$".
+     */
+    public record Fixed(int closeAfterMinutes, double stopDistance, double takeDistance) {
     }
 
     public Preview preview(String symbol, String side, Double requestedLot, Roulette roulette) {
+        return preview(symbol, side, requestedLot, roulette, null);
+    }
+
+    public Preview preview(String symbol, String side, Double requestedLot, Fixed fixed) {
+        return preview(symbol, side, requestedLot, null, fixed);
+    }
+
+    private Preview preview(String symbol, String side, Double requestedLot, Roulette roulette, Fixed fixed) {
         RiskSettings.Orders o = riskHolder.get().orders();
         List<Check> checks = new ArrayList<>();
         Instrument inst = instrument(symbol);
@@ -235,7 +250,8 @@ public class OrderService {
                 mr == null ? "sem trading.risk.markets." + inst.market().code() : mr.enabled() ? "sim" : "desligado",
                 "enabled na página Risco"));
         if (mr == null) return fail(symbol, side, lot, checks);
-        int closeAfter = roulette != null ? roulette.closeAfterMinutes() : mr.closeAfter(o);
+        int closeAfter = roulette != null ? roulette.closeAfterMinutes()
+                : fixed != null ? fixed.closeAfterMinutes() : mr.closeAfter(o);
 
         // ------------------------------------------------------------ cotação e ATR
         JsonNode quote = null;
@@ -254,8 +270,14 @@ public class OrderService {
                 .filter(p -> p.symbol().equals(symbol) && p.atr() != null)
                 .max((a, b) -> a.momentUtc().compareTo(b.momentUtc())).orElse(null);
         long atrAge = pred == null ? Long.MAX_VALUE : Duration.between(pred.momentUtc(), now).toMinutes();
-        checks.add(new Check("ATR (última previsão)", atrAge <= o.atrMaxAgeMinutes(),
-                pred == null ? "sem previsão" : atrAge + " min", "≤ " + o.atrMaxAgeMinutes() + " min"));
+        if (fixed != null) {
+            // regra com saídas fixas (Momentum BTC): o stop vem do ATR de 1 h dos candles da própria regra, não da
+            // previsão — sem esta exceção, noites e fins de semana (sem previsão) recusariam ~37% dos sinais do bitcoin
+            checks.add(new Check("ATR (última previsão)", true, "não usado: stop da regra (ATR de 1 h dos candles)", "—"));
+        } else {
+            checks.add(new Check("ATR (última previsão)", atrAge <= o.atrMaxAgeMinutes(),
+                    pred == null ? "sem previsão" : atrAge + " min", "≤ " + o.atrMaxAgeMinutes() + " min"));
+        }
         Double atr = pred == null ? null : pred.atr();
 
         // ------------------------------------------------------------ lote, stop e risco
@@ -269,7 +291,10 @@ public class OrderService {
         RiskSettings.MoneyExits money = riskHolder.get().money();
         Double slDist, tpDist;
         boolean hfTake = roulette != null && roulette.moneyTake();
-        if (hfTake) {
+        if (fixed != null) {
+            slDist = fixed.stopDistance() > 0 ? fixed.stopDistance() : null;   // as saídas em que a regra foi validada
+            tpDist = fixed.takeDistance() > 0 ? fixed.takeDistance() : null;
+        } else if (hfTake) {
             // Cassino: alvo a US$ takeUsd (ou o mínimo possível + margem) e stop a US$ stopUsd com este lote
             double perPrice = inst.lossPerLot(1.0) * lot;
             slDist = roulette.stopUsd() != null ? (perPrice > 0 ? roulette.stopUsd() / perPrice : null)
@@ -441,11 +466,19 @@ public class OrderService {
 
     /** Confere de novo AGORA (o tíquete pode ter ficado aberto) e grava a ordem para o EA buscar. */
     public synchronized Submit submit(String symbol, String side, Double lot) {
-        return submit(symbol, side, lot, null);
+        return submit(symbol, side, lot, (Roulette) null);
     }
 
     public synchronized Submit submit(String symbol, String side, Double lot, Roulette roulette) {
-        Preview p = preview(symbol, side, lot, roulette);
+        return record(symbol, side, preview(symbol, side, lot, roulette, null));
+    }
+
+    /** Ordem de uma regra validada com as saídas dela; TODAS as travas valem. */
+    public synchronized Submit submit(String symbol, String side, Double lot, Fixed fixed) {
+        return record(symbol, side, preview(symbol, side, lot, null, fixed));
+    }
+
+    private Submit record(String symbol, String side, Preview p) {
         if (!p.ok()) return new Submit(null, "RECUSADA", p);
         boolean shadow = trading.mode() == TradingProperties.Mode.SHADOW;
         Instant now = Instant.now();

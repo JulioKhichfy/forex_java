@@ -295,3 +295,8 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       - [x] 12b momentum após hora grande (`tools/estudo_momentum.py`, candles M1 da Exness 2022+, spread real): só o bitcoin —
             37/54 configurações positivas na escolha e na confirmação; top 2% · stop 1,5 ATR · alvo 1,5 · 24 h: +0,08 R (560) /
             +0,09 R (215), ±0,05/±0,08, ~13/mês. Ouro reverter fraco (7/54); forex, índices e energia negativos; ações ~0
+      - [x] 12c Momentum BTC automático (25/10, decisão do operador): `MomentumService` (Flyway V18 `momentum_entry`, regra pura
+            `scan/MomentumRule` = a do estudo, H1 do radar com 800 barras) envia a ordem a favor com as saídas do estudo
+            (`OrderService.Fixed`: stop 1,5 ATR(1 h), alvo 1,5×, 24 h) e TODAS as travas; `momentum:` no yml; painel na página Hoje
+            (mercado Bitcoin). Para ver se o ao vivo acompanha o histórico na conta cent. 24/7: nas ordens Fixed a trava
+            "ATR (última previsão)" não se aplica (as previsões só saem seg–sex 0–20 h UTC; recusariam ~37% dos sinais)

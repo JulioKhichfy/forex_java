@@ -31,8 +31,9 @@ import java.util.stream.Collectors;
  */
 public final class ScanLoader {
 
-    /** Barras por período que vão para o cálculo (M15: ~20 dias, para o volume do mesmo horário). */
-    private static final Map<Tf, Integer> KEEP = Map.of(Tf.M5, 400, Tf.M15, 2200, Tf.H1, 600, Tf.H4, 300, Tf.D1, 100);
+    /** Barras por período que vão para o cálculo (M15: ~20 dias, para o volume do mesmo horário; H1: 800 para as 720 horas
+     *  do momentum do bitcoin, MomentumRule). */
+    private static final Map<Tf, Integer> KEEP = Map.of(Tf.M5, 400, Tf.M15, 2200, Tf.H1, 800, Tf.H4, 300, Tf.D1, 100);
     private static final Duration SILVER_TTL = Duration.ofHours(1);
 
     private final LakeSql sql;

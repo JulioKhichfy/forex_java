@@ -100,6 +100,24 @@ export const SECOES: Secao[] = [
     blocos: [
       { imagem: { src: 'hoje-ouro', legenda: 'Hoje com o mercado Ouro: a regra própria do ouro aparece em destaque, e eventos e notícias mostram só USD.' } },
       {
+        titulo: 'Momentum BTC (mercado Bitcoin)',
+        html: `Com o mercado Bitcoin escolhido, o painel <b>Momentum</b> liga uma estratégia automática que veio do estudo 12b:
+          depois de uma hora de movimento muito grande (no topo de 2% das 720 horas anteriores), <b>seguir o movimento</b> deu
+          E[R] de +0,08 R (escolha, 560 operações) e +0,09 R (confirmação, 215), já com o spread da Exness, cerca de 13 por
+          mês. No forex, índices e energia o mesmo deu negativo, por isso só o bitcoin.
+          <ul><li>A cada hora cheia, se a hora que acabou de fechar foi assim, envia uma ordem <b>a favor</b> com as saídas do
+          estudo: stop de 1,5 × ATR(14) de 1 h, alvo de 1,5× o stop e saída em 24 h (valem por cima do "Stop em US$").</li>
+          <li><b>Todas as travas valem</b> (inclusive um por par): o que for recusado fica na tabela com o motivo. Hora fechada há
+          mais de 5 min não vira ordem (é outra regra).</li>
+          <li>Roda <b>24 horas, 7 dias</b>, como no estudo (desde que o PC, o MT5 e o servidor estejam ligados): não depende das
+          previsões dos modelos, que só saem em dias úteis, das 0 às 20 h UTC. A trava "ATR (última previsão)" aparece como
+          "não usado": o stop vem do ATR de 1 h dos próprios candles. No fim de semana o spread típico ainda é o da última
+          previsão; se o spread da Exness subir demais, a trava do spread recusa.</li></ul>
+          É uma vantagem pequena (1 a 2 margens de erro acima de zero): o objetivo de ligar na conta cent é ver se o ao vivo
+          acompanha o histórico. A regra e as saídas ficam em <code>momentum</code> no application.yml; mudar um número é outra
+          regra, e o estudo precisa ser refeito.`,
+      },
+      {
         titulo: 'Sinal automático (ouro)',
         html: `No mercado Ouro, o quadro <b>Sinal automático</b> liga e desliga o envio sozinho: quando a regra do ouro dá
           sinal (B a 15 min, só depois de divulgação), a ordem sai no lado do sinal com o <b>lote escolhido</b>, em segundos

@@ -300,6 +300,23 @@ mt5:
   candle-stale-seconds: 150            # última barra M1 mais velha que isto = candles atrasados
 
 # ---------------------------------------------------------------------
+#  Momentum BTC (passo 12b, 25/10/2026; estudo tools/estudo_momentum.py): na hora cheia, |retorno da hora| no topo de
+#  top-pct% das lookback-hours anteriores → entra A FAVOR, com as saídas em que a regra foi validada (stop/alvo em
+#  ATR(14) de 1 h, saída por tempo). Só o bitcoin teve vantagem (+0,08/+0,09 R, ~13/mês). TODAS as travas valem; as saídas
+#  são parte da regra (mudou = outra regra, refaça o estudo). Liga/desliga e lote na página Hoje.
+# ---------------------------------------------------------------------
+momentum:
+  market: crypto
+  symbols: [BTCUSD]
+  lookback-hours: 720
+  top-pct: 2.0
+  atr-period: 14
+  stop-atr: 1.5
+  target-r: 1.5
+  close-after-minutes: 1440
+  max-entry-delay-seconds: 300   # o sinal é no fim da hora; entrar mais tarde que isso não é a regra testada
+
+# ---------------------------------------------------------------------
 #  Cassino (23/10/2026): símbolos além dos do sistema, só para o Cassino. Precisam do JevCandleExporter (especificação
 #  e M1, inputs InpCasino*) e do JevExecutor 2.9 (cotação, inputs InpSymbols7..9). Ficam fora dos modelos
 #  (experiment.market-symbols). optional = a página mostra só se o operador marcar "incluir".

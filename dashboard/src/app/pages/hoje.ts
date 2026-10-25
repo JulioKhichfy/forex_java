@@ -69,6 +69,46 @@ import { JobsPanel } from './jobs-panel';
       }
     }
 
+    @if (momentum(); as mo) {
+      @if (mo.rule?.market === marketState.market()) {
+        <section class="panel auto" [class.on]="mo.config.on">
+          <h3>Momentum {{ mo.rule.symbols.join(', ') }} <tip text="Estudo 12b: depois de uma hora de movimento muito grande, seguir o movimento deu E[R] de +0,08 a +0,09 R no bitcoin (escolha e confirmação, com o spread da Exness; ~13 por mês). Forex, índices e energia: negativo. Ligado, cada hora assim vira uma ordem a favor, com as saídas do estudo; TODAS as travas valem." /></h3>
+          <div class="autobar">
+            @if (mo.config.on) {
+              <span class="badge ok">LIGADO</span>
+              <span class="small">lote {{ mo.config.lot ?? 'mínimo' }} · desde <span [brt]="mo.config.startedAt">{{ mo.config.startedAt | date: 'dd/MM HH:mm' : 'UTC' }} UTC</span>
+                · topo de {{ mo.rule.topPct }}% · stop {{ mo.rule.stopAtr }} ATR(1 h) · alvo {{ mo.rule.targetR }}× · {{ mo.rule.closeAfterMinutes / 60 }} h · modo {{ mo.mode }}</span>
+              <button class="danger" (click)="stopMomentum()">Desligar</button>
+            } @else {
+              <span class="badge">desligado</span>
+              <label class="small">Lote <input type="number" min="0.01" step="0.01" [value]="momentumLot()" (input)="momentumLot.set(+$any($event.target).value)" /></label>
+              <button class="primary" (click)="startMomentum()">Ligar momentum</button>
+              @if (mo.config.stopReason) { <span class="small muted">({{ mo.config.stopReason }})</span> }
+            }
+          </div>
+          @if (mo.totals; as t) {
+            <p class="small">30 dias: {{ t.sent ?? 0 }} enviadas · {{ t.refused ?? 0 }} recusadas · {{ t.late ?? 0 }} atrasadas
+              @if (t.closed) { · {{ t.closed }} fechadas: <b [class.up]="t.result_usd > 0" [class.down]="t.result_usd < 0">US$ {{ t.result_usd | number: '1.2-2' }}</b> }</p>
+          }
+          @if (mo.entries?.length) {
+            <div class="table-wrap"><table class="small">
+              <tr><th>Hora (UTC)</th><th>Símbolo</th><th>Lado</th><th>Status</th><th>Detalhe</th><th class="right">Resultado</th></tr>
+              @for (e of mo.entries; track e.id) {
+                <tr>
+                  <td class="mono" [brt]="e.bar_start">{{ e.bar_start | date: 'dd/MM HH:mm' : 'UTC' }}</td>
+                  <td class="mono">{{ e.symbol }}</td>
+                  <td><span class="badge" [class.buy]="e.side === 'BUY'" [class.sell]="e.side === 'SELL'">{{ e.side === 'BUY' ? 'COMPRA' : 'VENDA' }}</span></td>
+                  <td><span class="badge" [class.ok]="e.status === 'SENT'" [class.high]="e.status === 'REFUSED' || e.status === 'LATE'">{{ autoStatus(e.status) }}</span></td>
+                  <td class="muted">{{ e.message }}</td>
+                  <td class="right mono" [class.up]="(e.result_usd ?? 0) > 0" [class.down]="(e.result_usd ?? 0) < 0">{{ e.result_usd === null || e.result_usd === undefined ? '' : 'US$ ' + (e.result_usd | number: '1.2-2') }}</td>
+                </tr>
+              }
+            </table></div>
+          } @else { <p class="small muted">Nenhuma hora de sinal ainda (cerca de 13 por mês no histórico).</p> }
+        </section>
+      }
+    }
+
     <div class="grid two">
       <section class="panel">
         <h3>Sinais agora ({{ ruleText() ? 'regra do mercado' : 'gate 4' }}) <tip [key]="ruleText() ? 'regraOuro' : 'gate4'" /></h3>
@@ -308,6 +348,33 @@ export class Hoje implements OnInit, OnDestroy {
   protected autoStatus(s: string): string {
     return ({ SENT: 'enviada', REFUSED: 'recusada', LATE: 'atrasado', SENDING: 'conferindo' } as Record<string, string>)[s] ?? s;
   }
+
+  // ------------------------------------------------------------------ Momentum BTC (passo 12b)
+  protected momentum = signal<any>(null);
+  protected momentumLot = signal(0.01);
+
+  private loadMomentum(): void {
+    this.http.get<any>('/api/momentum').subscribe({ next: (m) => this.momentum.set(m), error: () => this.momentum.set(null) });
+  }
+
+  protected startMomentum(): void {
+    const m = this.momentum();
+    const r = m?.rule;
+    const text = `Ligar o Momentum ${r?.symbols?.join(', ')} com lote ${this.momentumLot()}?\nA cada hora de movimento muito grande `
+      + `(topo de ${r?.topPct}% das ${r?.lookbackHours} horas anteriores), uma ordem A FAVOR com stop de ${r?.stopAtr} ATR, `
+      + `alvo de ${r?.targetR}× e saída em ${(r?.closeAfterMinutes ?? 0) / 60} h. Todas as travas valem.`;
+    if (m?.mode === 'LIVE') {
+      if (prompt(`${text}\n\nCONTA REAL: digite LIVE para confirmar.`) !== 'LIVE') return;
+    } else if (!confirm(text)) return;
+    this.http.post<any>(`/api/momentum/start?lot=${this.momentumLot()}`, {}).subscribe({
+      next: () => this.loadMomentum(),
+      error: (e) => alert(e?.error?.message ?? 'não consegui ligar'),
+    });
+  }
+
+  protected stopMomentum(): void {
+    this.http.post<any>('/api/momentum/stop', {}).subscribe(() => this.loadMomentum());
+  }
   protected ageMin(p: Prediction): number {
     return Math.max(0, Math.floor((Date.now() - new Date(p.momentUtc).getTime()) / 60_000));
   }
@@ -395,6 +462,7 @@ export class Hoje implements OnInit, OnDestroy {
   private load(): void {
     this.api.latest(this.marketState.market()).subscribe({ next: (l) => this.latest.set(l), error: () => this.latest.set(null) });
     this.loadAuto();
+    this.loadMomentum();
   }
 
   /** Ouro, bitcoin e energia são cotados em USD: o calendário e as notícias que importam são os dos EUA. */
