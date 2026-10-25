@@ -292,3 +292,6 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             `tools/estudo_liquidacoes.py` → reports/liquidacoes). Resultado: ímã não se sustenta (desequilíbrio ≈ retorno das
             24 h); "varrer e voltar" 0/27 positivas; seguir o movimento após hora de liquidação grande é positivo, mas a
             versão sem o mapa (só o tamanho do movimento) é igual ou melhor (21/27 sobrevivem, E[R] +0,05 a +0,17, n ~200)
+      - [x] 12b momentum após hora grande (`tools/estudo_momentum.py`, candles M1 da Exness 2022+, spread real): só o bitcoin —
+            37/54 configurações positivas na escolha e na confirmação; top 2% · stop 1,5 ATR · alvo 1,5 · 24 h: +0,08 R (560) /
+            +0,09 R (215), ±0,05/±0,08, ~13/mês. Ouro reverter fraco (7/54); forex, índices e energia negativos; ações ~0
