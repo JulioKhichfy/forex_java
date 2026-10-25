@@ -308,3 +308,5 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             como filtro do Momentum BTC (desequilíbrio da hora ≥ +0,089 a favor, corte da escolha): +0,13 R (314) / +0,20 R (140) ×
             fraco/contra −0,02 / −0,17 R. Ligado no Momentum BTC (`momentum.flow-*`, `BinanceFlowClient`: API pública
             /fapi/v1/klines na hora cheia; status FILTERED; sem resposta = não entra; Flyway V19 `flow`)
+      - [x] 12f livro de ofertas (`tools/estudo_livro.py`, bookDepth da Binance 2023+, a ±1/2/5% do preço): sozinho não prevê (o
+            preço puro é igual ou melhor); como filtro do Momentum as variantes se contradizem e ficam dentro do erro. Sem uso
