@@ -45,16 +45,19 @@ public class MomentumService {
     private final TradeRepository repo;
     private final OrderService orders;
     private final ScannerService scanner;
+    private final BinanceFlowClient binance;
     private final MomentumProperties props;
     private final RiskSettingsHolder riskHolder;
     private final ObjectProvider<JdbcClient> jdbc;
     private final ObjectMapper mapper;
 
-    public MomentumService(TradeRepository repo, OrderService orders, ScannerService scanner, MomentumProperties props,
+    public MomentumService(TradeRepository repo, OrderService orders, ScannerService scanner, BinanceFlowClient binance,
+                           MomentumProperties props,
                            RiskSettingsHolder riskHolder, ObjectProvider<JdbcClient> jdbc, ObjectMapper mapper) {
         this.repo = repo;
         this.orders = orders;
         this.scanner = scanner;
+        this.binance = binance;
         this.props = props;
         this.riskHolder = riskHolder;
         this.jdbc = jdbc;
@@ -121,6 +124,31 @@ public class MomentumService {
                     age.toMinutes(), props.maxEntryDelaySeconds()));
             return;
         }
+        if (props.flowFilter()) {
+            // filtro de fluxo (12e): a compra/venda agressiva da hora nos futuros da Binance precisa ter sido forte a favor
+            Double flow;
+            try {
+                Instant from = s.barStart().toInstant(ZoneOffset.UTC);
+                BinanceFlowClient.Minutes mins = binance.minutes(props.flowUrl(), props.flowSymbol(), from, barEnd);
+                flow = MomentumRule.flowWithMove(mins.volume(), mins.takerBuy(), 60, s.side());
+            } catch (Exception e) {
+                finish(entry, null, "REFUSED", "sem o fluxo da Binance (" + e.getMessage() + "): não entra (falhar fechado)");
+                log.warn("Momentum {}: sem o fluxo da Binance — {}", symbol, e.toString());
+                return;
+            }
+            setFlow(entry, flow);
+            if (flow == null) {
+                finish(entry, null, "REFUSED", "fluxo da Binance incompleto (faltam minutos da hora): não entra");
+                return;
+            }
+            if (flow < props.flowMin()) {
+                finish(entry, null, "FILTERED", String.format(Locale.ROOT,
+                        "hora de %+.2f%%, mas o fluxo a favor foi %+.3f (< %.3f): a regra com filtro pula",
+                        s.ret() * 100, flow, props.flowMin()));
+                log.info("Momentum {}: hora grande filtrada (fluxo {})", symbol, String.format(Locale.ROOT, "%+.3f", flow));
+                return;
+            }
+        }
         Instrument inst = orders.instrument(symbol);
         Double lot = c.lot() != null ? c.lot() : inst == null ? null : inst.minLot();
         double stop = props.stopAtr() * s.atr();
@@ -151,6 +179,11 @@ public class MomentumService {
                 .query(Long.class).optional().orElse(null);
     }
 
+    private void setFlow(long id, Double flow) {
+        jdbc.getObject().sql("UPDATE momentum_entry SET flow = :f WHERE id = :id")
+                .param("f", flow, Types.DOUBLE).param("id", id).update();
+    }
+
     private void finish(long id, Long orderId, String status, String message) {
         jdbc.getObject().sql("UPDATE momentum_entry SET order_id = :o, status = :st, message = :msg WHERE id = :id")
                 .param("o", orderId, Types.BIGINT).param("st", status).param("msg", message, Types.VARCHAR)
@@ -165,7 +198,7 @@ public class MomentumService {
         out.put("rule", props);
         JdbcClient db = jdbc.getObject();
         out.put("entries", db.sql("""
-                        SELECT e.id, e.symbol, e.bar_start, e.side, e.ret, e.threshold, e.status, e.message, e.created_at,
+                        SELECT e.id, e.symbol, e.bar_start, e.side, e.ret, e.threshold, e.flow, e.status, e.message, e.created_at,
                                (SELECT sum(d.profit + d.swap + d.commission) FROM order_request o JOIN ea_deal d
                                     ON d.position_ticket = o.ticket WHERE o.id = e.order_id) AS result_usd
                           FROM momentum_entry e ORDER BY e.id DESC LIMIT 20
@@ -174,6 +207,7 @@ public class MomentumService {
                         SELECT count(*) FILTER (WHERE e.status = 'SENT') AS sent,
                                count(*) FILTER (WHERE e.status = 'REFUSED') AS refused,
                                count(*) FILTER (WHERE e.status = 'LATE') AS late,
+                               count(*) FILTER (WHERE e.status = 'FILTERED') AS filtered,
                                sum(d.result) AS result_usd, count(d.result) AS closed
                           FROM momentum_entry e
                           LEFT JOIN order_request o ON o.id = e.order_id

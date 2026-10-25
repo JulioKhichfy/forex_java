@@ -77,7 +77,7 @@ import { JobsPanel } from './jobs-panel';
             @if (mo.config.on) {
               <span class="badge ok">LIGADO</span>
               <span class="small">lote {{ mo.config.lot ?? 'mínimo' }} · desde <span [brt]="mo.config.startedAt">{{ mo.config.startedAt | date: 'dd/MM HH:mm' : 'UTC' }} UTC</span>
-                · topo de {{ mo.rule.topPct }}% · stop {{ mo.rule.stopAtr }} ATR(1 h) · alvo {{ mo.rule.targetR }}× · {{ mo.rule.closeAfterMinutes / 60 }} h · modo {{ mo.mode }}</span>
+                · topo de {{ mo.rule.topPct }}% @if (mo.rule.flowFilter) { · fluxo a favor ≥ {{ mo.rule.flowMin }} } · stop {{ mo.rule.stopAtr }} ATR(1 h) · alvo {{ mo.rule.targetR }}× · {{ mo.rule.closeAfterMinutes / 60 }} h · modo {{ mo.mode }}</span>
               <button class="danger" (click)="stopMomentum()">Desligar</button>
             } @else {
               <span class="badge">desligado</span>
@@ -87,7 +87,7 @@ import { JobsPanel } from './jobs-panel';
             }
           </div>
           @if (mo.totals; as t) {
-            <p class="small">30 dias: {{ t.sent ?? 0 }} enviadas · {{ t.refused ?? 0 }} recusadas · {{ t.late ?? 0 }} atrasadas
+            <p class="small">30 dias: {{ t.sent ?? 0 }} enviadas · {{ t.filtered ?? 0 }} filtradas pelo fluxo · {{ t.refused ?? 0 }} recusadas · {{ t.late ?? 0 }} atrasadas
               @if (t.closed) { · {{ t.closed }} fechadas: <b [class.up]="t.result_usd > 0" [class.down]="t.result_usd < 0">US$ {{ t.result_usd | number: '1.2-2' }}</b> }</p>
           }
           @if (mo.entries?.length) {
@@ -346,7 +346,7 @@ export class Hoje implements OnInit, OnDestroy {
   }
 
   protected autoStatus(s: string): string {
-    return ({ SENT: 'enviada', REFUSED: 'recusada', LATE: 'atrasado', SENDING: 'conferindo' } as Record<string, string>)[s] ?? s;
+    return ({ SENT: 'enviada', REFUSED: 'recusada', LATE: 'atrasado', SENDING: 'conferindo', FILTERED: 'filtrada' } as Record<string, string>)[s] ?? s;
   }
 
   // ------------------------------------------------------------------ Momentum BTC (passo 12b)

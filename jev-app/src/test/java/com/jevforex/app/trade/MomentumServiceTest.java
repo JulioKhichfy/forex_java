@@ -25,12 +25,16 @@ class MomentumServiceTest {
     @Test
     void padroes_sao_a_regra_do_estudo() {
         // tools/estudo_momentum.py, a melhor na escolha e confirmada: top 2% · stop 1,5 ATR · alvo 1,5 · 24 h
-        MomentumProperties p = new MomentumProperties(null, null, null, null, null, null, null, null, null);
+        MomentumProperties p = new MomentumProperties(null, null, null, null, null, null, null, null, null, null, null, null, null);
         assertEquals(List.of("BTCUSD"), p.symbols());
         assertEquals(720, p.lookbackHours());
         assertEquals(2.0, p.topPct());
         assertEquals(1.5, p.stopAtr());
         assertEquals(1.5, p.targetR());
         assertEquals(1440, p.closeAfterMinutes());
+        // filtro de fluxo (tools/estudo_fluxo.py): ligado, mínimo = a mediana das horas grandes da escolha
+        assertTrue(p.flowFilter());
+        assertEquals(0.089, p.flowMin());
+        assertEquals("BTCUSDT", p.flowSymbol());
     }
 }

@@ -56,6 +56,17 @@ class MomentumRuleTest {
     }
 
     @Test
+    void fluxo_aFavorDoMovimento() {
+        double[] v = new double[60], tb = new double[60];
+        java.util.Arrays.fill(v, 10);
+        java.util.Arrays.fill(tb, 6);   // 60% compra agressiva → desequilíbrio +0,2
+        assertEquals(0.2, MomentumRule.flowWithMove(v, tb, 60, "BUY"), 1e-12);
+        assertEquals(-0.2, MomentumRule.flowWithMove(v, tb, 60, "SELL"), 1e-12, "venda com compra agressiva = contra");
+        assertNull(MomentumRule.flowWithMove(new double[40], new double[40], 60, "BUY"), "faltam mais de 20% dos minutos");
+        assertNull(MomentumRule.flowWithMove(new double[60], new double[60], 60, "BUY"), "sem volume");
+    }
+
+    @Test
     void atr_mediaDoTrueRange() {
         List<Bar> h = new ArrayList<>();
         for (int i = 0; i < 16; i++) h.add(new Bar(T0.plusHours(i), 100, 102, 99, 100, 1, true));   // TR = 3

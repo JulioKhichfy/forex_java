@@ -6,12 +6,14 @@ nunca é regravado), cada zip com o seu .meta.json (url, sha256 conferido com o 
 
     bronze/binance_um/metrics/symbol=BTCUSDT/BTCUSDT-metrics-2024-01-01.zip     open interest a cada 5 min (diário)
     bronze/binance_um/klines_1m/symbol=BTCUSDT/BTCUSDT-1m-2024-01.zip           candles 1 min (mensal; o mês corrente, diário)
+    bronze/binance_um/book_depth/symbol=BTCUSDT/BTCUSDT-bookDepth-2024-01-01.zip livro agregado ±1…5% a cada ~30 s (2023+)
 
 Point-in-time: o arquivo diário só sai no dia seguinte; o estudo usa o open interest de cada carimbo a partir do próprio
 carimbo (é o mesmo valor que a API ao vivo dá na hora) e nunca nada de depois do momento de decisão.
 
 Uso:
     python tools/binance_backfill.py [--lake C:/Users/julio/FOREX_JEV/jev-lake] [--symbols BTCUSDT] [--from 2021-12-01]
+           [--datasets metrics,klines,bookDepth]
 """
 import argparse
 import concurrent.futures as cf
@@ -71,14 +73,26 @@ def fetch(url, dest, dataset, symbol):
     return "novo"
 
 
-def jobs(lake, symbol, start, today):
+def jobs(lake, symbol, start, today, datasets):
     out = []
+    if "bookDepth" in datasets:
+        # livro de ofertas agregado (profundidade a ±1…5% do preço, a cada ~30 s); existe desde 2023-01-01
+        d = max(start, dt.date(2023, 1, 1))
+        while d < today:
+            name = f"{symbol}-bookDepth-{d:%Y-%m-%d}.zip"
+            out.append((f"{BASE}/daily/bookDepth/{symbol}/{name}",
+                        os.path.join(lake, "bronze", "binance_um", "book_depth", f"symbol={symbol}", name), "bookDepth"))
+            d += dt.timedelta(days=1)
+    if "metrics" not in datasets and "klines" not in datasets:
+        return out
     d = start
-    while d < today:   # metrics: um arquivo por dia, até ontem
+    while d < today and "metrics" in datasets:   # metrics: um arquivo por dia, até ontem
         name = f"{symbol}-metrics-{d:%Y-%m-%d}.zip"
         out.append((f"{BASE}/daily/metrics/{symbol}/{name}",
                     os.path.join(lake, "bronze", "binance_um", "metrics", f"symbol={symbol}", name), "metrics"))
         d += dt.timedelta(days=1)
+    if "klines" not in datasets:
+        return out
     m = dt.date(start.year, start.month, 1)
     first_of_month = dt.date(today.year, today.month, 1)
     while m < first_of_month:   # klines: meses completos
@@ -101,11 +115,12 @@ def main():
     ap.add_argument("--symbols", default="BTCUSDT")
     ap.add_argument("--from", dest="start", default="2021-12-01")
     ap.add_argument("--threads", type=int, default=8)
+    ap.add_argument("--datasets", default="metrics,klines", help="metrics,klines,bookDepth")
     a = ap.parse_args()
     today = dt.datetime.now(dt.timezone.utc).date()
     start = dt.date.fromisoformat(a.start)
     for symbol in a.symbols.split(","):
-        js = jobs(a.lake, symbol.strip(), start, today)
+        js = jobs(a.lake, symbol.strip(), start, today, a.datasets.split(","))
         counts = {"novo": 0, "existe": 0, "ausente": 0}
         missing = []
         t0 = time.time()

@@ -52,6 +52,27 @@ public final class MomentumRule {
         return new Signal(last.t(), ret > 0 ? "BUY" : "SELL", ret, thr, atr);
     }
 
+    /**
+     * Filtro de fluxo (passo 12e, tools/estudo_fluxo.py): desequilíbrio da hora do sinal nos futuros da Binance =
+     * (compra agressiva − venda agressiva) / volume, a partir dos candles de 1 min (volume e compra agressiva). A favor =
+     * esse desequilíbrio no sentido do movimento. null se faltar mais de 20% dos minutos ou não houver volume.
+     *
+     * @param volume    volume de cada minuto da hora
+     * @param takerBuy  compra agressiva de cada minuto
+     * @param minutes   minutos esperados (60)
+     */
+    public static Double flowWithMove(double[] volume, double[] takerBuy, int minutes, String side) {
+        if (volume.length < minutes * 0.8) return null;
+        double v = 0, tb = 0;
+        for (int i = 0; i < volume.length; i++) {
+            v += volume[i];
+            tb += takerBuy[i];
+        }
+        if (!(v > 0)) return null;
+        double flow = (2 * tb - v) / v;
+        return "BUY".equals(side) ? flow : -flow;
+    }
+
     /** ATR(period) na última barra: média simples dos true ranges das últimas {@code period} barras. */
     static double atr(List<Bar> h1, int period) {
         int n = h1.size();

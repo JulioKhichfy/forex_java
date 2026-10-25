@@ -109,6 +109,10 @@ export const SECOES: Secao[] = [
           estudo: stop de 1,5 × ATR(14) de 1 h, alvo de 1,5× o stop e saída em 24 h (valem por cima do "Stop em US$").</li>
           <li><b>Todas as travas valem</b> (inclusive um por par): o que for recusado fica na tabela com o motivo. Hora fechada há
           mais de 5 min não vira ordem (é outra regra).</li>
+          <li><b>Filtro de fluxo</b> (estudo 12e): antes de entrar, o sistema busca na API pública da Binance os candles de 1 min
+          da hora nos futuros de BTC e mede a compra × venda agressiva. Só entra se o desequilíbrio a favor do movimento for de
+          pelo menos 0,089 (a mediana das horas grandes do período de escolha): com fluxo forte, +0,13/+0,20 R; com fluxo fraco
+          ou contra, −0,02/−0,17 R. A hora que não passa aparece como "filtrada"; sem resposta da Binance, não entra.</li>
           <li>Roda <b>24 horas, 7 dias</b>, como no estudo (desde que o PC, o MT5 e o servidor estejam ligados): não depende das
           previsões dos modelos, que só saem em dias úteis, das 0 às 20 h UTC. A trava "ATR (última previsão)" aparece como
           "não usado": o stop vem do ATR de 1 h dos próprios candles. No fim de semana o spread típico ainda é o da última

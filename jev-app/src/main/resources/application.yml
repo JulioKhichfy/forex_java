@@ -315,6 +315,13 @@ momentum:
   target-r: 1.5
   close-after-minutes: 1440
   max-entry-delay-seconds: 300   # o sinal é no fim da hora; entrar mais tarde que isso não é a regra testada
+  # filtro de fluxo (passo 12e, tools/estudo_fluxo.py): só entra se a compra/venda agressiva da hora nos futuros da Binance
+  # foi forte A FAVOR do movimento (desequilíbrio ≥ flow-min, a mediana das horas grandes do período de escolha):
+  # +0,13/+0,20 R × −0,02/−0,17 R sem. Sem resposta da Binance = não entra (falhar fechado).
+  flow-filter: true
+  flow-min: 0.089
+  flow-symbol: BTCUSDT
+  flow-url: https://fapi.binance.com
 
 # ---------------------------------------------------------------------
 #  Cassino (23/10/2026): símbolos além dos do sistema, só para o Cassino. Precisam do JevCandleExporter (especificação
