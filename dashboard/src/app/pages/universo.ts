@@ -99,10 +99,9 @@ function brt(iso: string): string {
           <text [attr.x]="C" [attr.y]="C + 14" class="pprice">{{ priceText() }}</text>
           <text [attr.x]="C" [attr.y]="C + 30" class="pmove">{{ moveText() }}</text>
 
-          <!-- luas: previsões -->
+          <!-- luas: previsões (paradas, 25/10/2026: o operador lê o detalhe passando o mouse) -->
           @for (b of moons(); track b.key) {
-            <g>
-              <animateTransform attributeName="transform" type="rotate" [attr.from]="'0 ' + C + ' ' + C" [attr.to]="'360 ' + C + ' ' + C" dur="60s" repeatCount="indefinite" />
+            <g class="moon">
               <circle [attr.cx]="b.x" [attr.cy]="b.y" [attr.r]="b.r" [attr.fill]="b.color" stroke="#0b1020"><title>{{ b.title }}</title></circle>
               <text [attr.x]="b.x" [attr.y]="b.y + 3" class="mlabel">{{ b.label }}</text>
             </g>

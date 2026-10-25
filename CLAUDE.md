@@ -300,3 +300,7 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             (`OrderService.Fixed`: stop 1,5 ATR(1 h), alvo 1,5×, 24 h) e TODAS as travas; `momentum:` no yml; painel na página Hoje
             (mercado Bitcoin). Para ver se o ao vivo acompanha o histórico na conta cent. 24/7: nas ordens Fixed a trava
             "ATR (última previsão)" não se aplica (as previsões só saem seg–sex 0–20 h UTC; recusariam ~37% dos sinais)
+      - [x] 12d gatilho de evento (pedido do operador, 25/10; `tools/estudo_gatilho_evento.py`): operar no lado do dado (`impact` do
+            MT5) entrando +1/+2 min — o preço já andou 0,35–0,40 ATR a favor antes da entrada, depois ~0, e o spread da hora custa
+            0,16 ATR: −0,15 ATR/operação nos dois períodos. Direção aprendida por evento: +0,40 na escolha, −0,22 na confirmação.
+            Não construído. Universo: luas paradas (o operador lê o detalhe no mouse)

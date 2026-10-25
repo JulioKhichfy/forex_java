@@ -636,7 +636,7 @@ export const SECOES: Secao[] = [
           colunas: ['Corpo', 'O que é'],
           linhas: [
             { termo: 'Planeta (centro)', texto: 'O símbolo escolhido: preço, movimento das últimas 24 h (verde subiu, vermelho caiu) e RSI de 15 min.' },
-            { termo: 'Luas', texto: 'As previsões dos modelos (A = Preço, E = Eventos, B = Eventos + Preço; ¹ = 15 min, ⁶ = 60 min). Verde = alta mais provável, vermelho = queda, cinza = lateral; maior = mais provável. Passe o mouse para ver as probabilidades e se é sinal.' },
+            { termo: 'Luas', texto: 'As previsões dos modelos (A = Preço, E = Eventos, B = Eventos + Preço; ¹ = 15 min, ⁶ = 60 min). Verde = alta mais provável, vermelho = queda, cinza = lateral; maior = mais provável. Ficam paradas em volta do planeta: passe o mouse para ver as probabilidades e se é sinal.' },
             { termo: 'Asteroides', texto: 'As divulgações do calendário das moedas do símbolo. Mais perto do planeta = mais perto no tempo (os anéis marcam minutos, horas ou dias); maior = mais importante. Clique ou passe o mouse para os detalhes.' },
             { termo: 'Cometas', texto: 'Notícias dos bancos centrais das moedas do símbolo nas últimas 48 h. Clique para abrir.' },
             { termo: 'Estrelas coloridas', texto: 'Os alertas do radar para o símbolo (RSI, bandas, volume, movimento…).' },
