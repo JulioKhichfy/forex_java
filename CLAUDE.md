@@ -286,3 +286,9 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       Decisão do operador: produção com os três — cofre aberto em 15/10 (run 20261015-184445-energy: AUC 0,65/0,71,
       gate 4 sem operações; lado mais provável −0,07 a 60 min) e modelo 20261015-190437 em produção;
       trading.risk.markets.energy fica desligado (ligar na página Risco)
+- [ ] Passo 12 — mapa de liquidações (pedido do operador, 25/10)
+      - [x] 12a bitcoin: OI de 5 min + candles 1m da Binance (`tools/binance_backfill.py` → bronze/binance_um, imutável,
+            checksum; carimbos com OI 0 = faltando) e o mapa estimado (25/50/100×, some quando o preço passa;
+            `tools/estudo_liquidacoes.py` → reports/liquidacoes). Resultado: ímã não se sustenta (desequilíbrio ≈ retorno das
+            24 h); "varrer e voltar" 0/27 positivas; seguir o movimento após hora de liquidação grande é positivo, mas a
+            versão sem o mapa (só o tamanho do movimento) é igual ou melhor (21/27 sobrevivem, E[R] +0,05 a +0,17, n ~200)
