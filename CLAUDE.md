@@ -304,3 +304,6 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             MT5) entrando +1/+2 min — o preço já andou 0,35–0,40 ATR a favor antes da entrada, depois ~0, e o spread da hora custa
             0,16 ATR: −0,15 ATR/operação nos dois períodos. Direção aprendida por evento: +0,40 na escolha, −0,22 na confirmação.
             Não construído. Universo: luas paradas (o operador lê o detalhe no mouse)
+      - [x] 12e fluxo agressor (`tools/estudo_fluxo.py`, taker dos futuros da Binance): sozinho não prevê (0/18, pior que o preço);
+            como filtro do Momentum BTC (desequilíbrio da hora ≥ +0,089 a favor, corte da escolha): +0,13 R (314) / +0,20 R (140) ×
+            fraco/contra −0,02 / −0,17 R. Livro de ofertas (bookDepth, 2023+) ainda não testado
