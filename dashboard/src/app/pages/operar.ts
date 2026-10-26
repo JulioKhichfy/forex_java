@@ -2,7 +2,7 @@ import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, OrderPreview, Position, PositionDetail, Prediction, Submit, TradeState } from '../api';
+import { Api, LatestPredictions, MODEL_NAMES, MODEL_ORDER, ORIGINS, OrderPreview, Position, PositionDetail, Prediction, Submit, TradeState } from '../api';
 import { ProbBar } from './prob-bar';
 import { Tip } from './tip';
 import { Brt } from '../brt';
@@ -161,7 +161,7 @@ import { MyTrades } from './my-trades';
         <div class="table-wrap"><table class="positions">
           <tr><th>Ticket</th><th>Par</th><th>Lado</th><th class="right">Lote</th><th class="right">Abertura</th>
             <th class="right">SL <tip text="Stop no servidor da corretora: fecha com perda se o preço chegar lá, mesmo com o computador desligado. Embaixo, quanto dá em US$ (positivo = lucro já garantido)." /></th><th class="right">TP <tip text="Alvo no servidor da corretora: fecha com lucro se o preço chegar lá. Embaixo, quanto dá em US$." /></th><th class="right">Resultado <tip key="patrimonio" /></th>
-            <th>Origem <tip text="Roleta (tendência = lado mais provável; pullback = LATERAL contra a banda de Bollinger) ou ordem manual. Modelo, horizonte e a probabilidade do lado na hora da entrada." /></th>
+            <th>Origem <tip text="Quem abriu: Manual (botão), Roleta (tendência = lado mais provável; pullback = LATERAL contra a banda de Bollinger), Sinal automático (regra do ouro), Momentum BTC (hora grande + fluxo), Cassino (vez e tentativa) ou fora do sistema. Modelo, horizonte e a probabilidade do lado na hora da entrada." /></th>
             <th>Fecha em <tip text="Quanto falta para a saída por tempo (ou para o fim da prorrogação com lucro). Antes disso, só o stop e o alvo fecham a posição." /></th><th>Desde (UTC)</th><th></th></tr>
           @for (p of s.positions; track p.ticket) {
             @let d = s.details?.[p.ticket];
@@ -484,8 +484,10 @@ export class Operar implements OnInit, OnDestroy {
   protected originText(d: PositionDetail | undefined): string {
     if (!d) return '—';
     if (d.origin === 'externa') return 'fora do sistema';
-    const who = d.origin === 'roleta' ? 'Roleta · ' + (d.strategy === 'pullback' ? 'pullback' : 'tendência') : 'Manual';
+    const who = d.origin === 'roleta' ? 'Roleta · ' + (d.strategy === 'pullback' ? 'pullback' : 'tendência')
+      : ORIGINS[d.origin] ?? d.origin;
     const parts = [who];
+    if (d.originNote && d.origin !== 'roleta') parts.push(d.originNote);
     if (d.model) parts.push(`${d.model}${d.horizonMin ? ' ' + d.horizonMin + ' min' : ''}`);
     if (d.pSide != null) parts.push(`P ${(d.pSide * 100).toFixed(0)}%`);
     if (d.strategy === 'pullback' && d.pctB != null) parts.push(`%B ${d.pctB.toFixed(2)}`);

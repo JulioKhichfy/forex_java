@@ -20,7 +20,7 @@ interface Preset {
 interface Field {
   key: string;
   label: string;
-  kind: 'pct' | 'usd' | 'int' | 'num' | 'lot' | 'min' | 'sec' | 'pts' | 'policy';
+  kind: 'pct' | 'usd' | 'int' | 'num' | 'lot' | 'min' | 'sec' | 'pts' | 'policy' | 'bool';
   step?: number;
   /** O que a Roleta russa faz com este campo (ela ignora as travas de risco por ordem, escolha do operador em 14/10). */
   rl?: string;
@@ -50,6 +50,7 @@ const ORDER_FIELDS: Field[] = [
   { key: 'maxSpreadRatio', label: 'Spread máximo (× o típico do horário)', kind: 'num', step: 0.25, rl: 'ignora' },
   { key: 'minMarginLevelPct', label: 'Nível de margem mínimo (%)', kind: 'pct', step: 50, rl: 'ignora' },
   { key: 'sessionMarginMinutes', label: 'Folga antes do fim da sessão (min)', kind: 'int', step: 5, rl: 'respeita' },
+  { key: 'onePerSymbol', label: 'Par livre (uma posição por símbolo)', kind: 'bool', rl: 'respeita' },
 ];
 
 const EXIT_FIELDS: Field[] = [
@@ -127,7 +128,11 @@ const MARKET_LABELS: Partial<Record<string, string>> = { FX: 'Forex', INDICES: '
           @for (f of orderFields; track f.key) {
             <tr [class.changed]="changed('orders', f.key)">
               <td>{{ f.label }} <tip [key]="f.key" /></td>
-              <td><input type="number" [(ngModel)]="d.orders[f.key]" [step]="f.step ?? 1" min="0" /></td>
+              <td>@if (f.kind === 'bool') {
+                  <label class="small"><input type="checkbox" [(ngModel)]="d.orders[f.key]" /> {{ d.orders[f.key] ? 'ligada' : 'desligada' }}</label>
+                } @else {
+                  <input type="number" [(ngModel)]="d.orders[f.key]" [step]="f.step ?? 1" min="0" />
+                }</td>
               <td class="small">{{ orderHint(f.key) }}</td>
               <td class="small muted mono">{{ saved()?.orders?.[f.key] }}</td>
               <td><span class="badge" [class.high]="f.rl === 'ignora'" [class.ok]="f.rl === 'respeita'">{{ f.rl }}</span></td>
@@ -297,6 +302,9 @@ export class Risco implements OnInit {
       case 'maxSpreadRatio': return `spread típico de 8 pontos → aceita até ${(8 * o.maxSpreadRatio).toFixed(0)}`;
       case 'minMarginLevelPct': return `a Exness costuma fechar posições com nível muito baixo; ${o.minMarginLevelPct}% é folga`;
       case 'sessionMarginMinutes': return `sem entrada se a saída por tempo cair a menos de ${o.sessionMarginMinutes} min do fim da sessão (EA 2.5)`;
+      case 'onePerSymbol': return o.onePerSymbol === false
+        ? 'desligada: roleta, sinal automático, Momentum e manual podem abrir no mesmo símbolo ao mesmo tempo (valem os limites de posições e de risco aberto)'
+        : 'ligada: quem abrir primeiro fica com o símbolo; os outros são recusados até ela fechar (o Cassino sempre ignora)';
     }
     return e ? '' : '';
   }

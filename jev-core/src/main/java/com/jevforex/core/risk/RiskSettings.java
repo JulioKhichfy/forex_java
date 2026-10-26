@@ -207,12 +207,15 @@ public record RiskSettings(Global global, Map<Market, MarketRisk> markets, Exits
      * @param sessionMarginMinutes a saída por tempo precisa cair pelo menos isto antes do fim da sessão do símbolo
      *                             (16/10/2026: posição aberta às 20:02 de sexta com saída em 60 min ficou para o fim
      *                             de semana)
+     * @param onePerSymbol         trava "Par livre": no máximo uma posição por símbolo, somando todas as origens
+     *                             (26/10/2026: o operador pode desligar na página Risco; null = ligada)
      */
     public record Orders(double defaultLot, double maxLot, int closeAfterMinutes, int deviationPoints,
                          int validitySeconds, int quoteMaxAgeSeconds, int atrMaxAgeMinutes, int blackoutBeforeMinutes,
                          int blackoutAfterMinutes, double maxSpreadRatio, double minMarginLevelPct,
-                         Integer sessionMarginMinutes) {
+                         Integer sessionMarginMinutes, Boolean onePerSymbol) {
         public Orders {
+            if (onePerSymbol == null) onePerSymbol = true;
             if (sessionMarginMinutes == null) sessionMarginMinutes = 5;
             if (sessionMarginMinutes < 0) throw new IllegalArgumentException("orders.session-margin-minutes < 0");
             if (!(defaultLot > 0) || maxLot < defaultLot) {

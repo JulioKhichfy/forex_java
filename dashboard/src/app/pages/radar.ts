@@ -2,6 +2,7 @@ import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Api, CalendarItem, LatestPredictions, NewsItem, Prediction, ScanAlert, ScanSnapshot, ScanSymbol, ScanTf } from '../api';
 import { RouterLink } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
 import { Tip } from './tip';
 import { Brt } from '../brt';
 import { MarketState } from '../market';
@@ -52,6 +53,27 @@ const STALE_MIN = 10;
       às bandas de Bollinger, por exemplo, deu resultado médio negativo nos 5 mercados no teste de 13/10. Use como
       contexto junto da previsão e das travas de risco.
     </div>
+
+    <section class="panel whales">
+      <div class="whead">
+        <h3>Baleias no bitcoin <tip text="Minuto dos futuros de BTC na Binance (o maior mercado; a Exness segue) em que a compra ou a venda A MERCADO foi pelo menos 10× o normal do minuto (mediana das 24 h) e quase toda de um lado: volume de instituição ou de grande operador, cerca de 5 por dia. Só no bitcoin: no forex e nos CFDs da Exness não existe volume real nem livro de ofertas. No histórico, o preço anda a favor DURANTE o minuto (+14 a +22 bps); DEPOIS, quando o alerta chega, a média é ~0 de 1 a 240 min. Diz o que aconteceu, não o que vai acontecer." /></h3>
+        <label class="small"><input type="checkbox" [checked]="soundOn()" (change)="toggleSound()" /> som e notificação</label>
+        <label class="small" title="Alerta de volume de ticks (Exness) com 4× ou mais o normal do horário, no mercado escolhido"><input type="checkbox" [checked]="volSound()" (change)="toggleVolSound()" /> som também para volume de ticks forte (≥ 4×) neste mercado</label>
+      </div>
+      @if (whales().length) {
+        <div class="wlist small">
+          @for (w of whales().slice(0, 8); track w.id) {
+            <span class="wrow" [class.cont]="w.continues">
+              <span class="mono" [brt]="w.minute_utc">{{ w.minute_utc | date: 'dd/MM HH:mm' : 'UTC' }}</span>
+              <span class="badge" [class.buy]="w.side === 'BUY'" [class.sell]="w.side === 'SELL'">{{ w.side === 'BUY' ? 'COMPRA' : 'VENDA' }}</span>
+              {{ w.volume | number: '1.0-0' }} BTC · US$ {{ w.notional_usd / 1e6 | number: '1.0-0' }} mi · {{ w.multiple | number: '1.0-0' }}× ·
+              <span [class.up]="w.move_bps > 0" [class.down]="w.move_bps < 0">{{ w.move_bps | number: '1.0-0' }} bps no minuto</span>
+              @if (w.continues) { <span class="muted">(continuação)</span> }
+            </span>
+          }
+        </div>
+      } @else { <p class="small muted">Nenhuma baleia nas últimas 24 h{{ whalesError() ? ' — ' + whalesError() : '' }}.</p> }
+    </section>
 
     <section class="panel bar">
       <div class="status small">
@@ -305,6 +327,11 @@ const STALE_MIN = 10;
   `,
   styles: `
     a.sellbtn { margin-left: 8px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--down); color: var(--down); font-size: 12px; white-space: nowrap; }
+    .whales { margin-bottom: 12px; }
+    .whales .whead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .whales .whead h3 { margin: 0; }
+    .wlist { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+    .wrow.cont { opacity: 0.6; }
     .bar { display: grid; gap: 8px; }
     .status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .status button { margin-left: auto; }
@@ -350,6 +377,7 @@ const STALE_MIN = 10;
 })
 export class Radar implements OnInit, OnDestroy {
   private api = inject(Api);
+  private http = inject(HttpClient);
   private marketState = inject(MarketState);
   protected Math = Math;
   protected kinds = KINDS;
@@ -452,6 +480,7 @@ export class Radar implements OnInit, OnDestroy {
     effect(() => {
       this.marketState.market();
       this.snap.set(null);
+      this.seenVolume = null;   // mercado novo: os alertas que já existem não tocam
       this.selected.set(null);
       this.showAll.set(false);
       this.reload();
@@ -462,12 +491,80 @@ export class Radar implements OnInit, OnDestroy {
     this.timer = setInterval(() => this.load(), 60_000);
     this.slowTimer = setInterval(() => this.loadSlow(), 120_000);
     this.clock = setInterval(() => this.now.set(Date.now()), 15_000);
+    this.loadWhales();
+    this.whaleTimer = setInterval(() => this.loadWhales(), 20_000);
   }
 
   ngOnDestroy(): void {
     clearInterval(this.timer);
     clearInterval(this.slowTimer);
     clearInterval(this.clock);
+    clearInterval(this.whaleTimer);
+  }
+
+  // ------------------------------------------------------------------ baleias e som (25/10/2026)
+  protected whales = signal<any[]>([]);
+  protected whalesError = signal<string | null>(null);
+  protected soundOn = signal<boolean>(this.readFlag('jev.radar.som', true));
+  protected volSound = signal<boolean>(this.readFlag('jev.radar.som-volume', false));
+  private whaleTimer?: ReturnType<typeof setInterval>;
+  private seenWhales: Set<number> | null = null;   // null = 1ª carga: o que já existe não toca
+  private seenVolume: Set<string> | null = null;
+
+  private readFlag(key: string, def: boolean): boolean {
+    try { const v = localStorage.getItem(key); return v === null ? def : v === 'true'; } catch { return def; }
+  }
+
+  protected toggleSound(): void {
+    this.soundOn.set(!this.soundOn());
+    try { localStorage.setItem('jev.radar.som', String(this.soundOn())); } catch { /* só nesta aba */ }
+    if (this.soundOn() && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  }
+
+  protected toggleVolSound(): void {
+    this.volSound.set(!this.volSound());
+    try { localStorage.setItem('jev.radar.som-volume', String(this.volSound())); } catch { /* só nesta aba */ }
+  }
+
+  private loadWhales(): void {
+    this.http.get<any>('/api/whales?hours=24').subscribe({
+      next: (r) => {
+        const ev: any[] = r?.events ?? [];
+        this.whales.set(ev);
+        this.whalesError.set(null);
+        const fresh = this.seenWhales === null ? [] : ev.filter((w) => !this.seenWhales!.has(w.id) && !w.continues);
+        this.seenWhales = new Set(ev.map((w) => w.id));
+        if (fresh.length && this.soundOn()) {
+          const w = fresh[0];
+          this.alarm('Jev Forex: baleia no bitcoin', `${w.side === 'BUY' ? 'COMPRA' : 'VENDA'} a mercado de ${Math.round(w.volume)} BTC `
+            + `(US$ ${Math.round(w.notional_usd / 1e6)} mi, ${Math.round(w.multiple)}× o normal)`, w.side === 'BUY' ? 880 : 440);
+        }
+      },
+      error: () => this.whalesError.set('API das baleias indisponível: reinicie o servidor com o jar novo'),
+    });
+  }
+
+  /** Som para volume de ticks forte (≥ 4×) no mercado escolhido, uma vez por alerta. */
+  private checkVolume(s: ScanSnapshot): void {
+    const keys = s.symbols.flatMap((sym) => sym.alerts.filter((a) => a.kind === 'VOLUME' && (a.value ?? 0) >= 4)
+      .map((a) => ({ key: `${sym.symbol}|${a.tf}|${a.at}`, text: `${sym.symbol}: ${a.text}` })));
+    const fresh = this.seenVolume === null ? [] : keys.filter((k) => !this.seenVolume!.has(k.key));
+    this.seenVolume = new Set([...(this.seenVolume ?? []), ...keys.map((k) => k.key)]);
+    if (fresh.length && this.volSound()) this.alarm('Jev Forex: volume forte', fresh[0].text, 660);
+  }
+
+  private alarm(title: string, body: string, freq: number): void {
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body });
+    } catch { /* sem aviso do navegador */ }
+    try {
+      const ctx = new AudioContext();
+      const o = ctx.createOscillator();
+      o.frequency.value = freq;
+      o.connect(ctx.destination);
+      o.start();
+      o.stop(ctx.currentTime + 0.3);
+    } catch { /* sem som */ }
   }
 
   protected reload(): void {
@@ -479,7 +576,14 @@ export class Radar implements OnInit, OnDestroy {
     const market = this.marketState.market();
     this.loading.set(true);
     this.api.scanner(market).subscribe({
-      next: (s) => { if (s.market === this.marketState.market()) this.snap.set(s); this.error.set(null); this.loading.set(false); },
+      next: (s) => {
+        if (s.market === this.marketState.market()) {
+          this.snap.set(s);
+          this.checkVolume(s);
+        }
+        this.error.set(null);
+        this.loading.set(false);
+      },
       error: (e) => { this.error.set('Radar indisponível: ' + (e?.error?.message ?? e?.message ?? 'erro')); this.loading.set(false); },
     });
     this.api.latest(market).subscribe({ next: (l) => this.latest.set(l), error: () => this.latest.set(null) });

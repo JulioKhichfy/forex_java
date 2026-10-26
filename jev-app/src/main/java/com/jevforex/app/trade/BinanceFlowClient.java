@@ -30,6 +30,34 @@ public class BinanceFlowClient {
     public record Minutes(double[] volume, double[] takerBuy) {
     }
 
+    /** Os últimos minutos FECHADOS: início (ms), abertura, fechamento, volume e compra agressiva. */
+    public record Recent(long[] openTime, double[] open, double[] close, double[] volume, double[] takerBuy) {
+    }
+
+    /** Os últimos {@code limit} minutos (até 1.500 ≈ 25 h), só os já fechados. */
+    public Recent recent(String baseUrl, String symbol, int limit) throws Exception {
+        URI uri = URI.create(String.format("%s/fapi/v1/klines?symbol=%s&interval=1m&limit=%d", baseUrl, symbol, limit));
+        HttpResponse<String> r = http.send(HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(10))
+                .header("User-Agent", "jev-forex").GET().build(), HttpResponse.BodyHandlers.ofString());
+        if (r.statusCode() != 200) throw new IllegalStateException("Binance respondeu " + r.statusCode());
+        JsonNode arr = mapper.readTree(r.body());
+        long now = System.currentTimeMillis();
+        int n = 0, size = arr.size();
+        long[] ot = new long[size];
+        double[] o = new double[size], c = new double[size], v = new double[size], tb = new double[size];
+        for (JsonNode k : arr) {
+            if (k.get(6).asLong() >= now) continue;   // o minuto em formação fica de fora
+            ot[n] = k.get(0).asLong();
+            o[n] = k.get(1).asDouble();
+            c[n] = k.get(4).asDouble();
+            v[n] = k.get(5).asDouble();
+            tb[n] = k.get(9).asDouble();
+            n++;
+        }
+        return new Recent(java.util.Arrays.copyOf(ot, n), java.util.Arrays.copyOf(o, n), java.util.Arrays.copyOf(c, n),
+                java.util.Arrays.copyOf(v, n), java.util.Arrays.copyOf(tb, n));
+    }
+
     public Minutes minutes(String baseUrl, String symbol, Instant from, Instant to) throws Exception {
         URI uri = URI.create(String.format("%s/fapi/v1/klines?symbol=%s&interval=1m&startTime=%d&endTime=%d&limit=100",
                 baseUrl, symbol, from.toEpochMilli(), to.toEpochMilli() - 1));

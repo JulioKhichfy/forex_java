@@ -251,6 +251,24 @@ export const SECOES: Secao[] = [
     blocos: [
       { imagem: { src: 'radar', legenda: 'Radar do forex: alertas, próximos eventos, mapa por símbolo e força das moedas.' } },
       {
+        titulo: 'Baleias no bitcoin (alerta sonoro)',
+        html: `No topo do Radar, o painel <b>Baleias no bitcoin</b> mostra os minutos em que alguém comprou ou vendeu <b>a mercado</b>
+          muito acima do normal nos futuros de BTC da Binance (o maior mercado; a Exness segue o preço dele): o lado dominante
+          ≥ 10× o volume normal do minuto (mediana das 24 h anteriores) e pelo menos 75% de um lado só. É volume de instituição
+          ou de grande operador — cerca de 5 por dia, em média US$ 66 milhões no minuto. O servidor confere a cada 20 s (API
+          pública da Binance, sem conta).
+          <ul><li><b>som e notificação</b> (ligado por padrão): bipe agudo para baleia compradora, grave para vendedora, e
+          aviso do Windows. Minutos seguidos da mesma onda aparecem como "continuação" e não tocam de novo.</li>
+          <li><b>som também para volume de ticks forte</b> (desligado por padrão): toca quando um alerta de volume do mercado
+          escolhido passa de 4× o normal.</li></ul>
+          <b>Só no bitcoin:</b> no forex, ouro, índices e energia da Exness não existe volume real nem livro de ofertas — o
+          volume do MT5 é de ticks (quantas vezes o preço mudou), que não diz quem comprou.
+          <br><b>O que esperar:</b> no histórico (5.309 baleias desde 2022), o preço anda a favor da baleia <b>durante</b> o
+          minuto (+14 a +22 bps); <b>depois</b> — quando o alerta chega — a média é ~0 de 1 a 240 min (continua em 43–47% das
+          vezes). O alerta diz o que aconteceu, não o que vai acontecer. O que funcionou foi usar o fluxo como filtro do
+          Momentum BTC (página Hoje).`,
+      },
+      {
         titulo: 'Para que serve (e para que não serve)',
         html: `O Radar <b>descreve</b> o que o preço está fazendo, em vários períodos ao mesmo tempo (M5, M15, H1, H4 e D1),
           e junta os eventos e as notícias das moedas de cada símbolo. <b>Nenhum alerta é sinal de entrada</b>: nenhum deles

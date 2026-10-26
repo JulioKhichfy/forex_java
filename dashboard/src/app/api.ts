@@ -206,10 +206,19 @@ export interface Order {
   closeAfterUtc: string | null;
 }
 
+/** De onde veio a posição (26/10/2026: antes só roleta × manual). */
+export const ORIGINS: Record<string, string> = {
+  manual: 'Manual', roleta: 'Roleta', 'sinal automático': 'Sinal automático', momentum: 'Momentum BTC', cassino: 'Cassino',
+  'alta frequência': 'Alta frequência', externa: 'Fora do sistema',
+};
+
 /** De onde veio a posição e como ela está protegida (GET /api/trade/state → details[ticket]). */
 export interface PositionDetail {
   ticket: number;
-  origin: 'roleta' | 'manual' | 'externa';
+  /** manual | roleta | sinal automático | momentum | cassino | alta frequência | externa */
+  origin: string;
+  /** detalhe curto da entrada (vez/tentativa do Cassino, hora e fluxo do Momentum…) */
+  originNote: string | null;
   strategy: 'trend' | 'pullback' | null;
   model: string | null;
   horizonMin: number | null;

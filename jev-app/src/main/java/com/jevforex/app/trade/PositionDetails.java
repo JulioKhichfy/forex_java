@@ -26,7 +26,9 @@ public class PositionDetails {
     }
 
     /**
-     * @param origin        roleta | manual | externa (aberta fora deste sistema, sem ordem OPEN)
+     * @param origin        manual | roleta | sinal automático | momentum | cassino | alta frequência | externa (aberta
+     *                      fora deste sistema, sem ordem OPEN) — 26/10/2026: antes só roleta × manual
+     * @param originNote    detalhe curto da entrada (vez/tentativa do Cassino, hora e fluxo do Momentum…)
      * @param strategy      trend | pullback (só roleta)
      * @param pSide         probabilidade do lado escolhido (roleta) ou do lado da posição (manual)
      * @param closeAfterUtc saída por tempo original
@@ -44,7 +46,8 @@ public class PositionDetails {
                          Double pctB, Instant openedAt, Instant closeAfterUtc, Instant timeLockUntil,
                          String timeLockStatus, String timeLockMessage, String stopMode, Double stopAtr, Double targetR,
                          Double riskUsdPlanned, Double slUsd, Double tpUsd, long trailMoves, String trailLast,
-                         Instant timeLockStartedAt, Double timeLockPeakUsd, Instant timeLockPeakAt, Integer timeLockMoves) {
+                         Instant timeLockStartedAt, Double timeLockPeakUsd, Instant timeLockPeakAt, Integer timeLockMoves,
+                         String originNote) {
     }
 
     public Map<Long, Detail> forOpenPositions() {
@@ -66,7 +69,7 @@ public class PositionDetails {
             }
             if (r == null) {
                 out.put(p.ticket(), new Detail(p.ticket(), "externa", null, null, null, null, null, p.openTime(), null,
-                        null, null, null, null, null, null, null, slUsd, tpUsd, 0, null, null, null, null, null));
+                        null, null, null, null, null, null, null, slUsd, tpUsd, 0, null, null, null, null, null, null));
                 continue;
             }
             String strategy = (String) r.get("strategy");
@@ -75,7 +78,8 @@ public class PositionDetails {
             boolean usd = checks != null && checks.contains("Stop em US$");
             Double pSide = dbl(r, "p_side");
             if (pSide == null && r.get("p_up") != null) pSide = dbl(r, "BUY".equals(p.side()) ? "p_up" : "p_down");
-            out.put(p.ticket(), new Detail(p.ticket(), strategy != null ? "roleta" : "manual", strategy,
+            String origin = r.get("origin") != null ? (String) r.get("origin") : strategy != null ? "roleta" : "manual";
+            out.put(p.ticket(), new Detail(p.ticket(), origin, strategy,
                     (String) r.get("model"), r.get("horizon_min") == null ? null : ((Number) r.get("horizon_min")).intValue(),
                     pSide, dbl(r, "pct_b"), instant(r, "created_at"), instant(r, "close_after_utc"),
                     instant(r, "time_lock_until"), (String) r.get("time_lock_status"), (String) r.get("time_lock_message"),
@@ -83,7 +87,8 @@ public class PositionDetails {
                     sl != null && tp != null && sl > 0 ? tp / sl : null, dbl(r, "risk_usd"), slUsd, tpUsd,
                     r.get("trail_moves") == null ? 0 : ((Number) r.get("trail_moves")).longValue(), (String) r.get("trail_last"),
                     instant(r, "time_lock_started_at"), dbl(r, "time_lock_peak_usd"), instant(r, "time_lock_peak_at"),
-                    r.get("time_lock_moves") == null ? null : ((Number) r.get("time_lock_moves")).intValue()));
+                    r.get("time_lock_moves") == null ? null : ((Number) r.get("time_lock_moves")).intValue(),
+                    (String) r.get("origin_note")));
         }
         return out;
     }

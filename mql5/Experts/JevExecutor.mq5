@@ -15,6 +15,8 @@
 //|  - reporta o fechamento de toda posição que abriu, mesmo à mão (2.7)|
 //|  - reporta também as posições de fora, marcadas (2.8)             |
 //|  - cotações dos símbolos extras do Cassino (2.9): InpSymbols7..9  |
+//|  - log de comunicação claro (2.10): motivo em português, "API fora"|
+//|    só com 3 falhas seguidas, resumo das isoladas, aviso de sufixo  |
 //|  - reporta cada execução (POST /api/ea/execution) e envia         |
 //|    heartbeat com saldo, margem, cotações e posições               |
 //|                                                                  |
@@ -29,7 +31,7 @@
 //| Expert Advisors → "Permitir WebRequest…" → http://127.0.0.1:8080  |
 //+------------------------------------------------------------------+
 #property copyright   "Jev Forex"
-#property version     "2.90"
+#property version     "2.10"
 #property description "Jev Forex — executor das ordens aprovadas no dashboard, com SL/TP no servidor."
 
 #include <Trade/Trade.mqh>
@@ -54,7 +56,7 @@ input string InpSymbols9         = "AUDAUC,CADCAC,CHFCHC,EUREUC,GBPGBC,IDRIDC,JP
 input int    InpPollSeconds      = 1;                       // Busca de ordens (s)
 input int    InpHeartbeatSeconds = 5;                       // Heartbeat (s)
 
-#define EA_VERSION "JevExecutor/2.9"
+#define EA_VERSION "JevExecutor/2.10"
 #define MAX_SEEN   500
 
 CTrade   g_trade;
@@ -65,6 +67,12 @@ datetime g_lastHeartbeat = 0;
 datetime g_lastFlatten = 0;
 bool     g_apiOk = true;
 bool     g_urlWarned = false;
+int      g_failStreak = 0;          // falhas seguidas de comunicação (2.10: "API fora" só a partir de 3)
+int      g_isolated = 0;            // falhas isoladas (1 ou 2 seguidas) desde o último resumo
+string   g_lastReason = "";
+datetime g_downSince = 0;
+datetime g_lastSummary = 0;
+bool     g_noQuotesWarned = false;
 string   g_lastHeartbeatReply = "OK";
 string   g_seen[];
 string   g_symbols[];
@@ -118,6 +126,26 @@ int OnInit()
      }
    JevSplitList(InpSymbols + "," + InpSymbols2 + "," + InpSymbols3 + "," + InpSymbols4 + "," + InpSymbols5 + ","
                 + InpSymbols6 + "," + InpSymbols7 + "," + InpSymbols8 + "," + InpSymbols9, g_symbols);
+   g_lastSummary = TimeLocal();
+   // 2.10: avisa logo na partida os símbolos que não existem com este sufixo (ex.: "C" no lugar de "c" na conta cent)
+   string missing = "";
+   int nMissing = 0;
+   for(int i = 0; i < ArraySize(g_symbols); i++)
+     {
+      if(SymbolSelect(JevBrokerSymbol(g_symbols[i], InpSuffix), true))
+         continue;
+      nMissing++;
+      if(nMissing <= 8)
+         missing += (missing == "" ? "" : ", ") + JevBrokerSymbol(g_symbols[i], InpSuffix);
+     }
+   if(nMissing == ArraySize(g_symbols) && nMissing > 0)
+      PrintFormat("JevExecutor: NENHUM dos %d símbolos existe com o sufixo \"%s\" (ex.: %s). Confira InpSuffix — o nome "
+                  "do gráfico mostra o certo (%s). Sem cotação, o sistema recusa toda ordem.", nMissing, InpSuffix,
+                  JevBrokerSymbol(g_symbols[0], InpSuffix), _Symbol);
+   else
+      if(nMissing > 0)
+         PrintFormat("JevExecutor: %d de %d símbolos não existem nesta conta com o sufixo \"%s\" (ficam sem cotação): %s%s",
+                     nMissing, ArraySize(g_symbols), InpSuffix, missing, nMissing > 8 ? "…" : "");
    g_trade.SetExpertMagicNumber(InpMagic);
    g_trade.SetAsyncMode(false);
    PrintFormat("JevExecutor %s iniciado: conta %I64d em %s (%s), API %s, %s, teto %.2f lote.", EA_VERSION,
@@ -153,11 +181,12 @@ void OnTimer()
   }
 
 //+------------------------------------------------------------------+
-//| Falha de comunicação: registra só na mudança de estado (sem spam) |
+//| Falha de comunicação (2.10): "API fora" só com 3 falhas seguidas,  |
+//| com o motivo em português; as isoladas viram um resumo por hora    |
 //+------------------------------------------------------------------+
 void ApiFailure(const int code)
   {
-   int err = GetLastError();
+   int err = g_jevHttpError;
    if(code == -1 && err == JEV_ERR_URL_NOT_ALLOWED)
      {
       if(!g_urlWarned)
@@ -166,17 +195,34 @@ void ApiFailure(const int code)
       g_urlWarned = true;
       return;
      }
-   if(g_apiOk)
-      PrintFormat("JevExecutor: API fora (HTTP %d, erro %d). Sem API, nenhuma ordem nova; posições seguem "
-                  "com SL/TP no servidor.", code, err);
-   g_apiOk = false;
+   g_failStreak++;
+   g_lastReason = JevHttpReason(code, err);
+   if(g_apiOk && g_failStreak >= 3)
+     {
+      PrintFormat("JevExecutor: API fora — %d tentativas seguidas sem resposta (%s). Sem API, nenhuma ordem nova; "
+                  "posições seguem com SL/TP no servidor.", g_failStreak, g_lastReason);
+      g_apiOk = false;
+      g_downSince = TimeLocal();
+     }
   }
 
 void ApiOk()
   {
    if(!g_apiOk)
-      Print("JevExecutor: API de volta");
+      PrintFormat("JevExecutor: API de volta (ficou fora por %d s)", (int)(TimeLocal() - g_downSince));
+   else
+      if(g_failStreak > 0)
+         g_isolated++;   // 1 ou 2 falhas e voltou: não vale um aviso, entra no resumo
    g_apiOk = true;
+   g_failStreak = 0;
+   if(TimeLocal() - g_lastSummary >= 3600)
+     {
+      if(g_isolated > 0)
+         PrintFormat("JevExecutor: %d falha(s) isolada(s) de comunicação na última hora, resolvida(s) na tentativa "
+                     "seguinte (a última: %s)", g_isolated, g_lastReason);
+      g_isolated = 0;
+      g_lastSummary = TimeLocal();
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -565,6 +611,21 @@ string QuotesJson()
                           JevIsoUtc((datetime)(t.time - JevServerOffsetSeconds())),
                           se == 0 ? "" : JevIsoUtc((datetime)(se - JevServerOffsetSeconds())));
      }
+   // 2.10: heartbeat sem nenhuma cotação = sufixo errado ou terminal desconectado; avisa uma vez por ocorrência
+   if(out == "" && ArraySize(g_symbols) > 0)
+     {
+      if(!g_noQuotesWarned)
+         PrintFormat("JevExecutor: nenhuma cotação para enviar (sufixo \"%s\", ex.: %s). Confira InpSuffix e a conexão com "
+                     "a corretora; sem cotação, o sistema recusa toda ordem.", InpSuffix,
+                     JevBrokerSymbol(g_symbols[0], InpSuffix));
+      g_noQuotesWarned = true;
+     }
+   else
+      if(out != "" && g_noQuotesWarned)
+        {
+         Print("JevExecutor: cotações de volta");
+         g_noQuotesWarned = false;
+        }
    return "[" + out + "]";
   }
 

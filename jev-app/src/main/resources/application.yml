@@ -324,6 +324,21 @@ momentum:
   flow-url: https://fapi.binance.com
 
 # ---------------------------------------------------------------------
+#  Baleias no bitcoin (Radar, 25/10/2026): minuto dos futuros da Binance com compra (ou venda) A MERCADO ≥ multiple × a
+#  mediana do minuto nas 24 h anteriores e desequilíbrio ≥ min-imbalance (calibração 2025+: ~5 por dia, ~US$ 66 mi).
+#  Descritivo: o preço anda a favor DURANTE o minuto; depois, ~0 (continua em 43–47%). API pública, sem conta.
+# ---------------------------------------------------------------------
+whales:
+  enabled: true
+  binance-symbol: BTCUSDT
+  symbol: BTCUSD                 # o símbolo no sistema (Exness) a que o alerta se refere
+  market: crypto
+  multiple: 10
+  min-imbalance: 0.5
+  lookback-minutes: 1440
+  url: https://fapi.binance.com
+
+# ---------------------------------------------------------------------
 #  Cassino (23/10/2026): símbolos além dos do sistema, só para o Cassino. Precisam do JevCandleExporter (especificação
 #  e M1, inputs InpCasino*) e do JevExecutor 2.9 (cotação, inputs InpSymbols7..9). Ficam fora dos modelos
 #  (experiment.market-symbols). optional = a página mostra só se o operador marcar "incluir".
@@ -398,6 +413,7 @@ trading:
       max-spread-ratio: 2.0           # gate 3: spread atual até 2 × o típico do horário
       min-margin-level-pct: 300       # sem entrada nova se o nível de margem estiver abaixo de 300%
       session-margin-minutes: 5       # a saída por tempo precisa cair 5 min antes do fim da sessão do símbolo (EA 2.5)
+      one-per-symbol: true            # trava "Par livre": uma posição por símbolo somando todas as origens (o Cassino ignora)
 
     # ===== STOP E ALVO EM US$ E TRAILING (página "Stop em US$") =====
     money:

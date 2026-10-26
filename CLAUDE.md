@@ -56,6 +56,9 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
   Travas (revisão de 19/10): conta (3.1) e mercado (3.4) separados — "Posições abertas"/"Risco aberto total" contam a
   conta; "Posições no mercado"/"Risco aberto no mercado" só o mercado; "Risco-alvo do mercado" aplica risk-per-trade-pct
   e min-lot-policy; exposição a USD conta ouro/bitcoin/etc. pelo usd-weight. A página Risco mostra o que a roleta ignora.
+  "Par livre" pode ser desligado (`trading.risk.orders.one-per-symbol`, página Risco 3.2; 26/10): aí várias origens abrem no
+  mesmo símbolo e valem só os limites de posições e de risco aberto. A origem de cada operação (manual, roleta, sinal automático,
+  momentum, cassino, externa) sai das tabelas de entrada (`TradeRepository.ORIGIN_SQL`) e aparece em Operar e em Suas operações.
   Estratégias: `trend` (lado mais provável, pula LATERAL), `both` (as duas: LATERAL → pullback, resto → trend; placar por perna) e `pullback` (teste do operador, 14/10: só em LATERAL,
   contra a banda de Bollinger M15 do radar; E[R] fora da amostra negativo, ~0 no ouro). Placar separado (Flyway V10).
 - **Stop em US$ e trailing** (`trading.risk.money`, página "Stop em US$", 14/10): ligado, toda ordem nova sai com stop/alvo em
@@ -103,7 +106,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5; `news/`: GDELT (GKG) e SEC EDGAR |
 | jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
 | dashboard | Angular 20 (Hoje, Radar, Previsões, Eventos, Universo, Operar, Roleta russa, Cassino, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
-| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.9 (executor com 3 chaves; cotações dos extras do Cassino em InpSymbols7..9; OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo; reporta o fechamento de toda posição que abriu, mesmo manual; reporta também as posições de fora, marcadas), `install.ps1` |
+| mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.10 (executor com 3 chaves; cotações dos extras do Cassino em InpSymbols7..9; log de comunicação com o motivo em português, "API fora" só com 3 falhas seguidas e aviso de sufixo errado (2.10); OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo; reporta o fechamento de toda posição que abriu, mesmo manual; reporta também as posições de fora, marcadas), `install.ps1` |
 
 ## Comandos
 ```
@@ -310,3 +313,7 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             /fapi/v1/klines na hora cheia; status FILTERED; sem resposta = não entra; Flyway V19 `flow`)
       - [x] 12f livro de ofertas (`tools/estudo_livro.py`, bookDepth da Binance 2023+, a ±1/2/5% do preço): sozinho não prevê (o
             preço puro é igual ou melhor); como filtro do Momentum as variantes se contradizem e ficam dentro do erro. Sem uso
+      - [x] 12g baleias no Radar (pedido do operador, 25/10): `WhaleService` (API pública da Binance a cada 20 s, `scan/WhaleRule`,
+            Flyway V20 `whale_event`, `whales:` no yml): minuto com compra/venda a mercado ≥ 10× a mediana de 24 h e desequilíbrio
+            ≥ 0,5 (~5/dia, ~US$ 66 mi); painel no Radar com som/notificação (e som opcional para volume de ticks ≥ 4×). Descritivo:
+            +14 a +22 bps durante o minuto, ~0 depois (5.309 casos desde 2022). Só bitcoin: a Exness não tem volume real nem livro

@@ -347,8 +347,14 @@ public class OrderService {
         checks.add(new Check("Posições no mercado", openMarket < mr.maxPositions(), String.valueOf(openMarket),
                 "< " + mr.maxPositions() + " em " + market));
         boolean samePair = positions.stream().anyMatch(p -> p.symbol().equals(symbol));
-        checks.add(new Check("Par livre", !samePair, samePair ? "já há posição em " + symbol : "livre",
-                "sem posição no mesmo par"));
+        if (o.onePerSymbol()) {
+            checks.add(new Check("Par livre", !samePair, samePair ? "já há posição em " + symbol : "livre",
+                    "sem posição no mesmo par"));
+        } else {
+            // 26/10/2026: o operador pode desligar (página Risco); valem os limites de posições e de risco aberto
+            checks.add(new Check("Par livre", true, (samePair ? "já há posição em " + symbol + " · " : "")
+                    + "trava desligada na página Risco", "desligada (orders.one-per-symbol)"));
+        }
         double openRisk = 0, openRiskMarket = 0;
         boolean allWithStop = true;
         String noStop = null;   // a posição sem stop (de fora do sistema, em geral): risco desconhecido = falhar fechado

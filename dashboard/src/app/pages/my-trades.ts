@@ -3,6 +3,7 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Tip } from './tip';
 import { Brt } from '../brt';
+import { ORIGINS } from '../api';
 
 interface ClosedTrade {
   positionTicket: number;
@@ -18,6 +19,8 @@ interface ClosedTrade {
   resultUsd: number;
   riskUsd: number | null;
   r: number | null;
+  origin: string | null;
+  originNote: string | null;
 }
 
 interface Performance {
@@ -47,7 +50,8 @@ const REASONS: Record<string, string> = {
       </div>
       @if (!compact()) {
         <div class="table-wrap"><table>
-          <tr><th>Fechada (UTC)</th><th>Símbolo</th><th>Lado</th><th class="right">Lote</th><th class="right">Entrada → saída</th>
+          <tr><th>Fechada (UTC)</th><th>Símbolo</th><th>Lado</th>
+            <th>Origem <tip text="Quem abriu a operação: Manual (botão), Roleta, Sinal automático, Momentum BTC, Cassino ou fora do sistema, com um detalhe da entrada." /></th><th class="right">Lote</th><th class="right">Entrada → saída</th>
             <th>Saída <tip text="Quem fechou: stop ou alvo no servidor da corretora, o sistema (botão ou saída por tempo), você no MT5, ou a corretora por falta de margem." /></th>
             <th class="right">Resultado</th><th class="right">R <tip key="R" /></th></tr>
           @for (t of p.trades; track t.positionTicket) {
@@ -55,6 +59,7 @@ const REASONS: Record<string, string> = {
               <td class="small mono nowrap" [brt]="t.closedAt">{{ t.closedAt | date: 'dd/MM HH:mm' : 'UTC' }}</td>
               <td class="mono">{{ t.symbol }}</td>
               <td>@if (t.side) { <span class="badge" [class.buy]="t.side === 'BUY'" [class.sell]="t.side === 'SELL'">{{ t.side === 'BUY' ? 'COMPRA' : 'VENDA' }}</span> }</td>
+              <td class="small">{{ origins[t.origin ?? ''] ?? t.origin ?? '—' }}@if (t.originNote) { <span class="muted"> · {{ t.originNote }}</span> }</td>
               <td class="right mono">{{ t.volume }}</td>
               <td class="right mono small">{{ t.entryPrice ?? '—' }} → {{ t.exitPrice }}</td>
               <td class="small">{{ reasons[t.reason] ?? t.reason }}</td>
@@ -62,7 +67,7 @@ const REASONS: Record<string, string> = {
               <td class="right mono">{{ t.r === null ? '—' : (t.r | number: '1.2-2') }}</td>
             </tr>
           } @empty {
-            <tr><td colspan="8" class="muted">Nenhuma operação fechada no período (o EA 2.1 reporta os fechamentos a cada heartbeat).</td></tr>
+            <tr><td colspan="9" class="muted">Nenhuma operação fechada no período (o EA 2.1 reporta os fechamentos a cada heartbeat).</td></tr>
           }
         </table></div>
       }
@@ -81,6 +86,7 @@ export class MyTrades implements OnInit, OnDestroy {
   days = input(30);
   compact = input(false);
   protected reasons: Partial<Record<string, string>> = REASONS;
+  protected origins: Partial<Record<string, string>> = ORIGINS;
   protected perf = signal<Performance | null>(null);
   private timer?: ReturnType<typeof setInterval>;
 

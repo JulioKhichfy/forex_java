@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Trava "Sessão até a saída por tempo" (16/10/2026: USDCAD aberto às 20:02 de sexta, saída em 60 min). */
 class SessionCheckTest {
 
-    private static final RiskSettings.Orders O = new RiskSettings.Orders(0.01, 0.05, 60, 20, 30, 30, 90, 10, 2, 2.0, 300, 5);
+    private static final RiskSettings.Orders O = new RiskSettings.Orders(0.01, 0.05, 60, 20, 30, 30, 90, 10, 2, 2.0, 300, 5, null);
     private static final Instant SEXTA_2002 = Instant.parse("2026-10-16T20:02:00Z");
 
     private static ObjectNode quote(String sessionEnd) {

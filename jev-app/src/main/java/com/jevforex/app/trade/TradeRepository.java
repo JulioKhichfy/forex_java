@@ -257,6 +257,31 @@ public class TradeRepository {
      * De onde veio cada posição aberta e como ela é protegida: a ordem OPEN, a entrada da roleta (estratégia), a
      * previsão, a prorrogação e os movimentos do trailing. Uma linha por ticket (posição de fora do sistema não tem).
      */
+    /**
+     * De onde veio a ordem OPEN {@code o} (pedido do operador em 26/10/2026): a estratégia que a enviou, pela tabela de
+     * entradas de cada uma; sem nenhuma = manual (botão do dashboard). {@code origin_note} = um detalhe curto da entrada.
+     */
+    static final String ORIGIN_SQL = """
+            CASE WHEN o.id IS NULL THEN 'externa'
+                 WHEN EXISTS (SELECT 1 FROM casino_entry x WHERE x.order_id = o.id) THEN 'cassino'
+                 WHEN EXISTS (SELECT 1 FROM momentum_entry x WHERE x.order_id = o.id) THEN 'momentum'
+                 WHEN EXISTS (SELECT 1 FROM auto_signal_entry x WHERE x.order_id = o.id) THEN 'sinal automático'
+                 WHEN EXISTS (SELECT 1 FROM roulette_entry x WHERE x.order_id = o.id) THEN 'roleta'
+                 WHEN EXISTS (SELECT 1 FROM hf_entry x WHERE x.order_id = o.id) THEN 'alta frequência'
+                 ELSE 'manual' END AS origin,
+            coalesce(
+              (SELECT 'vez ' || coalesce(x.cycle, 1) || ', tentativa ' || x.attempt
+                      || CASE WHEN x.auto_side THEN ', lado pela previsão' ELSE '' END
+                      || CASE WHEN x.message LIKE '%lucro mínimo%' THEN ', lucro mínimo' ELSE '' END
+                 FROM casino_entry x WHERE x.order_id = o.id LIMIT 1),
+              (SELECT 'hora ' || to_char(x.ret * 100, 'FMSG990.00') || '%'
+                      || coalesce(', fluxo ' || to_char(x.flow, 'FMSG0.000'), '')
+                 FROM momentum_entry x WHERE x.order_id = o.id LIMIT 1),
+              (SELECT 'regra do ' || x.market || coalesce(', P ' || to_char(x.p_side * 100, 'FM990') || '%', '')
+                 FROM auto_signal_entry x WHERE x.order_id = o.id LIMIT 1),
+              (SELECT x.market || ' · ' || coalesce(x.strategy, 'trend')
+                 FROM roulette_entry x WHERE x.order_id = o.id LIMIT 1)) AS origin_note""";
+
     public List<java.util.Map<String, Object>> openOrderInfo(List<Long> tickets) {
         if (tickets.isEmpty()) return List.of();
         return jdbc().sql("""
@@ -270,13 +295,14 @@ public class TradeRepository {
                                (SELECT count(*) FROM order_request m WHERE m.action = 'MODIFY' AND m.ticket = o.ticket
                                    AND m.status = 'FILLED' AND m.tp_price IS NULL) AS trail_moves,
                                (SELECT m.message FROM order_request m WHERE m.action = 'MODIFY' AND m.ticket = o.ticket
-                                   AND m.status = 'FILLED' AND m.tp_price IS NULL ORDER BY m.id DESC LIMIT 1) AS trail_last
+                                   AND m.status = 'FILLED' AND m.tp_price IS NULL ORDER BY m.id DESC LIMIT 1) AS trail_last,
+                               %s
                           FROM order_request o
                           LEFT JOIN roulette_entry e ON e.order_id = o.id
                           LEFT JOIN prediction pr ON pr.id = o.prediction_id
                           LEFT JOIN order_request lk ON lk.id = o.time_lock_order_id
                          WHERE o.action = 'OPEN' AND o.status = 'FILLED' AND o.ticket IN (:tickets)
-                        """)
+                        """.formatted(ORIGIN_SQL))
                 .param("tickets", tickets).query().listOfRows();
     }
 
@@ -373,9 +399,13 @@ public class TradeRepository {
      * @param resultUsd lucro líquido (lucro + swap + comissão)
      * @param r         resultado ÷ risco planejado na entrada (perda máxima no stop); null sem a ordem de entrada
      */
+    /**
+     * @param origin     de onde veio: manual, roleta, sinal automático, momentum, cassino, alta frequência ou externa
+     * @param originNote um detalhe curto da entrada (ex.: "vez 2, tentativa 1", "hora +0,65%, fluxo +0,152")
+     */
     public record ClosedTrade(long positionTicket, String market, String symbol, String side, double volume,
                               Double entryPrice, Double exitPrice, Instant openedAt, Instant closedAt, String reason,
-                              double resultUsd, Double riskUsd, Double r) {
+                              double resultUsd, Double riskUsd, Double r, String origin, String originNote) {
     }
 
     public List<ClosedTrade> closedTrades(Instant from, int limit) {
@@ -391,10 +421,10 @@ public class TradeRepository {
                                AND account = (SELECT account FROM heartbeat WHERE component = 'ea'
                                                ORDER BY reported_at DESC NULLS LAST, id DESC LIMIT 1)
                              GROUP BY position_ticket)
-                        SELECT d.*, o.side, o.fill_price, o.created_at AS opened_at, o.risk_usd
+                        SELECT d.*, o.side, o.fill_price, o.created_at AS opened_at, o.risk_usd, %s
                           FROM d LEFT JOIN order_request o ON o.ticket = d.position_ticket AND o.action = 'OPEN'
                          ORDER BY d.closed_at DESC LIMIT :limit
-                        """)
+                        """.formatted(ORIGIN_SQL))
                 .param("from", ts(from), Types.TIMESTAMP).param("limit", limit)
                 .query((rs, i) -> {
                     Double risk = (Double) rs.getObject("risk_usd");
@@ -403,7 +433,8 @@ public class TradeRepository {
                     return new ClosedTrade(rs.getLong("position_ticket"), rs.getString("market"), rs.getString("symbol"),
                             side, rs.getDouble("volume"), (Double) rs.getObject("fill_price"),
                             (Double) rs.getObject("exit_price"), instant(rs, "opened_at"), instant(rs, "closed_at"),
-                            rs.getString("reason"), result, risk, risk == null || risk <= 0 ? null : result / risk);
+                            rs.getString("reason"), result, risk, risk == null || risk <= 0 ? null : result / risk,
+                            rs.getString("origin"), rs.getString("origin_note"));
                 }).list();
     }
 
