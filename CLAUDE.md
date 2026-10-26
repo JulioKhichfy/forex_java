@@ -93,6 +93,8 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 - **Nunca** escrever a chave do Jev em arquivo versionado, log ou teste. Ela vem de `TYPESAFE_API_KEY`
   ou `JEV_API_KEY_FILE` (o arquivo fica FORA do repositório).
 - API e Postgres escutam apenas em 127.0.0.1.
+- Heartbeat do EA (~30 KB a cada 5 s): só o mais recente é lido por inteiro; `HeartbeatJanitor` esvazia o detalhe JSON depois de
+  `mt5.heartbeat-detail-days` (2) e a V21 indexa `reported_at` (26/10/2026: sem índice, cada conferência de ordem levava 12–36 s).
 
 ## Módulos
 | Módulo | Papel |

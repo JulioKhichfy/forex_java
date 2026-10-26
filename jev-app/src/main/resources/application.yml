@@ -297,6 +297,7 @@ mt5:
   expected-account: ${MT5_ACCOUNT:0}   # login aceito (0 = não confere). setx MT5_ACCOUNT "seu-login"
   expected-server: ${MT5_SERVER:}      # ex.: Exness-MT5Trial11 (vazio = não confere)
   heartbeat-stale-seconds: 30          # EA sem heartbeat há mais que isto = fora
+  heartbeat-detail-days: 2             # depois disto o detalhe JSON do heartbeat vira {} (HeartbeatJanitor; ~0,5 GB/dia)
   candle-stale-seconds: 150            # última barra M1 mais velha que isto = candles atrasados
 
 # ---------------------------------------------------------------------

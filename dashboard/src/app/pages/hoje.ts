@@ -3,7 +3,7 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { Api, CalendarItem, LatestPredictions, MODEL_NAMES, NewsItem, OrderPreview, Prediction } from '../api';
-import { catchError, concatMap, forkJoin, from, map, of } from 'rxjs';
+import { catchError, concatMap, forkJoin, from, map, of, timeout } from 'rxjs';
 import { ProbBar } from './prob-bar';
 import { Tip } from './tip';
 import { Brt } from '../brt';
@@ -421,11 +421,19 @@ export class Hoje implements OnInit, OnDestroy {
   private previewList(preds: Prediction[]): void {
     if (!preds.length) return;
     this.busy.set(true);
+    // 26/10/2026: uma prévia lenta (o servidor chegou a levar 36 s) segurava o quadro inteiro em "Calculando…"; agora
+    // cada uma tem 20 s, e a que não responder aparece com o aviso ao lado do símbolo
+    const failed: string[] = [];
     const calls = preds.map((p) => this.api.preview(p.symbol, this.side(p), this.lot()).pipe(
+      timeout(20_000),
       map((preview) => ({ symbol: p.symbol, side: this.side(p), preview })),
-      catchError(() => of(null))));
+      catchError(() => { failed.push(p.symbol); return of(null); })));
     forkJoin(calls).subscribe((list) => {
       this.plan.set(list.filter((x): x is { symbol: string; side: 'BUY' | 'SELL'; preview: OrderPreview } => x !== null));
+      if (failed.length) {
+        this.results.update((m) => ({ ...m, ...Object.fromEntries(failed.map((s) => [s, { ok: false,
+          text: 'a conferência não respondeu em 20 s: tente de novo' }])) }));
+      }
       this.busy.set(false);
     });
   }
