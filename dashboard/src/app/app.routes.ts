@@ -12,6 +12,7 @@ import { StopDolar } from './pages/stop-dolar';
 import { Laboratorio } from './pages/laboratorio';
 import { Eventos } from './pages/eventos';
 import { Cassino } from './pages/cassino';
+import { Principal } from './pages/principal';
 import { Universo } from './pages/universo';
 
 export const routes: Routes = [
@@ -23,6 +24,7 @@ export const routes: Routes = [
   { path: 'operar', component: Operar, title: 'Operar · Jev Forex' },
   { path: 'roleta', component: Roleta, title: 'Roleta russa · Jev Forex' },
   { path: 'cassino', component: Cassino, title: 'Cassino · Jev Forex' },
+  { path: 'principal', component: Principal, title: 'Principal de hoje · Jev Forex' },
   { path: 'alta-frequencia', redirectTo: 'cassino' },
   { path: 'stop-dolar', component: StopDolar, title: 'Stop em US$ · Jev Forex' },
   { path: 'risco', component: Risco, title: 'Risco · Jev Forex' },

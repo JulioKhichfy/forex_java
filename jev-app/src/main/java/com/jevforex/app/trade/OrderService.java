@@ -454,7 +454,7 @@ public class OrderService {
 
         if (roulette != null) {
             java.util.Set<String> waived = roulette.casino() ? CASINO_WAIVED : ROULETTE_WAIVED;
-            String tag = roulette.casino() ? " · ignorada no Cassino" : " · ignorada na roleta";
+            String tag = roulette.casino() ? " · ignorada (sem travas de risco: Cassino / Principal de hoje)" : " · ignorada na roleta";
             checks.replaceAll(c -> c.ok() || !waived.contains(c.gate()) ? c : new Check(c.gate(), true, c.value() + tag, c.limit()));
         }
         boolean ok = checks.stream().allMatch(Check::ok);

@@ -107,7 +107,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-ml | walk-forward: Dataset, Outcomes (stop/alvo/tempo no M1), Gbm (Smile), Metrics, ExperimentRunner (modo cofre), ReportWriter, ModelStore (versões em produção), RiskLab (laboratório de configuração) (sem Spring) |
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5; `news/`: GDELT (GKG) e SEC EDGAR |
 | jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
-| dashboard | Angular 20 (Hoje, Radar, Previsões, Eventos, Universo, Operar, Roleta russa, Cassino, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
+| dashboard | Angular 20 (Hoje, Principal de hoje, Radar, Previsões, Eventos, Universo, Operar, Roleta russa, Cassino, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
 | mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.10 (executor com 3 chaves; cotações dos extras do Cassino em InpSymbols7..9; log de comunicação com o motivo em português, "API fora" só com 3 falhas seguidas e aviso de sufixo errado (2.10); OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo; reporta o fechamento de toda posição que abriu, mesmo manual; reporta também as posições de fora, marcadas), `install.ps1` |
 
 ## Comandos
@@ -319,3 +319,9 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
             Flyway V20 `whale_event`, `whales:` no yml): minuto com compra/venda a mercado ≥ 10× a mediana de 24 h e desequilíbrio
             ≥ 0,5 (~5/dia, ~US$ 66 mi); painel no Radar com som/notificação (e som opcional para volume de ticks ≥ 4×). Descritivo:
             +14 a +22 bps durante o minuto, ~0 depois (5.309 casos desde 2022). Só bitcoin: a Exness não tem volume real nem livro
+- [x] Passo 13 — Principal de hoje (pedido do operador, 28/10): `EventDeskService` (Flyway V22 `event_plan`/`event_plan_order`,
+      `/api/desk`): eventos de importância alta das próximas 48 h agrupados por moeda e minuto, consenso para a moeda
+      (previsto × anterior × "maior é bom" aprendido do `impact` do MT5) e o mapa de eventos; plano por evento: MODEL (previsão B
+      2 min depois, pula LATERAL), SURPRISE (resultado; estudo 12d: −0,15 ATR) ou NOW (antes, lado do consenso; não testado).
+      Ordens com `Roulette.casino` (sem travas de risco por ordem, decisão do operador), stop/alvo em US$. Em 28/10 o calendário
+      do MT5 parou de trazer os resultados desde 26/10 (actual vazio no próprio terminal): a página avisa quando isso acontece

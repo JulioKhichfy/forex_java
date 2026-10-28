@@ -677,6 +677,52 @@ export const SECOES: Secao[] = [
     ],
   },
 
+  // ======================================================================== principal de hoje
+  {
+    id: 'principal',
+    titulo: 'Página Principal de hoje',
+    resumo: 'Os eventos de importância alta das próximas 48 h, de todas as moedas, com o que esperar e um plano por evento: operar automaticamente quando sair ou agora, no lado do consenso.',
+    blocos: [
+      {
+        titulo: 'O que aparece',
+        html: `Cada horário (moeda + minuto) vira um cartão: os eventos de importância alta daquele minuto com previsto, anterior
+          e o real quando sair (verde = positivo para a moeda, vermelho = negativo, segundo o MT5), e o <b>consenso para a
+          moeda</b>: previsto × anterior e se "maior é bom" para ela (aprendido do histórico: desemprego e pedidos de
+          seguro-desemprego acima = ruim). O evento <b>principal</b> (a decisão de juros, se houver) é o que decide no modo
+          "pelo dado". Os símbolos afetados aparecem com quanto costumam andar em 15 min (mapa de eventos; passe o mouse para
+          o detalhe). Por padrão vêm marcados os pares de forex da moeda; marque ou desmarque à vontade.`,
+      },
+      {
+        titulo: 'Operar automaticamente quando sair',
+        html: `Arma um plano para o evento, com o modo escolhido no topo:
+          <ul><li><b>pelo modelo</b>: espera a previsão do modelo B feita 2 min depois da divulgação (ela já leva a surpresa em
+          conta) e entra no lado mais provável de cada símbolo, pulando LATERAL. Foi o caminho que teve vantagem no ouro e nos
+          índices; no forex, sem vantagem comprovada.</li>
+          <li><b>pelo dado</b>: quando o resultado chega, positivo para a moeda = a favor dela (pares com a moeda, ouro e
+          bitcoin contra o dólar). No estudo de 2022–2026 deu <b>−0,15 ATR por operação</b>: o preço anda nos primeiros
+          segundos, antes de conseguirmos entrar, e o spread da hora é caro. Sem o resultado em 30 min, o plano expira.</li></ul>
+          "Desarmar" cancela antes do evento.`,
+      },
+      {
+        titulo: 'Operar agora (como o consenso esperava)',
+        html: `Entra <b>já</b>, antes da divulgação, no lado que o consenso implica para a moeda. Quando o calendário não traz o
+          previsto (comum nas decisões de juros), aparecem os botões "a favor" e "contra" para você escolher. <b>Não testado</b>:
+          quando o consenso se confirma, o preço costuma já estar ajustado (no BoC de 28/10, a alta esperada levou o USDCAD 15
+          pips e de volta em 30 s), e o spread alarga perto do evento.`,
+      },
+      {
+        titulo: 'Travas, stop e alvo',
+        html: `As ordens desta página <b>não passam pelas travas de risco por ordem</b> (teto e alvo de risco, posições, um por
+          par, mercado ligado, risco aberto, dólar, margem, spread, blackout) — como o Cassino. Valem as técnicas (EA, cotação,
+          lote, alvo e stop além de 2 spreads) e a <b>perda do dia/semana</b>. Stop e alvo em US$ por ordem, com o lote do
+          topo (vazio = o mínimo), e saída por tempo opcional. Na página Operar e em "Suas operações", a origem aparece como
+          "Principal de hoje" com o evento e o modo.
+          <br>Se um evento passou há mais de 10 min sem o valor real, a página avisa: o calendário do MT5 parou de trazer os
+          resultados (Ferramentas → Opções → Servidor → "Ativar notícias", e reinicie o terminal).`,
+      },
+    ],
+  },
+
   // ======================================================================== cassino
   {
     id: 'cassino',

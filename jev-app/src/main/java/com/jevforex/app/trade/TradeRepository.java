@@ -263,6 +263,7 @@ public class TradeRepository {
      */
     static final String ORIGIN_SQL = """
             CASE WHEN o.id IS NULL THEN 'externa'
+                 WHEN EXISTS (SELECT 1 FROM event_plan_order x WHERE x.order_id = o.id) THEN 'principal de hoje'
                  WHEN EXISTS (SELECT 1 FROM casino_entry x WHERE x.order_id = o.id) THEN 'cassino'
                  WHEN EXISTS (SELECT 1 FROM momentum_entry x WHERE x.order_id = o.id) THEN 'momentum'
                  WHEN EXISTS (SELECT 1 FROM auto_signal_entry x WHERE x.order_id = o.id) THEN 'sinal automático'
@@ -270,6 +271,9 @@ public class TradeRepository {
                  WHEN EXISTS (SELECT 1 FROM hf_entry x WHERE x.order_id = o.id) THEN 'alta frequência'
                  ELSE 'manual' END AS origin,
             coalesce(
+              (SELECT p.currency || ' ' || p.event_code || ' · ' || CASE p.mode WHEN 'MODEL' THEN 'pelo modelo'
+                      WHEN 'SURPRISE' THEN 'pelo dado' ELSE 'consenso, antes' END
+                 FROM event_plan_order x JOIN event_plan p ON p.id = x.plan_id WHERE x.order_id = o.id LIMIT 1),
               (SELECT 'vez ' || coalesce(x.cycle, 1) || ', tentativa ' || x.attempt
                       || CASE WHEN x.auto_side THEN ', lado pela previsão' ELSE '' END
                       || CASE WHEN x.message LIKE '%lucro mínimo%' THEN ', lucro mínimo' ELSE '' END
