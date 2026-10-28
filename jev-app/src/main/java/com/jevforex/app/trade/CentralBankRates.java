@@ -1,5 +1,6 @@
 package com.jevforex.app.trade;
 
+import com.jevforex.normalize.DocumentText;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -12,6 +13,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -27,13 +29,17 @@ import java.util.regex.Pattern;
 /**
  * Decisões de juros lidas do comunicado oficial (28/10/2026): o calendário da MetaQuotes parou de trazer os resultados
  * (o próprio site do MQL5 mostra "N/D"). Perto de cada decisão de juros de importância alta do calendário, procura o
- * comunicado no endereço previsível do banco central e lê a taxa. Grava em {@code rate_decision} (fonte separada; o
- * calendar_event continua sendo só o que o MT5 mandou). Até 5 min depois do horário tenta a cada 5 s; depois, a cada
- * minuto, até 6 h.
+ * comunicado do banco central e lê a taxa. Grava em {@code rate_decision} (fonte separada; o calendar_event continua
+ * sendo só o que o MT5 mandou). Logo depois do horário tenta a cada 5 s (BoJ, sem hora exata: a cada 15 s por 3 h);
+ * depois, a cada minuto, até 6 h.
  * <ul>
  *   <li>USD — Fed: federalreserve.gov/newsevents/pressreleases/monetaryAAAAMMDDa.htm (data de Nova York); o teto da
  *       banda ("3-3/4 to 4 percent" → 4), como o MT5 e o Forex Factory.</li>
  *   <li>CAD — BoC: bankofcanada.ca/AAAA/MM/fad-press-release-AAAA-MM-DD/ ("target for the overnight rate … to 2.5%").</li>
+ *   <li>EUR — BCE: o endereço tem um código (ecb.mpAAMMDD~hash), achado no RSS de comunicados ou na lista de decisões
+ *       do ano; a taxa de refinanciamento (a do meio em "2.50%, 2.65% and 2.90%"), como o MT5 e o Forex Factory.</li>
+ *   <li>JPY — BoJ: boj.or.jp/en/mopo/mpmdeci/mpr_AAAA/kAAMMDDa.pdf (data de Tóquio; "will encourage the
+ *       uncollateralized overnight call rate to remain at around 1.25 percent").</li>
  * </ul>
  */
 @Component
@@ -41,10 +47,14 @@ import java.util.regex.Pattern;
 public class CentralBankRates {
 
     private static final Logger log = LoggerFactory.getLogger(CentralBankRates.class);
-    private static final Duration FAST = Duration.ofMinutes(5);
+    static final List<String> CURRENCIES = List.of("USD", "CAD", "EUR", "JPY");
     private static final Duration GIVE_UP = Duration.ofHours(6);
     private static final ZoneId NEW_YORK = ZoneId.of("America/New_York");
     private static final ZoneId TORONTO = ZoneId.of("America/Toronto");
+    private static final ZoneId FRANKFURT = ZoneId.of("Europe/Berlin");
+    private static final ZoneId TOKYO = ZoneId.of("Asia/Tokyo");
+    private static final DateTimeFormatter YYMMDD = DateTimeFormatter.ofPattern("yyMMdd");
+    private static final String ECB = "https://www.ecb.europa.eu";
 
     /** O que foi lido: a taxa e o trecho do comunicado de onde ela saiu. */
     record Reading(double rate, String snippet) {
@@ -61,6 +71,7 @@ public class CentralBankRates {
 
     // ------------------------------------------------------------------ endereços e leitura (puros, testáveis)
 
+    /** O endereço do comunicado, quando é previsível (BCE: null — ver {@link #ecbIndexes} e {@link #ecbLink}). */
     static String url(String currency, Instant at) {
         return switch (currency) {
             case "USD" -> "https://www.federalreserve.gov/newsevents/pressreleases/monetary"
@@ -70,31 +81,53 @@ public class CentralBankRates {
                 yield String.format("https://www.bankofcanada.ca/%d/%02d/fad-press-release-%s/", d.getYear(),
                         d.getMonthValue(), d);
             }
+            case "JPY" -> {
+                LocalDate d = LocalDate.ofInstant(at, TOKYO);
+                yield String.format("https://www.boj.or.jp/en/mopo/mpmdeci/mpr_%d/k%sa.pdf", d.getYear(), d.format(YYMMDD));
+            }
             default -> null;
         };
     }
 
-    static Reading parse(String currency, String html) {
-        String t = text(html);
+    /** Onde procurar o link da decisão do BCE: o RSS de comunicados (pequeno, atualiza na hora) e a lista do ano. */
+    static List<String> ecbIndexes(Instant at) {
+        return List.of(ECB + "/rss/press.html",
+                ECB + "/press/govcdec/mopo/" + LocalDate.ofInstant(at, FRANKFURT).getYear() + "/html/index_include.en.html");
+    }
+
+    /** O link do comunicado de decisão do BCE daquele dia (ecb.mpAAMMDD~hash.en.html), ou null. */
+    static String ecbLink(String html, Instant at) {
+        String day = LocalDate.ofInstant(at, FRANKFURT).format(YYMMDD);
+        Matcher m = Pattern.compile("(?:https://www\\.ecb\\.europa\\.eu)?/+(press/pr/date/\\d{4}/html/ecb\\.mp" + day
+                + "~[0-9a-f]+\\.en\\.html)").matcher(html);
+        return m.find() ? ECB + "/" + m.group(1) : null;
+    }
+
+    static Reading parse(String currency, String text) {
         return switch (currency) {
-            case "USD" -> fed(t);
-            case "CAD" -> boc(t);
+            case "USD" -> first(FED, text, m -> fraction(m.group(2)));
+            case "CAD" -> boc(text);
+            case "EUR" -> first(ECB_RATES, text, m -> Double.parseDouble(m.group(2)));
+            case "JPY" -> first(BOJ, text, m -> Double.parseDouble(m.group(1)));
             default -> null;
         };
     }
 
     private static final Pattern FED = Pattern.compile(
             "target range for the federal funds rate.{0,80}?\\b(\\d+(?:-\\d/\\d)?) to (\\d+(?:-\\d/\\d)?) percent");
-
-    /** "… maintain the target range for the federal funds rate at 3-3/4 to 4 percent" → 4 (o teto da banda). */
-    static Reading fed(String t) {
-        Matcher m = FED.matcher(t);
-        if (!m.find()) return null;
-        return new Reading(fraction(m.group(2)), snippet(t, m));
-    }
-
     private static final Pattern BOC = Pattern.compile(
             "target for the overnight rate.{0,80}?\\b(?:at|to) (\\d+(?:\\.\\d+)?)\\s?([¼½¾])?\\s?%");
+    /** "… the deposit facility, the main refinancing operations and the marginal lending facility will … 2.50%, 2.65% and 2.90%". */
+    private static final Pattern ECB_RATES = Pattern.compile("deposit facility, the main refinancing operations and the "
+            + "marginal lending facility.{0,80}?(\\d+\\.\\d+) ?%, (\\d+\\.\\d+) ?%,? and (\\d+\\.\\d+) ?%");
+    /** "will" (a decisão); os votos contrários repetem a frase com "would". */
+    private static final Pattern BOJ = Pattern.compile(
+            "The Bank will encourage the uncollateralized overnight call rate to remain at around (\\d+(?:\\.\\d+)?) percent");
+
+    private static Reading first(Pattern p, String t, java.util.function.ToDoubleFunction<Matcher> rate) {
+        Matcher m = p.matcher(t);
+        return m.find() ? new Reading(rate.applyAsDouble(m), snippet(t, m)) : null;
+    }
 
     /** "… increased its target for the overnight rate by 25 basis points to 2.5%" → 2,5; "at 2¼%" → 2,25. */
     static Reading boc(String t) {
@@ -126,6 +159,12 @@ public class CentralBankRates {
         return t.substring(a, b).trim();
     }
 
+    /** Intervalo entre tentativas: rápido logo depois do horário (o BoJ não tem hora exata), depois a cada minuto. */
+    static Duration interval(String currency, Instant at, Instant now) {
+        if ("JPY".equals(currency)) return now.isBefore(at.plus(Duration.ofHours(3))) ? Duration.ofSeconds(15) : Duration.ofMinutes(1);
+        return now.isBefore(at.plus(Duration.ofMinutes(5))) ? Duration.ofSeconds(5) : Duration.ofMinutes(1);
+    }
+
     // ------------------------------------------------------------------ o laço
 
     @Scheduled(initialDelayString = "PT30S", fixedDelayString = "PT5S")
@@ -135,30 +174,38 @@ public class CentralBankRates {
                         SELECT DISTINCT e.currency, e.scheduled_at, e.event_code
                           FROM calendar_event e
                          WHERE e.importance = 'HIGH' AND e.event_code LIKE '%interest-rate-decision'
-                           AND e.currency IN ('USD', 'CAD')
+                           AND e.currency IN (:curs)
                            AND e.scheduled_at BETWEEN :a AND :b
                            AND NOT EXISTS (SELECT 1 FROM rate_decision r
                                             WHERE r.currency = e.currency AND r.event_at = e.scheduled_at)
-                        """).param("a", Timestamp.from(now.minus(GIVE_UP))).param("b", Timestamp.from(now.plusSeconds(20)))
-                .query().listOfRows();
+                        """).param("curs", CURRENCIES).param("a", Timestamp.from(now.minus(GIVE_UP)))
+                .param("b", Timestamp.from(now.plusSeconds(20))).query().listOfRows();
         for (Map<String, Object> r : due) {
             String cur = ((String) r.get("currency")).trim();
             Instant at = ((Timestamp) r.get("scheduled_at")).toInstant();
             String key = cur + "@" + at;
             if (nextTry.getOrDefault(key, Instant.EPOCH).isAfter(now)) continue;
-            nextTry.put(key, now.plus(now.isBefore(at.plus(FAST)) ? Duration.ofSeconds(5) : Duration.ofMinutes(1)));
+            nextTry.put(key, now.plus(interval(cur, at, now)));
             fetch(cur, at, (String) r.get("event_code"));
         }
     }
 
     private void fetch(String currency, Instant at, String eventCode) {
         String u = url(currency, at);
-        if (u == null) return;
         try {
-            HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(u)).timeout(Duration.ofSeconds(8))
-                    .header("User-Agent", "Mozilla/5.0 (compatible; jev-forex)").GET().build(), HttpResponse.BodyHandlers.ofString());
-            if (r.statusCode() != 200) return;   // ainda não publicado (404)
-            Reading x = parse(currency, r.body());
+            if ("EUR".equals(currency)) {
+                for (String idx : ecbIndexes(at)) {
+                    byte[] b = get(idx);
+                    u = b == null ? null : ecbLink(new String(b, StandardCharsets.UTF_8), at);
+                    if (u != null) break;
+                }
+            }
+            if (u == null) return;   // BCE: ainda não está na lista
+            byte[] body = get(u);
+            if (body == null) return;   // ainda não publicado (404)
+            String text = u.endsWith(".pdf") ? DocumentText.extract(body, "pdf").replaceAll("\\s+", " ")
+                    : text(new String(body, StandardCharsets.UTF_8));
+            Reading x = parse(currency, text);
             if (x == null) {
                 log.warn("Juros {}: comunicado em {} sem a taxa reconhecível", currency, u);
                 nextTry.put(currency + "@" + at, Instant.now().plus(Duration.ofMinutes(1)));
@@ -173,5 +220,12 @@ public class CentralBankRates {
         } catch (Exception e) {
             log.debug("Juros {}: {} ({})", currency, u, e.toString());
         }
+    }
+
+    /** O corpo da resposta, ou null se não for 200. */
+    private byte[] get(String u) throws Exception {
+        HttpResponse<byte[]> r = http.send(HttpRequest.newBuilder(URI.create(u)).timeout(Duration.ofSeconds(8))
+                .header("User-Agent", "Mozilla/5.0 (compatible; jev-forex)").GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+        return r.statusCode() == 200 ? r.body() : null;
     }
 }

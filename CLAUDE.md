@@ -329,5 +329,7 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       não traz o previsto dos juros; sem consenso do MT5 no evento principal, vale o do Forex Factory (juros: maior = bom).
       Só consenso (o arquivo não traz o resultado). A falha é da MetaQuotes (o site do MQL5 também mostra N/D; biquote.io
       copia o MQL5): o real das decisões de juros vem do comunicado oficial (`CentralBankRates`, Flyway V23 `rate_decision`,
-      fonte separada do calendar_event): Fed (monetaryAAAAMMDDa.htm, teto da banda) e BoC (fad-press-release-AAAA-MM-DD),
-      a cada 5 s até evento + 5 min, depois a cada minuto até 6 h; usado pela página e pelo modo SURPRISE (não pelos modelos)
+      fonte separada do calendar_event): Fed (monetaryAAAAMMDDa.htm, teto da banda), BoC (fad-press-release-AAAA-MM-DD),
+      BCE (link ecb.mpAAMMDD~hash pelo RSS/lista do ano; taxa de refinanciamento) e BoJ (mpr_AAAA/kAAMMDDa.pdf, "will encourage";
+      sem hora exata: 15 s por 3 h), a cada 5 s até evento + 5 min, depois a cada minuto até 6 h; usado pela página e pelo modo
+      SURPRISE (não pelos modelos)
