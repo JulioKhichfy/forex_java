@@ -4,7 +4,7 @@ import { HttpClient } from '@angular/common/http';
 import { Brt } from '../brt';
 
 interface Ev { code: string; name: string; actual: number | null; forecast: number | null; previous: number | null;
-  impact: string | null; good_sign: number | null; consensus: number | null; consensus_source?: string }
+  impact: string | null; good_sign: number | null; consensus: number | null; consensus_source?: string; actual_source?: string }
 interface Ff { title: string; forecast: string; previous: string; dir: number | null }
 interface Sym { symbol: string; market: string; dir: number; n?: number; nPos?: number; nNeg?: number; abs15?: number;
   abs60?: number; upPos15?: number | null; upNeg15?: number | null; spreadAtr?: number }
@@ -72,7 +72,7 @@ const DEFAULTS: Settings = { lot: null, stopUsd: 1.0, takeUsd: 1.0, closeAfter: 
               <tr [class.main]="e.code === c.main">
                 <td>{{ e.name }} @if (e.code === c.main) { <span class="badge" title="O evento que decide no modo 'pelo dado'">principal</span> }</td>
                 <td class="right mono">{{ e.forecast ?? '—' }}</td><td class="right mono">{{ e.previous ?? '—' }}</td>
-                <td class="right mono" [class.up]="e.impact === 'POSITIVE'" [class.down]="e.impact === 'NEGATIVE'">{{ e.actual ?? '' }}</td>
+                <td class="right mono" [class.up]="e.impact === 'POSITIVE'" [class.down]="e.impact === 'NEGATIVE'" [title]="e.actual_source ?? ''">{{ e.actual ?? '' }}@if (e.actual_source) { <span class="badge" title="Lido do comunicado oficial do banco central: o calendário do MT5 não trouxe">BC</span> }</td>
                 <td class="small">{{ consensusText(e, c.currency) }}</td>
               </tr>
             }
@@ -144,7 +144,7 @@ const DEFAULTS: Settings = { lot: null, stopUsd: 1.0, takeUsd: 1.0, closeAfter: 
                 <tr>
                   <td class="mono">{{ c.at | date: 'HH:mm' : '-0300' }}</td><td>{{ c.currency }}</td><td>{{ e.name }}</td>
                   <td class="right mono">{{ e.forecast ?? '—' }}</td>
-                  <td class="right mono" [class.up]="e.impact === 'POSITIVE'" [class.down]="e.impact === 'NEGATIVE'">{{ e.actual ?? 'sem resultado' }}</td>
+                  <td class="right mono" [class.up]="e.impact === 'POSITIVE'" [class.down]="e.impact === 'NEGATIVE'" [title]="e.actual_source ?? ''">{{ e.actual ?? 'sem resultado' }}@if (e.actual_source) { <span class="badge">BC</span> }</td>
                   <td class="small">@for (p of plansOf(c); track p.id) { {{ modeText(p.mode) }}: {{ statusText(p.status) }}; }</td>
                 </tr>
               }

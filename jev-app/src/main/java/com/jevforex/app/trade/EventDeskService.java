@@ -154,6 +154,10 @@ public class EventDeskService {
                 .param("from", Timestamp.from(now.minus(Duration.ofHours(Math.min(hoursBack, 48)))))
                 .param("to", Timestamp.from(now.plus(Duration.ofHours(Math.min(hoursAhead, 168)))))
                 .query().listOfRows();
+        Map<String, Map<String, Object>> official = new HashMap<>();
+        jdbc.getObject().sql("SELECT currency, event_at, rate, source_url, snippet FROM rate_decision WHERE event_at >= :from")
+                .param("from", Timestamp.from(now.minus(Duration.ofHours(Math.min(hoursBack, 48))))).query().listOfRows()
+                .forEach(r -> official.put(((String) r.get("currency")).trim() + "@" + ((Timestamp) r.get("event_at")).toInstant(), r));
         Map<String, Map<String, Object>> clusters = new LinkedHashMap<>();
         for (Map<String, Object> r : rows) {
             String cur = (String) r.get("currency");
@@ -203,6 +207,17 @@ public class EventDeskService {
                     main.put("consensus_source", "Forex Factory: " + ff.title() + " previsto " + ff.forecast()
                             + " × anterior " + ff.previous());
                 }
+            }
+            // o real da decisão de juros pelo comunicado oficial, quando o MT5 não trouxe
+            Map<String, Object> od = official.get(c.get("key"));
+            if (od != null && main.get("actual") == null && mainCode.contains("interest-rate")) {
+                main.put("actual", od.get("rate"));
+                main.put("actual_source", "comunicado oficial: " + od.get("snippet"));
+                main.put("actual_url", od.get("source_url"));
+                Double fc = num(main.get("forecast")) != null ? num(main.get("forecast"))
+                        : ff == null ? null : ForexFactoryCalendar.number(ff.forecast());
+                Integer sd = surpriseDir(null, num(od.get("rate")), fc, goodSignOrRate(good.get(mainCode), mainCode, null));
+                main.put("impact", sd == null ? null : sd > 0 ? "POSITIVE" : sd < 0 ? "NEGATIVE" : "NA");
             }
             c.put("released", evs.stream().anyMatch(e -> e.get("actual") != null));
             String cur = (String) c.get("currency");
@@ -337,13 +352,15 @@ public class EventDeskService {
                          ORDER BY first_seen_at DESC LIMIT 1
                         """).param("c", p.currency()).param("code", p.eventCode()).param("at", Timestamp.from(p.at()))
                 .query().listOfRows().stream().findFirst().orElse(null);
+        if (e == null && p.eventCode().contains("interest-rate")) e = officialRate(p);
         if (e == null) {
             if (Instant.now().isAfter(p.at().plus(SURPRISE_WAIT))) {
                 finish(p.id(), "EXPIRED", "o resultado não chegou em " + SURPRISE_WAIT.toMinutes() + " min (calendário do MT5)");
             }
             return;
         }
-        Integer dir = surpriseDir((String) e.get("impact"), num(e.get("actual")), num(e.get("forecast")), goodSigns().get(p.eventCode()));
+        Integer dir = surpriseDir((String) e.get("impact"), num(e.get("actual")), num(e.get("forecast")),
+                goodSignOrRate(goodSigns().get(p.eventCode()), p.eventCode(), null));
         if (dir == null || dir == 0) {
             finish(p.id(), "DONE", String.format(Locale.ROOT, "resultado %s (previsto %s): sem lado claro para %s, não entrou",
                     e.get("actual"), e.get("forecast"), p.currency()));
@@ -360,6 +377,30 @@ public class EventDeskService {
             send(p, s, side(dir, d), why);
         }
         finish(p.id(), "DONE", why);
+    }
+
+    /**
+     * Sem o real no MT5: a taxa do comunicado oficial ({@link CentralBankRates}) × o previsto (o do MT5 ou, na falta, o do
+     * Forex Factory). Sem previsto, não há surpresa a medir.
+     */
+    private Map<String, Object> officialRate(Plan p) {
+        Map<String, Object> od = jdbc.getObject().sql("SELECT rate FROM rate_decision WHERE currency = :c AND event_at = :at")
+                .param("c", p.currency()).param("at", Timestamp.from(p.at())).query().listOfRows().stream().findFirst().orElse(null);
+        if (od == null) return null;
+        Object fc = jdbc.getObject().sql("""
+                        SELECT forecast FROM calendar_event WHERE currency = :c AND event_code = :code AND scheduled_at = :at
+                           AND forecast IS NOT NULL ORDER BY first_seen_at DESC LIMIT 1
+                        """).param("c", p.currency()).param("code", p.eventCode()).param("at", Timestamp.from(p.at()))
+                .query().listOfRows().stream().findFirst().map(r -> r.get("forecast")).orElse(null);
+        if (fc == null) {
+            ForexFactoryCalendar.Item ff = ffMatch(ff(), p.currency(), p.at(), true);
+            fc = ff == null ? null : ForexFactoryCalendar.number(ff.forecast());
+        }
+        Map<String, Object> e = new HashMap<>();
+        e.put("actual", od.get("rate"));
+        e.put("forecast", fc);
+        e.put("impact", null);
+        return e;
     }
 
     private void runModel(Plan p) {

@@ -693,7 +693,10 @@ export const SECOES: Secao[] = [
           o detalhe). Por padrão vêm marcados os pares de forex da moeda; marque ou desmarque à vontade.
           <br>A linha <b>Forex Factory</b> traz o previsto e o anterior do calendário público do Forex Factory (lido a cada 30 min):
           o MT5 não traz o previsto das decisões de juros. Quando o MT5 não tem consenso para o evento principal, vale o do Forex
-          Factory (nos juros, taxa maior = favorável à moeda). O resultado continua vindo só do MT5.`,
+          Factory (nos juros, taxa maior = favorável à moeda).
+          <br>O <b>real</b> vem do MT5. Nas decisões de juros do <b>Fed</b> e do <b>BoC</b>, quando o MT5 não traz, o sistema lê a
+          taxa do <b>comunicado oficial</b> do banco central (procura a cada 5 s a partir do horário) — aparece com o selo
+          <b>BC</b>; passe o mouse para ver o trecho lido. O modo "pelo dado" também usa esse valor (real × previsto).`,
       },
       {
         titulo: 'Operar automaticamente quando sair',

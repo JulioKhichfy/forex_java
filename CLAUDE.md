@@ -327,4 +327,7 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       do MT5 parou de trazer os resultados desde 26/10 (actual vazio no próprio terminal): a página avisa quando isso acontece.
       Consenso do Forex Factory (`ForexFactoryCalendar`, JSON público da semana em nfs.faireconomy.media, cache 30 min): o MT5
       não traz o previsto dos juros; sem consenso do MT5 no evento principal, vale o do Forex Factory (juros: maior = bom).
-      Só consenso (o arquivo não traz o resultado)
+      Só consenso (o arquivo não traz o resultado). A falha é da MetaQuotes (o site do MQL5 também mostra N/D; biquote.io
+      copia o MQL5): o real das decisões de juros vem do comunicado oficial (`CentralBankRates`, Flyway V23 `rate_decision`,
+      fonte separada do calendar_event): Fed (monetaryAAAAMMDDa.htm, teto da banda) e BoC (fad-press-release-AAAA-MM-DD),
+      a cada 5 s até evento + 5 min, depois a cada minuto até 6 h; usado pela página e pelo modo SURPRISE (não pelos modelos)
