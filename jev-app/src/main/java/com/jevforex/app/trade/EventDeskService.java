@@ -57,16 +57,18 @@ public class EventDeskService {
     private final RiskSettingsHolder riskHolder;
     private final LakeStorage lake;
     private final ObjectMapper mapper;
+    private final ForexFactoryCalendar forexFactory;
     private Map<String, Integer> goodSigns = Map.of();
     private Instant goodSignsAt = Instant.EPOCH;
 
     public EventDeskService(ObjectProvider<JdbcClient> jdbc, OrderService orders, RiskSettingsHolder riskHolder,
-                            LakeStorage lake, ObjectMapper mapper) {
+                            LakeStorage lake, ObjectMapper mapper, ForexFactoryCalendar forexFactory) {
         this.jdbc = jdbc;
         this.orders = orders;
         this.riskHolder = riskHolder;
         this.lake = lake;
         this.mapper = mapper;
+        this.forexFactory = forexFactory;
     }
 
     // ------------------------------------------------------------------ regras de direção (puras, testáveis)
@@ -105,6 +107,31 @@ public class EventDeskService {
 
     static String side(int currencyDir, int symbolDir) {
         return currencyDir * symbolDir > 0 ? "BUY" : "SELL";
+    }
+
+    /** "Maior é bom" para decisões de juros sem histórico de impacto: juro maior favorece a moeda. */
+    static Integer goodSignOrRate(Integer learned, String code, String title) {
+        if (learned != null) return learned;
+        boolean rate = (code != null && code.contains("interest-rate")) || (title != null && title.matches("(?i).*\\brate$")
+                && !title.toLowerCase(Locale.ROOT).contains("unemployment"));
+        return rate ? 1 : null;
+    }
+
+    /**
+     * O consenso do Forex Factory para um horário (mesma moeda, mesmo minuto): o item com previsto e anterior numéricos;
+     * nas decisões de juros, o da taxa (ex.: "Overnight Rate", "Federal Funds Rate").
+     */
+    static ForexFactoryCalendar.Item ffMatch(List<ForexFactoryCalendar.Item> items, String currency, Instant at, boolean rate) {
+        ForexFactoryCalendar.Item best = null;
+        for (ForexFactoryCalendar.Item i : items) {
+            if (!currency.equals(i.currency()) || Math.abs(Duration.between(i.at(), at).toSeconds()) > 60) continue;
+            if (ForexFactoryCalendar.number(i.forecast()) == null || ForexFactoryCalendar.number(i.previous()) == null) continue;
+            boolean isRate = i.title().matches("(?i).*\\brate$");
+            if (rate && isRate) return i;
+            // fora dos juros, só os de importância alta (o minuto costuma ter vários dados menores)
+            if (best == null && "High".equals(i.impact())) best = i;
+        }
+        return best;
     }
 
     // ------------------------------------------------------------------ o que a página mostra
@@ -158,6 +185,25 @@ public class EventDeskService {
             @SuppressWarnings("unchecked") List<Map<String, Object>> evs = (List<Map<String, Object>>) c.get("events");
             Map<String, Object> main = mainEvent(evs);
             c.put("main", main.get("code"));
+            // consenso do Forex Factory: o MT5 não traz o previsto das decisões de juros
+            String mainCode = (String) main.get("code");
+            ForexFactoryCalendar.Item ff = ffMatch(ff(), (String) c.get("currency"), (Instant) c.get("at"),
+                    mainCode.contains("interest-rate"));
+            if (ff != null) {
+                Integer gs = goodSignOrRate(good.get(mainCode), mainCode, ff.title());
+                Integer dir = consensus(ForexFactoryCalendar.number(ff.forecast()), ForexFactoryCalendar.number(ff.previous()), gs);
+                Map<String, Object> fm = new LinkedHashMap<>();
+                fm.put("title", ff.title());
+                fm.put("forecast", ff.forecast());
+                fm.put("previous", ff.previous());
+                fm.put("dir", dir);
+                c.put("ff", fm);
+                if (main.get("consensus") == null && dir != null) {
+                    main.put("consensus", dir);
+                    main.put("consensus_source", "Forex Factory: " + ff.title() + " previsto " + ff.forecast()
+                            + " × anterior " + ff.previous());
+                }
+            }
             c.put("released", evs.stream().anyMatch(e -> e.get("actual") != null));
             String cur = (String) c.get("currency");
             List<Map<String, Object>> syms = new ArrayList<>();
@@ -430,6 +476,14 @@ public class EventDeskService {
             log.warn("Principal de hoje: mapa de eventos ilegível ({})", e.toString());
         }
         return out;
+    }
+
+    private List<ForexFactoryCalendar.Item> ff() {
+        try {
+            return forexFactory.items();
+        } catch (RuntimeException e) {
+            return List.of();
+        }
     }
 
     private static Double num(Object o) {

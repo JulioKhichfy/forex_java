@@ -324,4 +324,7 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       (previsto × anterior × "maior é bom" aprendido do `impact` do MT5) e o mapa de eventos; plano por evento: MODEL (previsão B
       2 min depois, pula LATERAL), SURPRISE (resultado; estudo 12d: −0,15 ATR) ou NOW (antes, lado do consenso; não testado).
       Ordens com `Roulette.casino` (sem travas de risco por ordem, decisão do operador), stop/alvo em US$. Em 28/10 o calendário
-      do MT5 parou de trazer os resultados desde 26/10 (actual vazio no próprio terminal): a página avisa quando isso acontece
+      do MT5 parou de trazer os resultados desde 26/10 (actual vazio no próprio terminal): a página avisa quando isso acontece.
+      Consenso do Forex Factory (`ForexFactoryCalendar`, JSON público da semana em nfs.faireconomy.media, cache 30 min): o MT5
+      não traz o previsto dos juros; sem consenso do MT5 no evento principal, vale o do Forex Factory (juros: maior = bom).
+      Só consenso (o arquivo não traz o resultado)

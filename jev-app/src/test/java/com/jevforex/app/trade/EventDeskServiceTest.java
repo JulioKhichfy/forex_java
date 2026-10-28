@@ -39,6 +39,30 @@ class EventDeskServiceTest {
     }
 
     @Test
+    void consensoDoForexFactory() {
+        assertEquals(2.5, ForexFactoryCalendar.number("2.50%"));
+        assertEquals(-47.0, ForexFactoryCalendar.number("-47"));
+        assertEquals(1.2, ForexFactoryCalendar.number("1.2M"));
+        assertNull(ForexFactoryCalendar.number(""));
+        // juros sem histórico de impacto: juro maior favorece a moeda; desemprego não é "taxa de juros"
+        assertEquals(1, EventDeskService.goodSignOrRate(null, "boc-interest-rate-decision", "Overnight Rate"));
+        assertEquals(1, EventDeskService.goodSignOrRate(null, "x", "Federal Funds Rate"));
+        assertNull(EventDeskService.goodSignOrRate(null, "unemployment-rate", "Unemployment Rate"));
+        assertEquals(-1, EventDeskService.goodSignOrRate(-1, "unemployment-rate", "Unemployment Rate"), "o aprendido manda");
+        java.time.Instant at = java.time.Instant.parse("2026-10-28T13:45:00Z");
+        var items = List.of(
+                new ForexFactoryCalendar.Item("BOC Rate Statement", "CAD", at, "High", "", ""),
+                new ForexFactoryCalendar.Item("Overnight Rate", "CAD", at, "High", "2.50%", "2.25%"),
+                new ForexFactoryCalendar.Item("Overnight Rate", "USD", at, "High", "2.50%", "2.25%"));
+        assertEquals("Overnight Rate", EventDeskService.ffMatch(items, "CAD", at, true).title());
+        assertNull(EventDeskService.ffMatch(items, "CAD", at.plusSeconds(3600), true), "outro horário");
+        var low = List.of(new ForexFactoryCalendar.Item("German Import Prices m/m", "EUR", at, "Low", "1.9%", "1.0%"));
+        assertNull(EventDeskService.ffMatch(low, "EUR", at, false), "fora dos juros, só importância alta");
+        // BoC 28/10: 2,50 × 2,25, juro maior = bom → consenso favorável ao CAD
+        assertEquals(1, EventDeskService.consensus(2.50, 2.25, EventDeskService.goodSignOrRate(null, "boc-interest-rate-decision", "Overnight Rate")));
+    }
+
+    @Test
     void ladoDaOrdem_eEventoPrincipal() {
         assertEquals("SELL", EventDeskService.side(1, -1), "moeda forte, moeda cotada (USD em EURUSD) → vende EURUSD");
         assertEquals("BUY", EventDeskService.side(-1, -1), "dólar fraco → compra ouro");

@@ -4,10 +4,11 @@ import { HttpClient } from '@angular/common/http';
 import { Brt } from '../brt';
 
 interface Ev { code: string; name: string; actual: number | null; forecast: number | null; previous: number | null;
-  impact: string | null; good_sign: number | null; consensus: number | null }
+  impact: string | null; good_sign: number | null; consensus: number | null; consensus_source?: string }
+interface Ff { title: string; forecast: string; previous: string; dir: number | null }
 interface Sym { symbol: string; market: string; dir: number; n?: number; nPos?: number; nNeg?: number; abs15?: number;
   abs60?: number; upPos15?: number | null; upNeg15?: number | null; spreadAtr?: number }
-interface Cluster { key: string; currency: string; at: string; events: Ev[]; main: string; released: boolean; symbols: Sym[] }
+interface Cluster { key: string; currency: string; at: string; events: Ev[]; main: string; released: boolean; symbols: Sym[]; ff?: Ff }
 interface Settings { lot: number | null; stopUsd: number; takeUsd: number; closeAfter: number | null; autoMode: string }
 
 const KEY = 'jev.principal';
@@ -76,6 +77,16 @@ const DEFAULTS: Settings = { lot: null, stopUsd: 1.0, takeUsd: 1.0, closeAfter: 
               </tr>
             }
           </table>
+          @if (c.ff; as f) {
+            <p class="small ff" title="Previsto e anterior do calendário público do Forex Factory (o MT5 não traz o previsto das decisões de juros). Só o consenso: o resultado continua vindo do MT5.">
+              Forex Factory: <b>{{ f.title }}</b> previsto <span class="mono">{{ f.forecast }}</span> × anterior
+              <span class="mono">{{ f.previous }}</span> →
+              @if (f.dir === 1) { <b class="up">favorável a {{ c.currency }}</b> }
+              @else if (f.dir === -1) { <b class="down">desfavorável a {{ c.currency }}</b> }
+              @else if (f.dir === 0) { neutro (igual ao anterior) }
+              @else { sem saber qual lado é bom para {{ c.currency }} }
+            </p>
+          }
 
           <div class="syms">
             @for (x of c.symbols; track x.symbol) {
@@ -164,6 +175,7 @@ const DEFAULTS: Settings = { lot: null, stopUsd: 1.0, takeUsd: 1.0, closeAfter: 
     .sym.on { border-color: var(--up); }
     .sym input { width: auto; margin: 0; }
     .hist { margin: 2px 0 8px; }
+    .ff { margin: 6px 0 2px; }
     .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     button.danger { border-color: var(--down); color: var(--down); }
     .plan { margin-top: 8px; padding: 6px 8px; border-left: 3px solid var(--border); }
@@ -252,6 +264,9 @@ export class Principal implements OnInit, OnDestroy {
 
   // ------------------------------------------------------------------ o que esperar
   protected consensusText(e: Ev, cur: string): string {
+    if (e.consensus_source && (e.consensus === 1 || e.consensus === -1)) {
+      return `${e.consensus === 1 ? 'favorável' : 'desfavorável'} (${e.consensus_source})`;
+    }
     if (e.consensus === 1) return `favorável (previsto ${e.forecast} ${e.forecast! > e.previous! ? '>' : '<'} anterior ${e.previous}; ${e.good_sign === 1 ? 'maior é bom' : 'maior é ruim'})`;
     if (e.consensus === -1) return `desfavorável (previsto ${e.forecast} ${e.forecast! > e.previous! ? '>' : '<'} anterior ${e.previous}; ${e.good_sign === 1 ? 'maior é bom' : 'maior é ruim'})`;
     if (e.consensus === 0) return 'previsto igual ao anterior: neutro';

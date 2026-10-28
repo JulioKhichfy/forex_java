@@ -690,7 +690,10 @@ export const SECOES: Secao[] = [
           moeda</b>: previsto × anterior e se "maior é bom" para ela (aprendido do histórico: desemprego e pedidos de
           seguro-desemprego acima = ruim). O evento <b>principal</b> (a decisão de juros, se houver) é o que decide no modo
           "pelo dado". Os símbolos afetados aparecem com quanto costumam andar em 15 min (mapa de eventos; passe o mouse para
-          o detalhe). Por padrão vêm marcados os pares de forex da moeda; marque ou desmarque à vontade.`,
+          o detalhe). Por padrão vêm marcados os pares de forex da moeda; marque ou desmarque à vontade.
+          <br>A linha <b>Forex Factory</b> traz o previsto e o anterior do calendário público do Forex Factory (lido a cada 30 min):
+          o MT5 não traz o previsto das decisões de juros. Quando o MT5 não tem consenso para o evento principal, vale o do Forex
+          Factory (nos juros, taxa maior = favorável à moeda). O resultado continua vindo só do MT5.`,
       },
       {
         titulo: 'Operar automaticamente quando sair',
@@ -705,8 +708,8 @@ export const SECOES: Secao[] = [
       },
       {
         titulo: 'Operar agora (como o consenso esperava)',
-        html: `Entra <b>já</b>, antes da divulgação, no lado que o consenso implica para a moeda. Quando o calendário não traz o
-          previsto (comum nas decisões de juros), aparecem os botões "a favor" e "contra" para você escolher. <b>Não testado</b>:
+        html: `Entra <b>já</b>, antes da divulgação, no lado que o consenso implica para a moeda (do MT5 ou, na falta, do Forex
+          Factory). Quando nenhum dos dois traz o previsto, aparecem os botões "a favor" e "contra" para você escolher. <b>Não testado</b>:
           quando o consenso se confirma, o preço costuma já estar ajustado (no BoC de 28/10, a alta esperada levou o USDCAD 15
           pips e de volta em 30 s), e o spread alarga perto do evento.`,
       },
