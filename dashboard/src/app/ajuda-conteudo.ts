@@ -730,6 +730,41 @@ export const SECOES: Secao[] = [
     ],
   },
 
+  // ======================================================================== compra pizza
+  {
+    id: 'pizza',
+    titulo: 'Página Compra Pizza',
+    resumo: 'Um jogo: você diz quanto custa a pizza (lucro) e o stop (perda); ao JOGAR, o sistema abre as operações em que mais confia até chegar num dos dois.',
+    blocos: [
+      {
+        titulo: 'Como funciona',
+        html: `Defina o <b>valor da pizza</b> (o lucro da partida, em US$) e o <b>stop</b> (a perda que você aceita) e aperte
+          <b>JOGAR</b>. O sistema abre as operações em que mais confia, até 5 ao mesmo tempo, uma por símbolo, nos mercados
+          forex, ouro, índices, bitcoin e energia. A partida acaba quando o resultado (fechadas + abertas) chega na pizza ou no
+          stop: aí todas as posições da partida são fechadas a mercado. "Desistir" fecha tudo antes.
+          <br>A pizza do desenho enche (laranja) conforme o lucro chega no valor dela; no prejuízo, o vermelho cresce até o stop.`,
+      },
+      {
+        titulo: 'Em que o sistema confia',
+        html: `<ol><li><b>Sinal da regra do mercado</b> (selo "sinal"): a mesma regra das previsões — no ouro e nos índices,
+          validada fora da amostra; nos demais, o gate 4.</li>
+          <li><b>Previsão forte</b> do modelo B: P do lado ≥ 45% e diferença ≥ 15 pontos para o lado oposto, sem LATERAL como
+          mais provável. Previsão de 15 min com até 10 min de idade; de 60 min, até 30 min.</li></ol>
+          Cada previsão é usada uma vez por partida. "De olho agora" mostra o que seria aberto neste momento. As previsões
+          saem na hora cheia (e 2 min depois dos eventos), de segunda a sexta, 00:00–20:00 UTC: fora disso, a partida espera.
+          <b>É jogo</b>: a melhor regra deu ~+0,1 R por operação nos testes; no forex, nenhuma vantagem comprovada.`,
+      },
+      {
+        titulo: 'Travas, stop e alvo',
+        html: `Como no Cassino (escolha do operador): sem as travas de risco por ordem; valem as técnicas (EA, cotação, lote,
+          sessão), o BLOCK e a <b>perda do dia/semana</b>. Cada operação usa o lote mínimo, o stop e o alvo do mercado (página
+          Risco, ou os da página "Stop em US$" quando ligada) e saída por tempo no horizonte da previsão (15 ou 60 min). Sem
+          stop calculado, não entra. As posições da partida ficam fora do trailing e da prorrogação; a origem aparece como
+          "Compra Pizza" em Operar e em Suas operações.`,
+      },
+    ],
+  },
+
   // ======================================================================== cassino
   {
     id: 'cassino',

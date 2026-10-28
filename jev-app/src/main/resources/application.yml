@@ -340,6 +340,20 @@ whales:
   url: https://fapi.binance.com
 
 # ---------------------------------------------------------------------
+#  Compra Pizza (28/10/2026, jogo do operador): o sistema abre as operações em que mais confia até a partida chegar na
+#  pizza (lucro) ou no stop (perda). Candidatas: o sinal da regra do mercado (live.signal-rules / gate 4) ou uma previsão
+#  forte do B (P do lado ≥ strong-min-prob e diferença ≥ strong-min-margin, sem LATERAL). Travas como no Cassino;
+#  stop/alvo do mercado; saída por tempo no horizonte. Lote mínimo.
+# ---------------------------------------------------------------------
+pizza:
+  markets: [metals, indices, crypto, fx, energy]
+  max-positions: 5               # posições da partida abertas ao mesmo tempo (escolha do sistema, a pedido do operador)
+  strong-min-prob: 0.45
+  strong-min-margin: 0.15
+  max-age-15-minutes: 10         # previsão de 15 min mais velha que isto já gastou boa parte do horizonte
+  max-age-60-minutes: 30
+
+# ---------------------------------------------------------------------
 #  Cassino (23/10/2026): símbolos além dos do sistema, só para o Cassino. Precisam do JevCandleExporter (especificação
 #  e M1, inputs InpCasino*) e do JevExecutor 2.9 (cotação, inputs InpSymbols7..9). Ficam fora dos modelos
 #  (experiment.market-symbols). optional = a página mostra só se o operador marcar "incluir".

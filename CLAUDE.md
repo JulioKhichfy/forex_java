@@ -107,7 +107,7 @@ como mercados separados. O documento mestre está em `docs/Jev_Forex_Documento_M
 | jev-ml | walk-forward: Dataset, Outcomes (stop/alvo/tempo no M1), Gbm (Smile), Metrics, ExperimentRunner (modo cofre), ReportWriter, ModelStore (versões em produção), RiskLab (laboratório de configuração) (sem Spring) |
 | jev-collect | coletor RSS dos bancos centrais (+ PDFs anexos, HtmlLinks), RawDocumentRepository; `mt5/`: importador do inbox do MT5; `news/`: GDELT (GKG) e SEC EDGAR |
 | jev-app | Spring Boot: CLI, agendadores, Flyway, application.yml; `live/` previsões ao vivo; `trade/` ordens, travas e saída por tempo; API `/api/status`, `/api/predictions`, `/api/trade`, `/api/models`, `/api/news`, `/api/calendar`, `/api/scanner`, `/api/roulette`, `/api/ea/*` |
-| dashboard | Angular 20 (Hoje, Principal de hoje, Radar, Previsões, Eventos, Universo, Operar, Roleta russa, Cassino, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
+| dashboard | Angular 20 (Hoje, Principal de hoje, Compra Pizza, Radar, Previsões, Eventos, Universo, Operar, Roleta russa, Cassino, Stop em US$, Risco, Laboratório, Modelos, Saúde, Ajuda); `npx ng build` → servido pelo jev-app em http://127.0.0.1:8080/. Datas em UTC com Brasília no mouse (`[brt]`). Mudou uma tela → atualize `ajuda-conteudo.ts` |
 | mql5 | Services JevCalendarExporter e JevCandleExporter, EA JevExecutor 2.10 (executor com 3 chaves; cotações dos extras do Cassino em InpSymbols7..9; log de comunicação com o motivo em português, "API fora" só com 3 falhas seguidas e aviso de sufixo errado (2.10); OPEN, CLOSE, MODIFY com stop e alvo, MODIFY MANUAL; fim da sessão por símbolo; reporta o fechamento de toda posição que abriu, mesmo manual; reporta também as posições de fora, marcadas), `install.ps1` |
 
 ## Comandos
@@ -333,3 +333,8 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       BCE (link ecb.mpAAMMDD~hash pelo RSS/lista do ano; taxa de refinanciamento) e BoJ (mpr_AAAA/kAAMMDDa.pdf, "will encourage";
       sem hora exata: 15 s por 3 h), a cada 5 s até evento + 5 min, depois a cada minuto até 6 h; usado pela página e pelo modo
       SURPRISE (não pelos modelos)
+- [x] Passo 14 — Compra Pizza (jogo do operador, 28/10): `PizzaService` (Flyway V24 `pizza_game`/`pizza_entry`, `pizza:` no yml,
+      `/api/pizza`): o operador define pizza (lucro) e stop (perda) da partida; o sistema abre até `pizza.max-positions` (5)
+      operações — sinal da regra do mercado, depois previsão forte do B (P ≥ 0,45, diferença ≥ 0,15, sem LATERAL), uma por
+      símbolo, cada previsão uma vez — até o resultado (fechadas + abertas) chegar num dos dois, e fecha tudo. Travas do Cassino
+      (`Roulette.pizza`, decisão do operador), stop/alvo do mercado, saída no horizonte, lote mínimo; fora do trailing (`casinoTickets`)

@@ -167,10 +167,16 @@ public class TradeRepository {
                 .param("t", ticket).query(Long.class).single() > 0;
     }
 
-    /** Tickets das posições abertas pelo Cassino (30 dias): saem só no alvo, no stop ou no tempo, sem trailing. */
+    /**
+     * Tickets das posições abertas pelo Cassino e pela Compra Pizza (30 dias): saem só no alvo, no stop, no tempo ou no fim
+     * da partida, sem trailing.
+     */
     public java.util.Set<Long> casinoTickets() {
         return new java.util.HashSet<>(jdbc().sql("""
                         SELECT o.ticket FROM casino_entry e JOIN order_request o ON o.id = e.order_id
+                         WHERE o.ticket IS NOT NULL AND e.created_at > now() - INTERVAL '30 days'
+                        UNION
+                        SELECT o.ticket FROM pizza_entry e JOIN order_request o ON o.id = e.order_id
                          WHERE o.ticket IS NOT NULL AND e.created_at > now() - INTERVAL '30 days'
                         """).query(Long.class).list());
     }
@@ -265,6 +271,7 @@ public class TradeRepository {
             CASE WHEN o.id IS NULL THEN 'externa'
                  WHEN EXISTS (SELECT 1 FROM event_plan_order x WHERE x.order_id = o.id) THEN 'principal de hoje'
                  WHEN EXISTS (SELECT 1 FROM casino_entry x WHERE x.order_id = o.id) THEN 'cassino'
+                 WHEN EXISTS (SELECT 1 FROM pizza_entry x WHERE x.order_id = o.id) THEN 'compra pizza'
                  WHEN EXISTS (SELECT 1 FROM momentum_entry x WHERE x.order_id = o.id) THEN 'momentum'
                  WHEN EXISTS (SELECT 1 FROM auto_signal_entry x WHERE x.order_id = o.id) THEN 'sinal automático'
                  WHEN EXISTS (SELECT 1 FROM roulette_entry x WHERE x.order_id = o.id) THEN 'roleta'
@@ -278,6 +285,7 @@ public class TradeRepository {
                       || CASE WHEN x.auto_side THEN ', lado pela previsão' ELSE '' END
                       || CASE WHEN x.message LIKE '%lucro mínimo%' THEN ', lucro mínimo' ELSE '' END
                  FROM casino_entry x WHERE x.order_id = o.id LIMIT 1),
+              (SELECT 'partida ' || x.game_id || ' · ' || x.reason FROM pizza_entry x WHERE x.order_id = o.id LIMIT 1),
               (SELECT 'hora ' || to_char(x.ret * 100, 'FMSG990.00') || '%'
                       || coalesce(', fluxo ' || to_char(x.flow, 'FMSG0.000'), '')
                  FROM momentum_entry x WHERE x.order_id = o.id LIMIT 1),

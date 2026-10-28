@@ -150,6 +150,14 @@ public class OrderService {
             return new Roulette(closeAfterMinutes, null, null, null, null, stopUsd, marginSpreads, true);
         }
 
+        /**
+         * Compra Pizza (28/10/2026): as travas do Cassino (decisão do operador), mas stop e alvo do mercado (em ATR, ou os
+         * da página "Stop em US$" quando ligada) e saída por tempo no horizonte da previsão.
+         */
+        public static Roulette pizza(int closeAfterMinutes, long predictionId) {
+            return new Roulette(closeAfterMinutes, predictionId, null, null, null, null, null, true);
+        }
+
         boolean moneyTake() {
             return takeUsd != null || takeSpreads != null;
         }
@@ -454,7 +462,7 @@ public class OrderService {
 
         if (roulette != null) {
             java.util.Set<String> waived = roulette.casino() ? CASINO_WAIVED : ROULETTE_WAIVED;
-            String tag = roulette.casino() ? " · ignorada (sem travas de risco: Cassino / Principal de hoje)" : " · ignorada na roleta";
+            String tag = roulette.casino() ? " · ignorada (sem travas de risco: Cassino / Principal de hoje / Compra Pizza)" : " · ignorada na roleta";
             checks.replaceAll(c -> c.ok() || !waived.contains(c.gate()) ? c : new Check(c.gate(), true, c.value() + tag, c.limit()));
         }
         boolean ok = checks.stream().allMatch(Check::ok);

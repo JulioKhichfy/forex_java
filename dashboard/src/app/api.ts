@@ -209,7 +209,7 @@ export interface Order {
 /** De onde veio a posição (26/10/2026: antes só roleta × manual). */
 export const ORIGINS: Record<string, string> = {
   manual: 'Manual', roleta: 'Roleta', 'sinal automático': 'Sinal automático', momentum: 'Momentum BTC', cassino: 'Cassino',
-  'alta frequência': 'Alta frequência', 'principal de hoje': 'Principal de hoje', externa: 'Fora do sistema',
+  'alta frequência': 'Alta frequência', 'principal de hoje': 'Principal de hoje', 'compra pizza': 'Compra Pizza', externa: 'Fora do sistema',
 };
 
 /** De onde veio a posição e como ela está protegida (GET /api/trade/state → details[ticket]). */
