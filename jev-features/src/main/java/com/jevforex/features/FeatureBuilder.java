@@ -79,6 +79,10 @@ public final class FeatureBuilder {
         return "fx".equals(market);
     }
 
+    private static String join(List<Integer> v) {
+        return v.stream().map(String::valueOf).collect(Collectors.joining(","));
+    }
+
     public record SymbolCounts(String symbol, long eventMoments, long controlMoments, String firstMoment,
                                String lastMoment) {
     }
@@ -439,11 +443,15 @@ public final class FeatureBuilder {
                                               WHERE p2.symbol = x.symbol AND r.weight > 0
                                                 AND time_bucket(INTERVAL 1 MINUTE, r.scheduled_utc) + to_minutes(%2$d)
                                                     BETWEEN x.t - INTERVAL 10 MINUTE AND x.t)
-                                THEN 'EVENT' WHEN minute(x.t) = 0 THEN 'CONTROL' ELSE 'QUARTER' END AS kind,
+                                THEN 'EVENT'
+                                WHEN minute(x.t) = 0 AND NOT (isodow(x.t) BETWEEN 1 AND 5 AND hour(x.t) IN (%3$s)
+                                                              AND NOT (isodow(x.t) = 5 AND hour(x.t) >= 19)) THEN 'EXTRA'
+                                WHEN minute(x.t) = 0 THEN 'CONTROL' ELSE 'QUARTER' END AS kind,
                            x.t - INTERVAL 15 MINUTE AS t15, x.t - INTERVAL 60 MINUTE AS t60,
                            x.t - INTERVAL 240 MINUTE AS t240
                       FROM x
-                    """, liveAt.toString().replace('T', ' '), cfg.eventLagMinutes()));
+                    """, liveAt.toString().replace('T', ' '), cfg.eventLagMinutes(),
+                    cfg.controlHoursUtc().isEmpty() ? "-1" : join(cfg.controlHoursUtc())));
         } else {
             String hours = cfg.controlHoursUtc().isEmpty() ? "-1"
                     : cfg.controlHoursUtc().stream().map(String::valueOf).collect(Collectors.joining(","));
@@ -453,6 +461,17 @@ public final class FeatureBuilder {
             List<String> span = sql.query("SELECT CAST(date_trunc('hour', min(first_close)) AS VARCHAR), "
                     + "CAST(max(last_close) AS VARCHAR) FROM bounds", rs -> rs.getString(1) + "|" + rs.getString(2));
             String[] ends = span.get(0).split("\\|");
+            // janela estendida (28/10/2026): horas cheias fora da de sempre viram EXTRA (fora do Dataset por padrão)
+            FeatureConfig.Schedule sch = cfg.schedule(market);
+            String extra = sch == null || sch.hours().isEmpty() ? "" : """
+                    UNION ALL
+                    SELECT p.symbol, g.t, 'EXTRA' AS kind
+                      FROM generate_series(TIMESTAMP '%s', TIMESTAMP '%s', INTERVAL 1 HOUR) AS g(t), pairs p
+                     WHERE isodow(g.t) IN (%s) AND hour(g.t) IN (%s) %s
+                       AND NOT (isodow(g.t) BETWEEN 1 AND 5 AND hour(g.t) IN (%s) AND NOT (isodow(g.t) = 5 AND hour(g.t) >= 19))
+                    """.formatted(ends[0], ends[1], join(sch.days()), join(sch.hours()),
+                    sch.fridayCutoffHour() == null ? "" : "AND NOT (isodow(g.t) = 5 AND hour(g.t) >= " + sch.fridayCutoffHour() + ")",
+                    hours);
             sql.execute("""
                     CREATE OR REPLACE TEMP TABLE moments AS
                     WITH ev AS (
@@ -464,18 +483,20 @@ public final class FeatureBuilder {
                         SELECT p.symbol, g.t, CASE WHEN minute(g.t) = 0 THEN 'CONTROL' ELSE 'QUARTER' END AS kind
                           FROM generate_series(TIMESTAMP '%s', TIMESTAMP '%s', INTERVAL %s) AS g(t), pairs p
                          WHERE isodow(g.t) BETWEEN 1 AND 5 AND hour(g.t) IN (%s) AND minute(g.t) IN (%s)
-                           AND NOT (isodow(g.t) = 5 AND hour(g.t) >= 19)),
+                           AND NOT (isodow(g.t) = 5 AND hour(g.t) >= 19)
+                         %s),
                     u AS (SELECT symbol, t,
                                  CASE WHEN bool_or(kind = 'EVENT') THEN 'EVENT' WHEN bool_or(kind = 'CONTROL') THEN 'CONTROL'
-                                      ELSE 'QUARTER' END AS kind
+                                      WHEN bool_or(kind = 'QUARTER') THEN 'QUARTER' ELSE 'EXTRA' END AS kind
                             FROM (SELECT * FROM ev UNION ALL SELECT * FROM ctrl) GROUP BY symbol, t)
                     SELECT u.symbol, u.t, u.kind,
                            u.t - INTERVAL 15 MINUTE AS t15, u.t - INTERVAL 60 MINUTE AS t60,
                            u.t - INTERVAL 240 MINUTE AS t240
                       FROM u JOIN bounds b USING (symbol)
                      WHERE u.t BETWEEN b.first_close AND b.last_close
-                    """.formatted(cfg.eventLagMinutes(), ends[0], ends[1], step, hours, mins));
-            if (!fx()) {
+                    """.formatted(cfg.eventLagMinutes(), ends[0], ends[1], step, hours, mins, extra));
+            if (!fx() || sch != null) {
+                // (janela estendida no forex: domingo antes da abertura e sexta depois do fecho também saem aqui)
                 // índices e ações: muitas horas cheias caem com a bolsa fechada; sairiam no filtro de dado velho do
                 // fim — descartar já aqui dá o mesmo resultado com bem menos memória
                 sql.execute("""

@@ -24,6 +24,7 @@ public final class Commands {
     public static final String PREDICT_NOW = "predict-now";
     public static final String RESOLVE_PREDICTIONS = "resolve-predictions";
     public static final String RETRAIN_STUDY = "retrain-study";
+    public static final String SCHEDULE_STUDY = "schedule-study";
     public static final String SCAN = "scan";
     public static final String BACKFILL_NEWS = "backfill-news";
     public static final String COLLECT_NEWS_ONCE = "collect-news-once";
@@ -32,7 +33,7 @@ public final class Commands {
 
     private static final Set<String> ALL = Set.of(HELP, PING, RISK, ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS,
             NORMALIZE, FEATURES, TRAIN, BACKFILL_BIS, BACKFILL_ARCHIVES, JEV_SCORE, JEV_SIGNALS, TRAIN_CHAMPION, PROMOTE,
-            PREDICT_NOW, RESOLVE_PREDICTIONS, RETRAIN_STUDY, SCAN, BACKFILL_NEWS, COLLECT_NEWS_ONCE, LAB, EVENTS_MAP);
+            PREDICT_NOW, RESOLVE_PREDICTIONS, RETRAIN_STUDY, SCHEDULE_STUDY, SCAN, BACKFILL_NEWS, COLLECT_NEWS_ONCE, LAB, EVENTS_MAP);
     private static final Set<String> NEED_DB = Set.of(ASK, COLLECT_ONCE, IMPORT_MT5_ONCE, MT5_STATUS, BACKFILL_ARCHIVES,
             JEV_SCORE, JEV_SIGNALS, PREDICT_NOW, RESOLVE_PREDICTIONS, LAB);
 
@@ -80,6 +81,9 @@ public final class Commands {
                   retrain-study --market=metals [--horizon=15] [--model=B] [--from=2024-01-01]
                                 [--each-from=2026-07-01]  re-treinar mais vezes melhora? mensal × semanal × diário
                                 (desde --from) e × a cada resultado (desde --each-from); sem gravar modelo
+                  schedule-study --market=crypto [--horizon=60] [--from=2024-07-01] [--threads=4]
+                                janela estendida (horas EXTRA), janela de treino, peso ao recente e mensal ×
+                                semanal; grava reports\\schedule\\market=…\\h<horizonte>.json (rode features antes)
                   train-champion                treina os modelos de produção (A, E, B) com os últimos 24 meses;
                                                 a primeira versão entra em produção, as seguintes esperam promote
                   promote --version=<versão>    coloca uma versão de models/market=fx em produção

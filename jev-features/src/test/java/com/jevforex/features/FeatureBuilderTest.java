@@ -316,6 +316,37 @@ class FeatureBuilderTest {
         assertEquals(List.of(0), FeatureConfig.defaults().controlMinutes("fx"));
     }
 
+    @Test
+    void janelaEstendida_horasExtra_corteDeSexta_domingoFechado_eParidadeAoVivo(@TempDir Path lake) {
+        silver(lake, "2030-01-01 00:00", 1.0);   // M1 de seg a sex, 24 h (sem fim de semana)
+        FeatureConfig d = FeatureConfig.defaults();
+        List<Integer> all = java.util.stream.IntStream.range(0, 24).boxed().toList();
+        FeatureConfig ext = new FeatureConfig(d.fset(), d.entryDelayMinutes(), d.horizonsMinutes(), d.labelThresholdAtr(),
+                d.eventLagMinutes(), d.controlHoursUtc(), d.importanceWeights(), d.surpriseDecayMinutes(), d.sigmaWindow(),
+                d.sigmaMinHistory(), d.negativePolarity(), d.text(), Map.of(),
+                Map.of("fx", new FeatureConfig.Schedule(List.of(1, 2, 3, 4, 5, 7), all, 19)));
+        try (LakeSql sql = LakeSql.open(lake.resolve("tmp"), "1GB")) {
+            new FeatureBuilder(lake, ext).run(sql);
+        }
+        assertEquals("CONTROL", text(lake, "EURUSD", "2026-02-12 10:00:00", "kind"), "a janela de sempre não muda");
+        assertEquals("EXTRA", text(lake, "EURUSD", "2026-02-12 21:00:00", "kind"));
+        assertEquals("EXTRA", text(lake, "EURUSD", "2026-02-12 23:00:00", "kind"));
+        assertTrue(List.of("ALTA", "QUEDA", "LATERAL").contains(label(lake, "EURUSD", "2026-02-12 22:00:00", "60m")));
+        assertEquals(0, featureRow(lake, "EURUSD", "2026-02-13 20:00:00").size(), "sexta depois do corte: sem momento");
+        assertEquals(0, featureRow(lake, "EURUSD", "2026-02-08 23:00:00").size(), "domingo sem barras: dado velho, fora");
+        // ao vivo às 22:00 de quinta: o mesmo tipo e as mesmas features do lote
+        FeatureBuilder.Live live;
+        try (LakeSql sql = LakeSql.open(lake.resolve("tmp"), "1GB")) {
+            live = new FeatureBuilder(lake, ext).live(sql, java.time.LocalDateTime.parse("2026-02-12T22:00:00"), 40, 35);
+        }
+        Map<String, Object> row = live.rows().stream().filter(r -> "EURUSD".equals(r.get("symbol"))).findFirst().orElseThrow();
+        assertEquals("EXTRA", row.get("kind"));
+        assertEquals(value(lake, "EURUSD", "2026-02-12 22:00:00", "atr"), ((Number) row.get("atr")).doubleValue(), 1e-9);
+        // sem a configuração, nenhuma hora EXTRA (o padrão continua a janela de sempre)
+        build(lake);
+        assertEquals(0, featureRow(lake, "EURUSD", "2026-02-12 22:00:00").size());
+    }
+
     /** "2026-02-12 10:00:00.0" e "2026-02-12 10:00:00" são o mesmo instante. */
     private static String noFraction(String s) {
         return s.endsWith(".0") ? s.substring(0, s.length() - 2) : s;

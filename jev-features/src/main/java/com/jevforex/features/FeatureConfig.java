@@ -21,12 +21,43 @@ import java.util.Map;
  * @param text                 grupo C: sinais do Jev por moeda (null = sem grupo C)
  * @param controlMinutesByMarket minutos da hora com momento de controle por mercado (padrão [0] = só a hora cheia;
  *                             [0, 15, 30, 45] = a cada 15 min, pedido do operador em 22/10/2026 — os de minuto ≠ 0 são QUARTER)
+ * @param scheduleByMarket     janela ESTENDIDA de horas cheias por mercado (pedido do operador em 28/10/2026: prever com o
+ *                             mercado aberto, bitcoin 24/7). A janela de sempre (seg a sex, {@code controlHoursUtc}, sem
+ *                             sexta ≥ 19 h) continua CONTROL; as horas cheias a mais viram EXTRA, que o Dataset deixa de
+ *                             fora por padrão (walk-forward, Laboratório e modelo de produção não mudam) até um estudo
+ *                             aprovar. Hora com o mercado fechado sai no filtro de dado velho.
  */
 public record FeatureConfig(String fset, int entryDelayMinutes, List<Integer> horizonsMinutes,
                             double labelThresholdAtr, int eventLagMinutes, List<Integer> controlHoursUtc,
                             Map<String, Double> importanceWeights, int surpriseDecayMinutes, int sigmaWindow,
                             int sigmaMinHistory, List<String> negativePolarity, Text text,
-                            Map<String, List<Integer>> controlMinutesByMarket) {
+                            Map<String, List<Integer>> controlMinutesByMarket, Map<String, Schedule> scheduleByMarket) {
+
+    /** Sem a janela estendida (o de sempre). */
+    public FeatureConfig(String fset, int entryDelayMinutes, List<Integer> horizonsMinutes, double labelThresholdAtr,
+                         int eventLagMinutes, List<Integer> controlHoursUtc, Map<String, Double> importanceWeights,
+                         int surpriseDecayMinutes, int sigmaWindow, int sigmaMinHistory, List<String> negativePolarity,
+                         Text text, Map<String, List<Integer>> controlMinutesByMarket) {
+        this(fset, entryDelayMinutes, horizonsMinutes, labelThresholdAtr, eventLagMinutes, controlHoursUtc,
+                importanceWeights, surpriseDecayMinutes, sigmaWindow, sigmaMinHistory, negativePolarity, text,
+                controlMinutesByMarket, Map.of());
+    }
+
+    /**
+     * Janela estendida de um mercado.
+     *
+     * @param days             dias ISO (1 = segunda … 7 = domingo)
+     * @param hours            horas UTC
+     * @param fridayCutoffHour sexta a partir desta hora: sem momento (o fim de semana fecha o forex às ~21 h); null = sem corte
+     */
+    public record Schedule(List<Integer> days, List<Integer> hours, Integer fridayCutoffHour) {
+        public Schedule {
+            days = days == null ? List.of(1, 2, 3, 4, 5) : List.copyOf(days);
+            hours = hours == null ? List.of() : List.copyOf(hours);
+            for (Integer d : days) if (d == null || d < 1 || d > 7) throw new IllegalArgumentException("schedule: dias de 1 a 7");
+            for (Integer h : hours) if (h == null || h < 0 || h > 23) throw new IllegalArgumentException("schedule: horas de 0 a 23");
+        }
+    }
 
     /**
      * Grupo C (documento mestre, capítulo 10): S_moeda(t) = Σ sinal_i × exp(−(t − t_i) / τ), só documentos com
@@ -73,6 +104,7 @@ public record FeatureConfig(String fset, int entryDelayMinutes, List<Integer> ho
         importanceWeights = Map.copyOf(importanceWeights);
         negativePolarity = List.copyOf(negativePolarity);
         controlMinutesByMarket = controlMinutesByMarket == null ? Map.of() : Map.copyOf(controlMinutesByMarket);
+        scheduleByMarket = scheduleByMarket == null ? Map.of() : Map.copyOf(scheduleByMarket);
         for (var e : controlMinutesByMarket.entrySet()) {
             for (Integer m : e.getValue()) {
                 if (m == null || !List.of(0, 15, 30, 45).contains(m)) {
@@ -86,6 +118,11 @@ public record FeatureConfig(String fset, int entryDelayMinutes, List<Integer> ho
     public List<Integer> controlMinutes(String market) {
         List<Integer> m = controlMinutesByMarket.get(market);
         return m == null || m.isEmpty() ? List.of(0) : m;
+    }
+
+    /** A janela estendida do mercado, ou null (só a janela de sempre). */
+    public Schedule schedule(String market) {
+        return scheduleByMarket.get(market);
     }
 
     /**

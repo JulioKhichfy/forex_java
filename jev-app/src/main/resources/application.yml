@@ -79,6 +79,16 @@ features:
   control-minutes-by-market:      # momentos de controle a cada 15 min (22/10/2026, estudo do operador): :15/:30/:45 = QUARTER
     metals: [0, 15, 30, 45]
     crypto: [0, 15, 30, 45]
+  # janela ESTENDIDA (28/10/2026, pedido do operador: prever com o mercado aberto). As horas cheias fora da janela de
+  # sempre (seg–sex, control-hours-utc, sem sexta ≥ 19 h) viram kind EXTRA no gold; o Dataset as deixa de fora por padrão
+  # (walk-forward, Laboratório e produção iguais) — só o estudo schedule-study as usa, até o operador aprovar.
+  # Hora com o mercado fechado (domingo antes da abertura, pausa diária) sai no filtro de dado velho.
+  schedule-by-market:
+    crypto: { days: [1, 2, 3, 4, 5, 6, 7], hours: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23] }
+    fx: { days: [1, 2, 3, 4, 5, 7], hours: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23], friday-cutoff-hour: 19 }
+    metals: { days: [1, 2, 3, 4, 5, 7], hours: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23], friday-cutoff-hour: 19 }
+    energy: { days: [1, 2, 3, 4, 5, 7], hours: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23], friday-cutoff-hour: 19 }
+    indices: { days: [1, 2, 3, 4, 5, 7], hours: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23], friday-cutoff-hour: 19 }
   calendar:
     importance-weights: { HIGH: 1.0, MODERATE: 0.5 }
     decay-minutes: 60             # τ da surpresa

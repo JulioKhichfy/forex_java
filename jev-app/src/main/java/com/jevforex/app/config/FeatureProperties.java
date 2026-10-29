@@ -10,7 +10,8 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "features")
 public record FeatureProperties(String fset, Integer entryDelayMinutes, List<Integer> horizonsMinutes,
                                 Double labelThresholdAtr, Integer eventLagMinutes, List<Integer> controlHoursUtc,
-                                Calendar calendar, Text text, Map<String, List<Integer>> controlMinutesByMarket) {
+                                Calendar calendar, Text text, Map<String, List<Integer>> controlMinutesByMarket,
+                                Map<String, FeatureConfig.Schedule> scheduleByMarket) {
 
     public record Calendar(Map<String, Double> importanceWeights, Integer decayMinutes, Integer sigmaWindow,
                            Integer sigmaMinHistory, List<String> negativePolarity) {
@@ -43,6 +44,6 @@ public record FeatureProperties(String fset, Integer entryDelayMinutes, List<Int
                 c.sigmaWindow() == null ? d.sigmaWindow() : c.sigmaWindow(),
                 c.sigmaMinHistory() == null ? d.sigmaMinHistory() : c.sigmaMinHistory(),
                 c.negativePolarity() == null ? d.negativePolarity() : c.negativePolarity(),
-                t, controlMinutesByMarket);
+                t, controlMinutesByMarket, scheduleByMarket);
     }
 }

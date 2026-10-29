@@ -338,3 +338,11 @@ e respeitar `min-lot-policy` (SKIP | ALLOW_UP_TO_CAP).
       operações — sinal da regra do mercado, depois previsão forte do B (P ≥ 0,45, diferença ≥ 0,15, sem LATERAL), uma por
       símbolo, cada previsão uma vez — até o resultado (fechadas + abertas) chegar num dos dois, e fecha tudo. Travas do Cassino
       (`Roulette.pizza`, decisão do operador), stop/alvo do mercado, saída no horizonte, lote mínimo; fora do trailing (`casinoTickets`)
+- [ ] Passo 15 — janela estendida e re-treino (pedido do operador, 28/10: prever com o mercado aberto, bitcoin 24/7; "dar mais peso
+      ao recente"; treino semanal). `features.schedule-by-market`: horas cheias fora da janela de sempre (seg–sex 0–20 h, sem sexta
+      ≥ 19 h) viram kind EXTRA no gold (bitcoin 7 dias × 24 h; forex/ouro/energia/índices dom–sex 0–23 h, corte de sexta 19 h;
+      mercado fechado sai no filtro de dado velho). O `Dataset` deixa EXTRA de fora por padrão (walk-forward, Laboratório e
+      produção iguais); só `schedule-study` (`ScheduleStudy`) usa: receitas 24/12/6 meses, com/sem EXTRA, peso ao recente
+      (linha repetida até 3×, meia-vida 6 meses), mensal × semanal, medidas nas mesmas linhas por faixa (janela de sempre,
+      EXTRA, fim de semana, noite) → reports/schedule/market=…/h…json. Ao vivo continua na janela de sempre até o operador
+      aprovar pelo estudo. Rodar a CLI pesada com prioridade baixa (Idle): refazer o gold atrasou a previsão do ouro em 2,7 min

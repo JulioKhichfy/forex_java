@@ -68,6 +68,8 @@ public final class Dataset {
     final long[] labelAvailable;  // epoch s: quando o resultado ficou conhecido
     final String[] symbol;
     final boolean[] event;
+    /** Hora cheia fora da janela de sempre (kind EXTRA, 28/10/2026): só com includeExtra. */
+    final boolean[] extra;
     final double[][] x;           // colunas = columns
     final List<String> columns;
     final int[] y;
@@ -87,6 +89,7 @@ public final class Dataset {
         labelAvailable = new long[n];
         symbol = new String[n];
         event = new boolean[n];
+        extra = new boolean[n];
         x = new double[n][columns.size()];
         this.columns = columns;
         y = new int[n];
@@ -129,6 +132,15 @@ public final class Dataset {
 
     public static Dataset load(LakeSql sql, Path lakeRoot, String market, String fset, int horizon, LocalDate from,
                                ExperimentConfig.Exits exits) {
+        return load(sql, lakeRoot, market, fset, horizon, from, exits, false);
+    }
+
+    /**
+     * @param includeExtra inclui as horas cheias da janela estendida (kind EXTRA): por padrão ficam de fora, para o
+     *                     walk-forward, o Laboratório e o modelo de produção não mudarem até um estudo aprovar
+     */
+    public static Dataset load(LakeSql sql, Path lakeRoot, String market, String fset, int horizon, LocalDate from,
+                               ExperimentConfig.Exits exits, boolean includeExtra) {
         Path features = lakeRoot.resolve("gold/features/market=" + market + "/fset=" + fset);
         Path labels = lakeRoot.resolve("gold/labels/market=" + market + "/fset=" + fset);
         if (!Files.isDirectory(features) || !Files.isDirectory(labels)) {
@@ -150,16 +162,16 @@ public final class Dataset {
         sql.execute("""
                 CREATE OR REPLACE TEMP TABLE ds AS
                 SELECT CAST(epoch(f.moment_utc) AS BIGINT) AS m, CAST(epoch(l.label_available_utc) AS BIGINT) AS la,
-                       f.symbol, f.kind = 'EVENT' AS ev, %s, l.label, l.y_buy, l.y_sell, l.cost_atr / %s AS cost_r,
+                       f.symbol, f.kind = 'EVENT' AS ev, f.kind = 'EXTRA' AS ex, %s, l.label, l.y_buy, l.y_sell, l.cost_atr / %s AS cost_r,
                        o.r_buy, o.r_sell, ol.r_buy AS r_buy_late, ol.r_sell AS r_sell_late
                   FROM read_parquet('%s/**/*.parquet', hive_partitioning = true) f
                   JOIN read_parquet('%s/**/*.parquet', hive_partitioning = true) l
                     ON l.symbol = f.symbol AND l.moment_utc = f.moment_utc
                   LEFT JOIN outc o ON o.symbol = f.symbol AND o.moment_utc = f.moment_utc
                   LEFT JOIN outc_late ol ON ol.symbol = f.symbol AND ol.moment_utc = f.moment_utc
-                 WHERE l.horizon_min = %d AND f.moment_utc >= TIMESTAMP '%s 00:00:00'
+                 WHERE l.horizon_min = %d AND f.moment_utc >= TIMESTAMP '%s 00:00:00' AND (%s OR f.kind <> 'EXTRA')
                 """.formatted(select, String.format(java.util.Locale.ROOT, "%f", exits.stopAtr()),
-                LakeSql.slashes(features), LakeSql.slashes(labels), horizon, from));
+                LakeSql.slashes(features), LakeSql.slashes(labels), horizon, from, includeExtra));
         List<String> pairs = new ArrayList<>(new TreeSet<>(sql.query("SELECT DISTINCT symbol FROM ds",
                 rs -> rs.getString(1))));
         List<String> columns = new ArrayList<>(feats);
@@ -175,6 +187,7 @@ public final class Dataset {
             d.labelAvailable[i] = rs.getLong("la");
             d.symbol[i] = rs.getString("symbol");
             d.event[i] = rs.getBoolean("ev");
+            d.extra[i] = rs.getBoolean("ex");
             for (int j = 0; j < feats.size(); j++) {
                 double v = rs.getDouble(feats.get(j));
                 if (rs.wasNull() || Double.isNaN(v) || Double.isInfinite(v)) {

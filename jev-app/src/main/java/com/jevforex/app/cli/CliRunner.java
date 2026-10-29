@@ -179,6 +179,7 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                 case Commands.JEV_SIGNALS -> jevSignals(args);
                 case Commands.TRAIN_CHAMPION -> trainChampion(args);
                 case Commands.RETRAIN_STUDY -> retrainStudy(args);
+                case Commands.SCHEDULE_STUDY -> scheduleStudy(args);
                 case Commands.PROMOTE -> promote(args);
                 case Commands.PREDICT_NOW -> predictNow(args);
                 case Commands.SCAN -> scan(args);
@@ -794,6 +795,33 @@ public class CliRunner implements ApplicationRunner, ExitCodeGenerator {
                     new com.jevforex.ml.RetrainStudy.Step("diário", 86_400L),
                     new com.jevforex.ml.RetrainStudy.Step("a cada resultado", 0)), 0.45, 0.15, threads, System.out::println);
         }
+    }
+
+    /**
+     * Estudo da janela estendida, do peso ao recente e do re-treino semanal (28/10/2026): só mede, não grava modelo.
+     * Grava o resultado em reports/schedule/market=…/h&lt;horizonte&gt;.json.
+     */
+    private void scheduleStudy(ApplicationArguments args) throws Exception {
+        String market = opt(args, "market", "crypto");
+        ExperimentConfig cfg = experimentProps.toConfig(featureProps.toConfig().fset(),
+                risk.exitsFor(com.jevforex.core.Market.fromCode(market)), market);
+        int h = Integer.parseInt(opt(args, "horizon", "60"));
+        java.time.LocalDate from = java.time.LocalDate.parse(opt(args, "from", "2024-07-01"));
+        int threads = Integer.parseInt(opt(args, "threads", "4"));
+        com.jevforex.ml.ScheduleStudy.Result r;
+        try (LakeSql sql = LakeSql.open(lake.root().resolve("tmp").resolve("duckdb"), silver.duckdbMemory())) {
+            com.jevforex.ml.Dataset d = com.jevforex.ml.Dataset.load(sql, lake.root(), market, cfg.fset(), h, cfg.from(),
+                    cfg.exits(), true);
+            System.out.printf("%nJanela estendida · %s · B · %d min · stop %.1f ATR, alvo %.1f R · teste desde %s · %d linhas%n",
+                    market, h, cfg.exits().stopAtr(), cfg.exits().targetR(), from, d.size());
+            r = com.jevforex.ml.ScheduleStudy.run(d, cfg, market, h, "B", from, com.jevforex.ml.ScheduleStudy.defaultRecipes(),
+                    cfg.decision().minProb(), cfg.decision().minMargin(), 0.10, threads, System.out::println);
+        }
+        Path out = lake.root().resolve("reports/schedule/market=" + market).resolve("h" + h + ".json");
+        Files.createDirectories(out.getParent());
+        new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules().writerWithDefaultPrettyPrinter()
+                .writeValue(out.toFile(), r);
+        System.out.println("Resultado: " + out);
     }
 
     private void trainChampion(ApplicationArguments args) throws Exception {
